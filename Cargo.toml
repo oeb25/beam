@@ -1,0 +1,11 @@
+[package]
+name = "beam"
+version = "0.1.0"
+authors = ["oeb"]
+
+[dependencies]
+gl = "*"
+glutin = "*"
+cgmath = "*"
+image = "*"
+obj = "*"
