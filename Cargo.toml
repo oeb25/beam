@@ -8,4 +8,9 @@ gl = "*"
 glutin = "*"
 cgmath = "*"
 image = "*"
-obj = "*"
+obj = { version = "0.8", features = ["genmesh"] }
+genmesh = "0.5"
+time = "*"
+
+[profile.dev]
+opt-level = 3
