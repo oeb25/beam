@@ -12,7 +12,6 @@ uniform sampler2D aNormal;
 uniform sampler2D aAlbedoSpec;
 
 uniform samplerCube skybox;
-uniform samplerCube shadowMap;
 
 uniform vec3 viewPos;
 
@@ -22,21 +21,26 @@ struct PointLight {
     vec3 specular;   // 9
 
     vec3 position;   // 12
+    vec3 lastPosition;   // 12
 
     float constant;  // 13
     float linear;    // 14
     float quadratic; // 15
+
+    samplerCube shadowMap;
+    float farPlane;
 };
 
-uniform PointLight light;
-uniform float farPlane;
+#define MAX_LIGHTS 2
+uniform int nrLights;
+uniform PointLight lights[MAX_LIGHTS];
 
 struct TextureSamples {
     vec3 diff;
     float spec;
 };
 
-float pointShadowCalculation(float bias, vec3 lightPos, vec3 fragPos) {
+float pointShadowCalculation(float bias, float farPlane, samplerCube shadowMap, vec3 lightPos, vec3 fragPos) {
     vec3 fragToLight = fragPos - lightPos;
     float closestDepth = texture(shadowMap, fragToLight).r;
     closestDepth *= farPlane;
@@ -64,7 +68,7 @@ vec3 calculatePointLight(
     float spec = pow(max(dot(normal, halfwayDir), 0.0), 32.0);
 
     float bias = 0.05;
-    float shadow = 1 - pointShadowCalculation(bias, light.position, fragPos);
+    float shadow = 1 - pointShadowCalculation(bias, light.farPlane, light.shadowMap, light.lastPosition, fragPos);
 
     vec3 ambient = light.ambient * samples.diff;
     vec3 diffuse = light.diffuse * diff * samples.diff * shadow;
@@ -92,7 +96,9 @@ void main() {
     vec3 reflectDir = reflect(-viewDir, normal);
 
     vec3 color = texture(accumulator, TexCoords).rgb;
-    color += calculatePointLight(light, samples, viewDir, normal, fragPos);
+    for (int i = 0; i < nrLights; ++i) {
+        color += calculatePointLight(lights[i], samples, viewDir, normal, fragPos);
+    }
 
     FragColor = vec4(color, length(fragPos - viewPos));
 }

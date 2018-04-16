@@ -12,7 +12,6 @@ uniform sampler2D aNormal;
 uniform sampler2D aAlbedoSpec;
 
 uniform samplerCube skybox;
-uniform sampler2D shadowMap;
 
 uniform vec3 viewPos;
 
@@ -23,16 +22,20 @@ struct DirectionalLight {
 
     vec3 direction; // 12
     mat4 space;
+
+    sampler2D shadowMap;
 };
 
-uniform DirectionalLight light;
+#define MAX_LIGHTS 1
+uniform int nrLights;
+uniform DirectionalLight lights[MAX_LIGHTS];
 
 struct TextureSamples {
     vec3 diff;
     float spec;
 };
 
-float directionalShadowCalculation(float bias, vec4 fragPosLightSpace) {
+float directionalShadowCalculation(float bias, sampler2D shadowMap, vec4 fragPosLightSpace) {
     vec3 projCoords = fragPosLightSpace.xyz;
     projCoords = projCoords * 0.5 + 0.5;
     float shadow;
@@ -73,7 +76,7 @@ vec3 calculateDirectionalLight(
     float spec = pow(max(dot(normal, halfwayDir), 0.0), 32.0);
 
     float bias = max(0.05 * (1.0 - normaldotlightdir), 0.005);
-    float shadow = 1 - directionalShadowCalculation(bias, light.space * vec4(fragPos, 1.0));
+    float shadow = 1 - directionalShadowCalculation(bias, light.shadowMap, light.space * vec4(fragPos, 1.0));
 
     vec3 diffuse = light.diffuse * diff * samples.diff * shadow;
     vec3 ambient = light.ambient * samples.diff;
@@ -96,8 +99,10 @@ void main() {
     vec3 viewDir = normalize(viewPos - fragPos);
     vec3 reflectDir = reflect(-viewDir, normal);
 
-    vec3 color = texture(accumulator, TexCoords).rgb;
-    color += calculateDirectionalLight(light, samples, viewDir, normal, fragPos);
+    vec3 color;
+    for (int i = 0; i < nrLights; ++i) {
+        color += calculateDirectionalLight(lights[i], samples, viewDir, normal, fragPos);
+    }
 
     FragColor = vec4(color, length(fragPos - viewPos));
 }

@@ -1,4 +1,4 @@
-#version 330 core
+#version 410 core
 
 in vec4 FragPos;
 out vec4 FragColor;
@@ -12,5 +12,4 @@ void main() {
     lightDistance /= farPlane;
 
     gl_FragDepth = lightDistance;
-    // FragColor = vec4(0.0, 1.0, 0.0, 1.0);
 }

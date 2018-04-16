@@ -270,8 +270,14 @@ impl<'a> ProgramBinding<'a> {
         ProgramBinding(program)
     }
     pub fn get_uniform_location<'b>(&'a self, name: &str) -> UniformLocation<'b> {
-        let loc =
-            unsafe { gl::GetUniformLocation(self.0.id, ffi::CString::new(name).unwrap().as_ptr()) };
+        let loc = unsafe {
+            gl::GetUniformLocation(
+                self.0.id,
+                ffi::CString::new(name)
+                    .expect("unable to create a CString from passes str")
+                    .as_ptr(),
+            )
+        };
         UniformLocation::new(loc)
     }
     pub fn bind_mat4<T: Into<[[f32; 4]; 4]>>(&self, name: &str, mat: T) -> &ProgramBinding {
@@ -282,7 +288,11 @@ impl<'a> ProgramBinding<'a> {
         }
         self
     }
-    pub fn bind_mat4s<T: Into<[[f32; 4]; 4]> + Copy>(&self, name: &str, mats: &[T]) -> &ProgramBinding {
+    pub fn bind_mat4s<T: Into<[[f32; 4]; 4]> + Copy>(
+        &self,
+        name: &str,
+        mats: &[T],
+    ) -> &ProgramBinding {
         for (i, mat) in mats.iter().enumerate() {
             self.bind_mat4(&format!("{}[{}]", name, i), *mat);
         }
@@ -303,8 +313,7 @@ impl<'a> ProgramBinding<'a> {
         self
     }
     pub fn bind_bool(&self, name: &str, i: bool) -> &ProgramBinding {
-        self.bind_uint(name, if i { 1 } else { 0 });
-        self
+        self.bind_uint(name, if i { 1 } else { 0 })
     }
     pub fn bind_texture(
         &self,
@@ -401,7 +410,7 @@ impl From<usize> for TextureSlot {
             8 => Eight,
             9 => Nine,
             10 => Ten,
-            _ => unimplemented!(),
+            x => unimplemented!("{:?}", x),
         }
     }
 }
@@ -444,7 +453,7 @@ impl Texture {
             gl::ActiveTexture(slot.into());
         }
         self.bind();
-        GlError::check().unwrap();
+        GlError::check().expect(&format!("unable to bind texture to slot {:?}", slot));
     }
 }
 impl Drop for Texture {
@@ -1039,12 +1048,7 @@ pub trait FramebufferBinderDrawer: FramebufferBinderBase {
         }
         self
     }
-    fn texture(
-        &self,
-        attachment: Attachment,
-        texture: &Texture,
-        level: usize,
-    ) -> &Self {
+    fn texture(&self, attachment: Attachment, texture: &Texture, level: usize) -> &Self {
         unsafe {
             gl::FramebufferTexture(
                 Self::target().into(),
