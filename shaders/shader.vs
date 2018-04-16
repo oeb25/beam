@@ -12,7 +12,6 @@ out VS_OUT {
     vec2 TexCoords;
     vec3 OriginalPos;
     mat3 TBN;
-    mat4 Model;
 } vs_out;
 
 uniform mat4 model;
@@ -26,7 +25,6 @@ void main() {
     vs_out.FragPos = vec3(pos);
     vs_out.Normal =  aNormal;
     vs_out.TexCoords = vec2(aTexCoords.x, -aTexCoords.y);
-    vs_out.Model = model_;
 
     vec3 T = normalize(vec3(model_ * vec4(aTangent, 0.0)));
     vec3 N = normalize(vec3(model_ * vec4(aNormal, 0.0)));
