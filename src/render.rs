@@ -1,8 +1,8 @@
-use cgmath::{self, Rad};
+use cgmath::{self, InnerSpace, Rad};
+use genmesh;
 use gl;
 use image;
 use obj;
-use genmesh;
 
 use std::{self, collections::HashMap, mem, path::Path, rc::Rc};
 
@@ -54,6 +54,21 @@ pub struct Vertex {
     pub norm: V3,
     pub tex: V2,
     pub tangent: V3,
+}
+impl Vertex {
+    pub fn soa(vs: &[Vertex]) -> (Vec<V3>, Vec<V3>, Vec<V2>, Vec<V3>) {
+        let mut pos = vec![];
+        let mut norm = vec![];
+        let mut tex = vec![];
+        let mut tangent = vec![];
+        for v in vs.into_iter() {
+            pos.push(v.pos);
+            norm.push(v.norm);
+            tex.push(v.tex);
+            tangent.push(v.tangent);
+        }
+        (pos, norm, tex, tangent)
+    }
 }
 
 impl Vertexable for Vertex {
@@ -126,20 +141,44 @@ impl Image {
 }
 
 #[allow(unused)]
-pub struct Mesh<V> {
-    vertices: Vec<V>,
+pub struct Mesh {
+    positions: Vec<V3>,
+    normals: Vec<V3>,
+    tex: Vec<V2>,
+    tangents: Vec<V3>,
+
     indecies: Option<Vec<usize>>,
     textures: Vec<Rc<Image>>,
 
     vao: VertexArray,
-    vbo: VertexBuffer<V>,
-    ebo: Option<Ebo<usize>>,
+    vbo: VertexBuffer<()>,
+    ebo: Option<Ebo>,
 }
 
-impl<V: Vertexable> Mesh<V> {
-    pub fn new(vertices: Vec<V>, indecies: Option<Vec<usize>>, textures: Vec<Rc<Image>>) -> Mesh<V> {
+impl Mesh {
+    pub fn new(
+        positions: Vec<V3>,
+        normals: Vec<V3>,
+        tex: Vec<V2>,
+        tangents: Vec<V3>,
+
+        indecies: Option<Vec<usize>>,
+        textures: Vec<Rc<Image>>,
+    ) -> Mesh {
+        let positions_size = positions.len() * mem::size_of::<V3>();
+        let normals_size = normals.len() * mem::size_of::<V3>();
+        let tex_size = tex.len() * mem::size_of::<V2>();
+        let tangents_size = tangents.len() * mem::size_of::<V3>();
+
+        let positions_offset = 0;
+        let normals_offset = positions_offset + positions_size;
+        let tex_offset = normals_offset + normals_size;
+        let tangents_offset = tex_offset + tex_size;
+
         let mut vao = VertexArray::new();
-        let mut vbo = VertexBuffer::from_data(&vertices);
+        let mut vbo =
+            VertexBuffer::from_size(positions_size + normals_size + tex_size + tangents_size);
+
         let ebo = if indecies.is_some() {
             Some(Ebo::new())
         } else {
@@ -153,20 +192,29 @@ impl<V: Vertexable> Mesh<V> {
             //     }
             // }
 
-            let (pos_s, norm_s, tex_s, tangent_s) = V::sizes();
-            let (pos_o, norm_o, tex_o, tangent_o) = V::offsets();
+            let mut vbo_binder = vbo.bind();
 
-            let vbo_binder = vbo.bind();
+            vbo_binder
+                .buffer_sub_data(positions_offset, &positions)
+                .buffer_sub_data(normals_offset, &normals)
+                .buffer_sub_data(tex_offset, &tex)
+                .buffer_sub_data(tangents_offset, &tangents);
+
+            let float_size = mem::size_of::<f32>();
 
             vao.bind()
-                .vbo_attrib(&vbo_binder, 0, pos_s, pos_o)
-                .vbo_attrib(&vbo_binder, 1, norm_s, norm_o)
-                .vbo_attrib(&vbo_binder, 2, tex_s, tex_o)
-                .vbo_attrib(&vbo_binder, 3, tangent_s, tangent_o);
+                .attrib(0, 3, 3 * float_size, positions_offset)
+                .attrib(1, 3, 3 * float_size, normals_offset)
+                .attrib(2, 2, 2 * float_size, tex_offset)
+                .attrib(3, 3, 3 * float_size, tangents_offset);
         }
 
         Mesh {
-            vertices,
+            positions,
+            normals,
+            tex,
+            tangents,
+
             indecies,
             textures,
             vao,
@@ -175,13 +223,13 @@ impl<V: Vertexable> Mesh<V> {
         }
     }
 
-    fn bind(&mut self) -> MeshBinding<V> {
+    fn bind(&mut self) -> MeshBinding {
         MeshBinding(self)
     }
 }
 
-struct MeshBinding<'a, V: 'a>(&'a mut Mesh<V>);
-impl<'a, V> MeshBinding<'a, V> {
+struct MeshBinding<'a>(&'a mut Mesh);
+impl<'a> MeshBinding<'a> {
     fn bind_textures(&self, program: &ProgramBinding) {
         let mut diffuse_n = 0;
         let mut ambient_n = 0;
@@ -228,7 +276,7 @@ impl<'a, V> MeshBinding<'a, V> {
         self.0
             .vao
             .bind()
-            .draw_arrays(fbo, DrawMode::Triangles, 0, self.0.vertices.len());
+            .draw_arrays(fbo, DrawMode::Triangles, 0, self.0.positions.len());
     }
     fn draw_instanced<T>(&mut self, fbo: &T, program: &ProgramBinding, transforms: &VboBinder<Mat4>)
     where
@@ -249,7 +297,7 @@ impl<'a, V> MeshBinding<'a, V> {
             fbo,
             DrawMode::Triangles,
             0,
-            self.0.vertices.len(),
+            self.0.positions.len(),
             transforms.len(),
         );
     }
@@ -257,7 +305,7 @@ impl<'a, V> MeshBinding<'a, V> {
 
 #[allow(unused)]
 pub struct Model {
-    meshes: Vec<Mesh<Vertex>>,
+    meshes: Vec<Mesh>,
     texture_cache: HashMap<String, Rc<Image>>,
 }
 impl Model {
@@ -378,7 +426,8 @@ impl Model {
                 }
             }
 
-            let mesh = Mesh::new(vertices, None, materials);
+            let (a, b, c, d) = Vertex::soa(&vertices);
+            let mesh = Mesh::new(a, b, c, d, None, materials);
 
             meshes.push(mesh);
         }
@@ -518,7 +567,7 @@ impl PointLight {
         program.bind_float(&ext("farPlane"), shadow_map.far);
     }
     fn bind_multiple(
-        lights: &[&mut PointLight],
+        lights: &[PointLight],
         initial_slot: TextureSlot,
         name_uniform: &str,
         amt_uniform: &str,
@@ -805,49 +854,307 @@ impl GRenderPass {
     }
 }
 
-pub struct Pipeline<'a> {
-    pub vertex_program: &'a mut Program,
-    pub directional_shadow_program: &'a mut Program,
-    pub point_shadow_program: &'a mut Program,
-    pub directional_lighting_program: &'a mut Program,
-    pub point_lighting_program: &'a mut Program,
-    pub skybox_program: &'a mut Program,
-    pub hdr_program: &'a mut Program,
+pub struct CubeMapBuilder<T> {
+    pub back: T,
+    pub front: T,
+    pub right: T,
+    pub bottom: T,
+    pub left: T,
+    pub top: T,
+}
 
-    pub nanosuit: &'a mut Model,
-    pub cyborg: &'a mut Model,
-    pub cube: &'a mut Mesh<Vertex>,
-    pub rect: &'a mut Mesh<Vertex>,
+impl<'a> CubeMapBuilder<&'a str> {
+    fn build(self) -> Image {
+        let texture = Texture::new(TextureKind::CubeMap);
+        let mut sum_path = String::new();
+        {
+            let tex = texture.bind();
 
-    pub objects: Vec<Object>,
-    pub directional_lights: Vec<&'a mut DirectionalLight>,
-    pub point_lights: Vec<&'a mut PointLight>,
+            let faces = [
+                (TextureTarget::TextureCubeMapPositiveX, self.right),
+                (TextureTarget::TextureCubeMapNegativeX, self.left),
+                (TextureTarget::TextureCubeMapPositiveY, self.top),
+                (TextureTarget::TextureCubeMapNegativeY, self.bottom),
+                (TextureTarget::TextureCubeMapPositiveZ, self.front),
+                (TextureTarget::TextureCubeMapNegativeZ, self.back),
+            ];
+
+            for (target, path) in faces.into_iter() {
+                sum_path += path;
+                let img = image::open(path).expect(&format!(
+                    "failed to read texture {} while loading cubemap",
+                    path
+                ));
+
+                tex.load_image(
+                    *target,
+                    TextureInternalFormat::Srgb,
+                    TextureFormat::Rgb,
+                    &img,
+                );
+            }
+
+            tex.parameter_int(TextureParameter::MinFilter, gl::LINEAR as i32)
+                .parameter_int(TextureParameter::MagFilter, gl::LINEAR as i32)
+                .parameter_int(TextureParameter::WrapS, gl::CLAMP_TO_EDGE as i32)
+                .parameter_int(TextureParameter::WrapT, gl::CLAMP_TO_EDGE as i32)
+                .parameter_int(TextureParameter::WrapR, gl::CLAMP_TO_EDGE as i32);
+        }
+
+        Image {
+            texture,
+            path: sum_path,
+            kind: ImageKind::CubeMap,
+        }
+    }
+}
+
+pub struct Camera {
+    pub pos: V3,
+    pub fov: Rad<f32>,
+    pub aspect: f32,
+    pub yaw: f32,
+    pub pitch: f32,
+}
+
+impl Camera {
+    pub fn new(pos: V3, fov: Rad<f32>, aspect: f32) -> Camera {
+        Camera {
+            pos,
+            fov,
+            aspect,
+            yaw: 0.0,
+            pitch: 0.0,
+        }
+    }
+
+    pub fn up(&self) -> V3 {
+        v3(0.0, 1.0, 0.0)
+    }
+    pub fn front(&self) -> V3 {
+        let (ps, pc) = self.pitch.sin_cos();
+        let (ys, yc) = self.yaw.sin_cos();
+
+        v3(pc * yc, ps, pc * ys).normalize()
+    }
+    #[allow(unused)]
+    pub fn front_look_at(&self, target: &V3) -> V3 {
+        (target - self.pos).normalize()
+    }
+    pub fn get_view(&self) -> Mat4 {
+        let origo = cgmath::Point3::new(0.0, 0.0, 0.0);
+        Mat4::look_at(origo + self.pos, origo + self.pos + self.front(), self.up())
+    }
+    #[allow(unused)]
+    pub fn get_view_look_at(&self, target: &V3) -> Mat4 {
+        let origo = cgmath::Point3::new(0.0, 0.0, 0.0);
+        Mat4::look_at(
+            origo + self.pos,
+            origo + self.pos + self.front_look_at(target),
+            self.up(),
+        )
+    }
+    pub fn get_projection(&self) -> Mat4 {
+        cgmath::PerspectiveFov {
+            fovy: self.fov,
+            aspect: self.aspect,
+            near: 0.01,
+            far: 100.0,
+        }.into()
+    }
+}
+
+pub struct RenderProps<'a> {
+    pub objects: &'a [Object],
+    pub camera: &'a Camera,
+    pub time: f32,
+
+    pub directional_lights: &'a mut [&'a mut DirectionalLight],
+    pub point_lights: &'a mut [PointLight],
+}
+
+pub struct Pipeline {
+    pub vertex_program: Program,
+    pub directional_shadow_program: Program,
+    pub point_shadow_program: Program,
+    pub directional_lighting_program: Program,
+    pub point_lighting_program: Program,
+    pub skybox_program: Program,
+    pub hdr_program: Program,
+
+    pub nanosuit: Model,
+    pub cyborg: Model,
+    pub cube: Mesh,
+    pub rect: Mesh,
 
     pub screen_width: u32,
     pub screen_height: u32,
 
-    pub g: &'a mut GRenderPass,
-    pub color_a_fbo: &'a mut Framebuffer,
-    pub color_a_tex: &'a Texture,
-    pub color_b_fbo: &'a mut Framebuffer,
-    pub color_b_tex: &'a Texture,
+    pub g: GRenderPass,
+    pub color_a_fbo: Framebuffer,
+    pub color_a_tex: Texture,
+    pub color_b_fbo: Framebuffer,
+    pub color_b_tex: Texture,
 
-    pub window_fbo: &'a mut Framebuffer,
+    pub window_fbo: Framebuffer,
 
-    pub projection: Mat4,
-    pub view: Mat4,
-    pub view_pos: V3,
-    pub time: f32,
-    pub skybox: &'a Texture,
+    pub skybox: Texture,
 }
 
-impl<'a> Pipeline<'a> {
-    pub fn render(&mut self, update_shadows: bool) {
+impl Pipeline {
+    pub fn new(w: u32, h: u32) -> Pipeline {
+        unsafe {
+            gl::Enable(gl::DEPTH_TEST);
+            gl::Enable(gl::CULL_FACE);
+            gl::Enable(gl::FRAMEBUFFER_SRGB);
+        }
+
+        let vertex_program =
+            Program::new_from_disk("shaders/shader.vs", None, "shaders/shader.fs").unwrap();
+        let skybox_program =
+            Program::new_from_disk("shaders/skybox.vs", None, "shaders/skybox.fs").unwrap();
+        let hdr_program =
+            Program::new_from_disk("shaders/hdr.vs", None, "shaders/hdr.fs").unwrap();
+        let directional_shadow_program =
+            Program::new_from_disk("shaders/shadow.vs", None, "shaders/shadow.fs").unwrap();
+        let point_shadow_program = Program::new_from_disk(
+            "shaders/point_shadow.vs",
+            Some("shaders/point_shadow.gs"),
+            "shaders/point_shadow.fs",
+        ).unwrap();
+        let directional_lighting_program = Program::new_from_disk(
+            "shaders/lighting.vs",
+            None,
+            "shaders/directional_lighting.fs",
+        ).unwrap();
+        let point_lighting_program =
+            Program::new_from_disk("shaders/lighting.vs", None, "shaders/point_lighting.fs")
+                .unwrap();
+
+        let skybox = CubeMapBuilder {
+            back: "assets/skybox/back.jpg",
+            front: "assets/skybox/front.jpg",
+            right: "assets/skybox/right.jpg",
+            bottom: "assets/skybox/bottom.jpg",
+            left: "assets/skybox/left.jpg",
+            top: "assets/skybox/top.jpg",
+        }.build();
+        let nanosuit = Model::new_from_disk("assets/nanosuit_reflection/nanosuit.obj");
+        let cyborg = Model::new_from_disk("assets/cyborg/cyborg.obj");
+
+        let tex1 = Image::new_from_disk("assets/container2.png", ImageKind::Diffuse);
+        let tex2 = Image::new_from_disk("assets/container2_specular.png", ImageKind::Specular);
+        let (tex1, tex2) = (Rc::new(tex1), Rc::new(tex2));
+
+        let (a, b, c, d) = Vertex::soa(&cube_vertices());
+        let cube_mesh = Mesh::new(a, b, c, d, None, vec![tex1, tex2]);
+        let (a, b, c, d) = Vertex::soa(&rect_vertices());
+        let rect_mesh = Mesh::new(a, b, c, d, None, vec![]);
+
+        let window_fbo = unsafe { Framebuffer::window() };
+
+        let g = GRenderPass::new(w, h);
+
+        let mut color_a_fbo = Framebuffer::new();
+        let mut color_a_depth = Renderbuffer::new();
+        color_a_depth
+            .bind()
+            .storage(TextureInternalFormat::DepthComponent, w, h);
+        let color_a_tex = Texture::new(TextureKind::Texture2d);
+        color_a_tex
+            .bind()
+            .empty(
+                TextureTarget::Texture2d,
+                0,
+                TextureInternalFormat::Rgba16f,
+                w,
+                h,
+                TextureFormat::Rgba,
+                GlType::Float,
+            )
+            .parameter_int(TextureParameter::MinFilter, gl::LINEAR as i32)
+            .parameter_int(TextureParameter::MagFilter, gl::LINEAR as i32);
+        color_a_fbo
+            .bind()
+            .texture_2d(
+                Attachment::Color0,
+                TextureTarget::Texture2d,
+                &color_a_tex,
+                0,
+            )
+            .renderbuffer(Attachment::Depth, &color_a_depth)
+            .check_status()
+            .expect("framebuffer not complete");
+
+        let mut color_b_fbo = Framebuffer::new();
+        let mut color_b_depth = Renderbuffer::new();
+        color_b_depth
+            .bind()
+            .storage(TextureInternalFormat::DepthComponent, w, h);
+        let color_b_tex = Texture::new(TextureKind::Texture2d);
+        color_b_tex
+            .bind()
+            .empty(
+                TextureTarget::Texture2d,
+                0,
+                TextureInternalFormat::Rgba16f,
+                w,
+                h,
+                TextureFormat::Rgba,
+                GlType::Float,
+            )
+            .parameter_int(TextureParameter::MinFilter, gl::LINEAR as i32)
+            .parameter_int(TextureParameter::MagFilter, gl::LINEAR as i32);
+        color_b_fbo
+            .bind()
+            .texture_2d(
+                Attachment::Color0,
+                TextureTarget::Texture2d,
+                &color_b_tex,
+                0,
+            )
+            .renderbuffer(Attachment::Depth, &color_a_depth)
+            .check_status()
+            .expect("framebuffer not complete");
+
+        Pipeline {
+            vertex_program,
+            directional_shadow_program,
+            point_shadow_program,
+            directional_lighting_program,
+            point_lighting_program,
+            skybox_program,
+            hdr_program,
+
+            nanosuit,
+            cyborg,
+            cube: cube_mesh,
+            rect: rect_mesh,
+
+            screen_width: w,
+            screen_height: h,
+
+            g,
+            color_a_fbo,
+            color_a_tex,
+            color_b_fbo,
+            color_b_tex,
+
+            window_fbo,
+
+            skybox: skybox.texture,
+        }
+    }
+    pub fn render(&mut self, update_shadows: bool, props: RenderProps) {
+        let view = props.camera.get_view();
+        let view_pos = props.camera.pos;
+        let projection = props.camera.get_projection();
+
         let mut nanosuit_transforms = vec![];
         let mut cyborg_transforms = vec![];
         let mut cube_transforms = vec![];
 
-        for obj in self.objects.iter() {
+        for obj in props.objects.iter() {
             match obj.kind {
                 ObjectKind::Cube => cube_transforms.push(obj.transform),
                 ObjectKind::Nanosuit => nanosuit_transforms.push(obj.transform),
@@ -890,11 +1197,11 @@ impl<'a> Pipeline<'a> {
             fbo.clear(ClearMask::ColorDepth);
             let program = self.vertex_program.bind();
             program
-                .bind_mat4("projection", self.projection)
-                .bind_mat4("view", self.view)
-                .bind_vec3("viewPos", self.view_pos)
-                .bind_float("time", self.time)
-                .bind_texture("skybox", self.skybox, TextureSlot::Six);
+                .bind_mat4("projection", projection)
+                .bind_mat4("view", view)
+                .bind_vec3("viewPos", view_pos)
+                .bind_float("time", props.time)
+                .bind_texture("skybox", &self.skybox, TextureSlot::Six);
 
             render_scene!(fbo, program);
         }
@@ -909,12 +1216,12 @@ impl<'a> Pipeline<'a> {
                     gl::Viewport(
                         0,
                         0,
-                        self.directional_lights[0].shadow_map.width as i32,
-                        self.directional_lights[0].shadow_map.height as i32,
+                        props.directional_lights[0].shadow_map.width as i32,
+                        props.directional_lights[0].shadow_map.height as i32,
                     );
                     gl::CullFace(gl::FRONT);
                 }
-                for light in self.directional_lights.iter_mut() {
+                for light in props.directional_lights.iter_mut() {
                     let (fbo, light_space) = light.bind_shadow_map();
                     fbo.clear(ClearMask::Depth);
                     p.bind_mat4("lightSpace", light_space);
@@ -927,13 +1234,13 @@ impl<'a> Pipeline<'a> {
                     gl::Viewport(
                         0,
                         0,
-                        self.point_lights[0].shadow_map.width as i32,
-                        self.point_lights[0].shadow_map.height as i32,
+                        props.point_lights[0].shadow_map.width as i32,
+                        props.point_lights[0].shadow_map.height as i32,
                     );
                     gl::CullFace(gl::FRONT);
                 }
                 let p = self.point_shadow_program.bind();
-                for light in self.point_lights.iter_mut() {
+                for light in props.point_lights.iter_mut() {
                     let far = light.shadow_map.far;
                     let position = light.position;
                     light.last_shadow_map_position = position;
@@ -949,8 +1256,8 @@ impl<'a> Pipeline<'a> {
                     gl::Viewport(
                         0,
                         0,
-                        self.screen_width as i32 * 2,
-                        self.screen_height as i32 * 2,
+                        self.screen_width as i32,
+                        self.screen_height as i32,
                     );
                 }
             }
@@ -968,9 +1275,9 @@ impl<'a> Pipeline<'a> {
                     .bind_texture("aNormal", &self.g.normal, TextureSlot::One)
                     .bind_texture("aAlbedoSpec", &self.g.albedo_spec, TextureSlot::Two)
                     .bind_texture("skybox", &self.skybox, TextureSlot::Three)
-                    .bind_vec3("viewPos", self.view_pos);
+                    .bind_vec3("viewPos", view_pos);
 
-                let lights: &[_] = &self.directional_lights;
+                let lights: &[_] = &props.directional_lights;
 
                 DirectionalLight::bind_multiple(
                     lights,
@@ -994,10 +1301,10 @@ impl<'a> Pipeline<'a> {
                     .bind_texture("aAlbedoSpec", &self.g.albedo_spec, TextureSlot::Two)
                     .bind_texture("skybox", &self.skybox, TextureSlot::Three)
                     .bind_texture("accumulator", &self.color_a_tex, TextureSlot::Four)
-                    .bind_vec3("viewPos", self.view_pos);
+                    .bind_vec3("viewPos", view_pos);
 
                 PointLight::bind_multiple(
-                    &self.point_lights,
+                    props.point_lights,
                     TextureSlot::Five,
                     "lights",
                     "nrLights",
@@ -1010,14 +1317,14 @@ impl<'a> Pipeline<'a> {
         }
 
         let color_fbo = &mut self.color_b_fbo;
-        let color_tex = self.color_b_tex;
+        let color_tex = &self.color_b_tex;
 
         // Skybox Pass
         {
             // Copy z-buffer over from geometry pass
             let g_binding = self.g.fbo.read();
             let hdr_binding = color_fbo.draw();
-            let (w, h) = (self.screen_width as i32 * 2, self.screen_height as i32 * 2);
+            let (w, h) = (self.screen_width as i32, self.screen_height as i32);
             hdr_binding.blit_framebuffer(
                 &g_binding,
                 (0, 0, w, h),
@@ -1035,10 +1342,10 @@ impl<'a> Pipeline<'a> {
                     gl::Disable(gl::CULL_FACE);
                 }
                 let program = self.skybox_program.bind();
-                let mut view = self.view.clone();
+                let mut view = view.clone();
                 view.w = V4::new(0.0, 0.0, 0.0, 0.0);
                 program
-                    .bind_mat4("projection", self.projection)
+                    .bind_mat4("projection", projection)
                     .bind_mat4("view", view)
                     .bind_texture("skybox", &self.skybox, TextureSlot::Ten);
                 self.cube.bind().draw(&fbo, &program);
@@ -1056,9 +1363,289 @@ impl<'a> Pipeline<'a> {
 
             let hdr = self.hdr_program.bind();
             hdr.bind_texture("hdrBuffer", &color_tex, TextureSlot::Zero)
-                .bind_float("time", self.time);
+                .bind_float("time", props.time);
             let mut c = VertexBuffer::from_data(&vec![Mat4::from_scale(1.0)]);
             self.rect.bind().draw_instanced(&fbo, &hdr, &c.bind());
         }
     }
+}
+
+macro_rules! v {
+    ($pos:expr, $norm:expr, $tex:expr, $tangent:expr) => {{
+        let tangent = $tangent.into();
+        Vertex {
+            pos: $pos.into(),
+            tex: $tex.into(),
+            norm: $norm.into(),
+            tangent: tangent,
+        }
+    }};
+}
+
+fn rect_vertices() -> Vec<Vertex> {
+    vec![
+        v!(
+            [-1.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.0, 1.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [-1.0, -1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.0, 0.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [1.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 1.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [-1.0, -1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.0, 0.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [1.0, -1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [1.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 1.0],
+            [0.0, 1.0, 0.0]
+        ),
+    ]
+}
+
+fn cube_vertices() -> Vec<Vertex> {
+    vec![
+        // Back face
+        v!(
+            [-0.5, -0.5, -0.5],
+            [0.0, 0.0, -1.0],
+            [0.0, 0.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [0.5, 0.5, -0.5],
+            [0.0, 0.0, -1.0],
+            [1.0, 1.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [0.5, -0.5, -0.5],
+            [0.0, 0.0, -1.0],
+            [1.0, 0.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [0.5, 0.5, -0.5],
+            [0.0, 0.0, -1.0],
+            [1.0, 1.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [-0.5, -0.5, -0.5],
+            [0.0, 0.0, -1.0],
+            [0.0, 0.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [-0.5, 0.5, -0.5],
+            [0.0, 0.0, -1.0],
+            [0.0, 1.0],
+            [0.0, 1.0, 0.0]
+        ),
+        // Front face
+        v!(
+            [-0.5, -0.5, 0.5],
+            [0.0, 0.0, 1.0],
+            [0.0, 0.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [0.5, -0.5, 0.5],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [0.5, 0.5, 0.5],
+            [0.0, 0.0, 1.0],
+            [1.0, 1.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [0.5, 0.5, 0.5],
+            [0.0, 0.0, 1.0],
+            [1.0, 1.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [-0.5, 0.5, 0.5],
+            [0.0, 0.0, 1.0],
+            [0.0, 1.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [-0.5, -0.5, 0.5],
+            [0.0, 0.0, 1.0],
+            [0.0, 0.0],
+            [0.0, 1.0, 0.0]
+        ),
+        // Left face
+        v!(
+            [-0.5, 0.5, 0.5],
+            [-1.0, 0.0, 0.0],
+            [1.0, 0.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [-0.5, 0.5, -0.5],
+            [-1.0, 0.0, 0.0],
+            [1.0, 1.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [-0.5, -0.5, -0.5],
+            [-1.0, 0.0, 0.0],
+            [0.0, 1.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [-0.5, -0.5, -0.5],
+            [-1.0, 0.0, 0.0],
+            [0.0, 1.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [-0.5, -0.5, 0.5],
+            [-1.0, 0.0, 0.0],
+            [0.0, 0.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [-0.5, 0.5, 0.5],
+            [-1.0, 0.0, 0.0],
+            [1.0, 0.0],
+            [0.0, 1.0, 0.0]
+        ),
+        // Right face
+        v!(
+            [0.5, 0.5, 0.5],
+            [1.0, 0.0, 0.0],
+            [1.0, 0.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [0.5, -0.5, -0.5],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [0.5, 0.5, -0.5],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [0.5, -0.5, -0.5],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [0.5, 0.5, 0.5],
+            [1.0, 0.0, 0.0],
+            [1.0, 0.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [0.5, -0.5, 0.5],
+            [1.0, 0.0, 0.0],
+            [0.0, 0.0],
+            [0.0, 1.0, 0.0]
+        ),
+        // Bottom face
+        v!(
+            [-0.5, -0.5, -0.5],
+            [0.0, -1.0, 0.0],
+            [0.0, 1.0],
+            [1.0, 0.0, 0.0]
+        ),
+        v!(
+            [0.5, -0.5, -0.5],
+            [0.0, -1.0, 0.0],
+            [1.0, 1.0],
+            [1.0, 0.0, 0.0]
+        ),
+        v!(
+            [0.5, -0.5, 0.5],
+            [0.0, -1.0, 0.0],
+            [1.0, 0.0],
+            [1.0, 0.0, 0.0]
+        ),
+        v!(
+            [0.5, -0.5, 0.5],
+            [0.0, -1.0, 0.0],
+            [1.0, 0.0],
+            [1.0, 0.0, 0.0]
+        ),
+        v!(
+            [-0.5, -0.5, 0.5],
+            [0.0, -1.0, 0.0],
+            [0.0, 0.0],
+            [1.0, 0.0, 0.0]
+        ),
+        v!(
+            [-0.5, -0.5, -0.5],
+            [0.0, -1.0, 0.0],
+            [0.0, 1.0],
+            [1.0, 0.0, 0.0]
+        ),
+        // Top face
+        v!(
+            [-0.5, 0.5, -0.5],
+            [0.0, 1.0, 0.0],
+            [0.0, 1.0],
+            [1.0, 0.0, 0.0]
+        ),
+        v!(
+            [0.5, 0.5, 0.5],
+            [0.0, 1.0, 0.0],
+            [1.0, 0.0],
+            [1.0, 0.0, 0.0]
+        ),
+        v!(
+            [0.5, 0.5, -0.5],
+            [0.0, 1.0, 0.0],
+            [1.0, 1.0],
+            [1.0, 0.0, 0.0]
+        ),
+        v!(
+            [0.5, 0.5, 0.5],
+            [0.0, 1.0, 0.0],
+            [1.0, 0.0],
+            [1.0, 0.0, 0.0]
+        ),
+        v!(
+            [-0.5, 0.5, -0.5],
+            [0.0, 1.0, 0.0],
+            [0.0, 1.0],
+            [1.0, 0.0, 0.0]
+        ),
+        v!(
+            [-0.5, 0.5, 0.5],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0],
+            [1.0, 0.0, 0.0]
+        ),
+    ]
 }
