@@ -1,4 +1,4 @@
-#![feature(fs_read_write, stmt_expr_attributes, transpose_result)]
+#![feature(fs_read_write, stmt_expr_attributes, transpose_result, box_syntax, box_patterns)]
 
 extern crate cgmath;
 extern crate genmesh;
@@ -14,11 +14,15 @@ use glutin::GlContext;
 
 use time::{Duration, PreciseTime};
 
+mod timing;
 mod mg;
 mod render;
+mod pipeline;
 
+use timing::{Timer, Report, Timings, NoopTimer};
 use mg::*;
 use render::*;
+use pipeline::*;
 
 #[derive(Default)]
 struct Input {
@@ -42,7 +46,7 @@ fn main() {
     let window = glutin::WindowBuilder::new()
         .with_title("Hello, world!")
         .with_dimensions(screen_width, screen_height);
-    let context = glutin::ContextBuilder::new().with_vsync(true);
+    let context = glutin::ContextBuilder::new().with_vsync(false);
     let gl_window = glutin::GlWindow::new(window, context, &events_loop).unwrap();
 
     unsafe {
@@ -69,7 +73,7 @@ fn main() {
             let x = i as f32 / 2.0;
             let v = v3(n as f32 - x, -i as f32 - 5.0, i as f32 / 2.0) * 2.0;
             let v = Mat4::from_translation(v) * Mat4::from_angle_y(Rad(i as f32 - 1.0));
-            if false {
+            {
                 let obj = Object {
                     kind: ObjectKind::Nanosuit,
                     transform: v,
@@ -83,11 +87,11 @@ fn main() {
             is.push(obj);
         }
     }
-    println!("drawing {} nanosuits", is.len());
 
     let (w, h) = gl_window.get_inner_size().unwrap();
 
     let mut pipeline = Pipeline::new(w * 2, h * 2);
+    println!("drawing {} nanosuits", is.len());
 
     let light_pos1 = v3(
         1.5 + -20.0 * (t / 10.0).sin(),
@@ -103,18 +107,18 @@ fn main() {
     let one = v3(1.0, 1.0, 1.0);
 
     let mut sun = DirectionalLight {
-        diffuse: v3(0.8, 0.8, 0.8) * 1.0,
+        diffuse: v3(0.8, 0.8, 0.8) * 0.2,
         ambient: one * 0.01,
         specular: v3(0.8, 0.8, 0.8) * 0.2,
 
-        direction: v3(1.5, 1.0, 0.0).normalize(),
+        direction: v3(0.0, 1.0, -1.5).normalize(),
 
         shadow_map: ShadowMap::new(),
     };
 
     let mut point_lights = [
         PointLight {
-            diffuse: v3(0.4, 0.3, 0.3),
+            diffuse: v3(0.0, 0.5, 0.3),
             ambient: one * 0.0,
             specular: one * 0.2,
 
@@ -125,11 +129,11 @@ fn main() {
             linear: 0.07,
             quadratic: 0.017,
 
-            shadow_map: PointShadowMap::new(),
+            shadow_map: Some(PointShadowMap::new()),
         },
         PointLight {
-            diffuse: v3(0.2, 0.2, 0.2),
-            ambient: one * 0.0,
+            diffuse: v3(0.0, 0.2, 0.2),
+            ambient: one * 0.2,
             specular: one * 0.2,
 
             position: light_pos2,
@@ -139,10 +143,10 @@ fn main() {
             linear: 0.07,
             quadratic: 0.007,
 
-            shadow_map: PointShadowMap::new(),
+            shadow_map: None,
         },
         PointLight {
-            diffuse: v3(0.2, 0.2, 0.2),
+            diffuse: v3(0.0, 1.0, 0.2),
             ambient: one * 0.0,
             specular: one * 0.2,
 
@@ -153,7 +157,7 @@ fn main() {
             linear: 0.07,
             quadratic: 0.007,
 
-            shadow_map: PointShadowMap::new(),
+            shadow_map: None,
         },
         PointLight {
             diffuse: v3(0.2, 0.2, 0.8),
@@ -162,7 +166,7 @@ fn main() {
 
             position: v3(
                 light_pos1.x * light_pos2.x,
-                light_pos1.y * light_pos2.y,
+                1.0,
                 light_pos1.z * light_pos2.z,
             ),
             last_shadow_map_position: one,
@@ -171,7 +175,7 @@ fn main() {
             linear: 0.07,
             quadratic: 0.007,
 
-            shadow_map: PointShadowMap::new(),
+            shadow_map: None,
         },
     ];
 
@@ -184,7 +188,12 @@ fn main() {
 
     let mut update_shadows;
 
+    let mut report_cache: std::collections::VecDeque<Report> = std::collections::VecDeque::new();
+
     while running {
+        let mut timings = Timings::new();
+
+        timings.time("time stuff");
         let mut mouse_delta = (0.0, 0.0);
 
         let now = PreciseTime::now();
@@ -206,6 +215,7 @@ fn main() {
             }
         }
 
+        timings.time("event polling");
         events_loop.poll_events(|event| match event {
             glutin::Event::WindowEvent { event, .. } => match event {
                 glutin::WindowEvent::Closed => running = false,
@@ -259,23 +269,27 @@ fn main() {
             _ => (),
         });
 
+        timings.time("game stuff");
+
         t += 1.0;
 
-        point_lights[0].position = v3(
-            1.5 + -20.0 * (t / 10.0).sin(),
-            1.0,
-            -20.0 * (t / 20.0).sin(),
+        let lp1 = v3(
+            9.0 * (t / 30.0).sin(),
+            -13.0,
+            9.0 * (t / 40.0).sin(),
         );
-        point_lights[1].position = v3(
+        point_lights[0].position = lp1;
+        let i = 1;
+        point_lights[i].position = v3(
             1.5 + -10.0 * ((t + 23.0) / 14.0).sin(),
             2.0,
             -10.0 * (t / 90.0).sin(),
         );
-        point_lights[2].position = point_lights[0].position + point_lights[1].position;
-        point_lights[3].position = v3(
-            point_lights[0].position.x * point_lights[1].position.x,
-            point_lights[0].position.y * point_lights[1].position.y,
-            point_lights[0].position.z * point_lights[1].position.z,
+        point_lights[i + 1].position = lp1 + point_lights[i].position;
+        point_lights[i + 2].position = v3(
+            lp1.x * point_lights[i].position.x,
+            lp1.y * point_lights[i].position.y,
+            lp1.z * point_lights[i].position.z,
         );
 
         let pi = std::f32::consts::PI;
@@ -299,15 +313,24 @@ fn main() {
         //     .max(-pi / 2.001)
         //     .min(pi / 2.001);
 
+        timings.time("pre render");
+
         // Begin rendering!
         {
-            let mut objects = vec![
+            let timings = timings.block("rendering");
+
+            let mut objects: Vec<_> = [
+                (v3(0.0, -20.0, 0.0), v3(100.0, 0.1, 100.0)),
+                (v3(10.0, -10.0, 0.0), v3(0.1, 20.0, 20.0)),
+                (v3(-10.0, -10.0, 0.0), v3(0.1, 20.0, 20.0)),
+                (v3(0.0, -10.0, -10.0), v3(20.0, 20.0, 0.1)),
+                (v3(0.0, -10.0, 10.0), v3(20.0, 20.0, 0.1)),
+            ].into_iter().map(|(p, s)| {
                 Object {
                     kind: ObjectKind::Cube,
-                    transform: Mat4::from_nonuniform_scale(100.0, 0.1, 100.0)
-                        * Mat4::from_translation(v3(0.0, -200.0, 0.0)),
-                },
-            ];
+                    transform: Mat4::from_translation(*p) * Mat4::from_nonuniform_scale(s.x, s.y, s.z),
+                }
+            }).collect();
 
             for light in point_lights.iter() {
                 objects.push(Object {
@@ -319,6 +342,7 @@ fn main() {
             objects.append(&mut is.clone());
 
             pipeline.render(
+                timings,
                 update_shadows,
                 RenderProps {
                     camera: &camera,
@@ -328,8 +352,18 @@ fn main() {
                     time: t,
                 },
             );
+            timings.end_block();
         }
 
+        timings.time("swap buffers");
+
         gl_window.swap_buffers().unwrap();
+
+        let report = timings.end();
+        report_cache.push_front(report);
+        if report_cache.len() > 60 {
+            report_cache.truncate(30);
+        }
+        Report::averange(report_cache.iter()).print();
     }
 }

@@ -6,6 +6,7 @@ use obj;
 
 use std::{self, collections::HashMap, mem, path::Path, rc::Rc};
 
+use timing::{Timings, Report, Timer};
 use mg::*;
 
 pub type V2 = cgmath::Vector2<f32>;
@@ -223,12 +224,12 @@ impl Mesh {
         }
     }
 
-    fn bind(&mut self) -> MeshBinding {
+    pub fn bind(&mut self) -> MeshBinding {
         MeshBinding(self)
     }
 }
 
-struct MeshBinding<'a>(&'a mut Mesh);
+pub struct MeshBinding<'a>(&'a mut Mesh);
 impl<'a> MeshBinding<'a> {
     fn bind_textures(&self, program: &ProgramBinding) {
         let mut diffuse_n = 0;
@@ -267,7 +268,7 @@ impl<'a> MeshBinding<'a> {
         }
         program.bind_bool("useNormalMap", normal_n > 0);
     }
-    fn draw<T>(&mut self, fbo: &T, program: &ProgramBinding)
+    pub fn draw<T>(&mut self, fbo: &T, program: &ProgramBinding)
     where
         T: FramebufferBinderDrawer,
     {
@@ -278,19 +279,22 @@ impl<'a> MeshBinding<'a> {
             .bind()
             .draw_arrays(fbo, DrawMode::Triangles, 0, self.0.positions.len());
     }
-    fn draw_instanced<T>(&mut self, fbo: &T, program: &ProgramBinding, transforms: &VboBinder<Mat4>)
+    pub fn draw_instanced<T>(&mut self, fbo: &T, program: &ProgramBinding, transforms: &VboBinder<Mat4>)
     where
         T: FramebufferBinderDrawer,
     {
         self.bind_textures(program);
+        GlError::check().expect("Mesh::draw_instanced: failed to bind textures");
 
         let mut vao = self.0.vao.bind();
+        GlError::check().expect("Mesh::draw_instanced: failed to bind vao");
         let offset = 4;
         let width = 4;
         for i in 0..width {
             let index = i + offset;
             vao.vbo_attrib(&transforms, index, width, width * i * mem::size_of::<f32>())
                 .attrib_divisor(index, 1);
+            GlError::check().expect("Mesh::draw_instanced: failed to bind transforms");
         }
 
         vao.draw_arrays_instanced(
@@ -300,6 +304,7 @@ impl<'a> MeshBinding<'a> {
             self.0.positions.len(),
             transforms.len(),
         );
+        GlError::check().expect("Mesh::draw_instanced: failed to draw instanced");
     }
 }
 
@@ -446,7 +451,7 @@ impl Model {
             mesh.bind().draw(fbo, &program);
         }
     }
-    fn draw_instanced<T>(&mut self, fbo: &T, program: &ProgramBinding, offsets: &VboBinder<Mat4>)
+    pub fn draw_instanced<T>(&mut self, fbo: &T, program: &ProgramBinding, offsets: &VboBinder<Mat4>)
     where
         T: FramebufferBinderDrawer,
     {
@@ -503,7 +508,7 @@ impl DirectionalLight {
 
         program.bind_texture(&ext("shadowMap"), &shadow_map.map, texture_slot);
     }
-    fn bind_multiple(
+    pub fn bind_multiple(
         lights: &[&mut DirectionalLight],
         initial_slot: TextureSlot,
         name_uniform: &str,
@@ -517,7 +522,7 @@ impl DirectionalLight {
             light.bind(&format!("{}[{}]", name_uniform, i), slot, program);
         }
     }
-    fn bind_shadow_map(&mut self) -> (FramebufferBinderReadDraw, Mat4) {
+    pub fn bind_shadow_map(&mut self) -> (FramebufferBinderReadDraw, Mat4) {
         let light_space = self.space();
         (self.shadow_map.fbo.bind(), light_space)
     }
@@ -536,11 +541,15 @@ pub struct PointLight {
     pub linear: f32,
     pub quadratic: f32,
 
-    pub shadow_map: PointShadowMap,
+    pub shadow_map: Option<PointShadowMap>,
 }
 impl PointLight {
     fn bind(&self, name: &str, texture_slot: TextureSlot, program: &ProgramBinding) {
-        let ext = |e| format!("{}.{}", name, e);
+        let ext = |e| {
+            let res = format!("{}.{}", name, e);
+            // println!("{}", res);
+            res
+        };
         let PointLight {
             position,
             ambient,
@@ -555,18 +564,39 @@ impl PointLight {
         program.bind_vec3(&ext("ambient"), *ambient);
         program.bind_vec3(&ext("diffuse"), *diffuse);
         program.bind_vec3(&ext("specular"), *specular);
+        GlError::check().expect("Failed to bind light: light properties");
 
         program.bind_vec3(&ext("position"), *position);
         program.bind_vec3(&ext("lastPosition"), *last_shadow_map_position);
+        GlError::check().expect("Failed to bind light: position");
 
         program.bind_float(&ext("constant"), *constant);
         program.bind_float(&ext("linear"), *linear);
         program.bind_float(&ext("quadratic"), *quadratic);
+        GlError::check().expect("Failed to bind light: attenuation");
 
-        program.bind_texture(&ext("shadowMap"), &shadow_map.map, texture_slot);
-        program.bind_float(&ext("farPlane"), shadow_map.far);
+        match shadow_map {
+            Some(shadow_map) => {
+                program.bind_bool(&ext("useShadowMap"), true);
+                GlError::check().expect("Failed to bind light: useShadowMap");
+                program.bind_texture("shadowMap", &shadow_map.map, texture_slot);
+                GlError::check().expect("Failed to bind light: shadowMap");
+                program.bind_float(&ext("farPlane"), shadow_map.far);
+                GlError::check().expect("Failed to bind light: farPlane");
+            },
+            None => {
+                program.bind_vec3(&ext("lastPosition"), *position);
+                program.bind_bool(&ext("useShadowMap"), false);
+                GlError::check().expect("Failed to bind light: useShadowMap");
+                // program.bind_int(&ext("shadowMap"), TextureSlot::Zero.into());
+                // GlError::check().expect("Failed to not bind light: shadowMap");
+                // program.bind_float(&ext("farPlane"), 0.0);
+                // GlError::check().expect("Failed to bind light: farPlane");
+            }
+        }
+        GlError::check().expect(&format!("Failed to bind light: {:?}", self));
     }
-    fn bind_multiple(
+    pub fn bind_multiple(
         lights: &[PointLight],
         initial_slot: TextureSlot,
         name_uniform: &str,
@@ -577,15 +607,19 @@ impl PointLight {
         for (i, light) in lights.iter().enumerate() {
             let slot: i32 = initial_slot.into();
             let slot = (slot as usize + i).into();
+            // println!("binding: {} into {:?}", format!("{}[{}]", name_uniform, i), slot);
             light.bind(&format!("{}[{}]", name_uniform, i), slot, program);
         }
+        GlError::check().expect("Failed to bind multiple lights");
     }
-    fn bind_shadow_map(&mut self) -> (FramebufferBinderReadDraw, [Mat4; 6]) {
+    pub fn bind_shadow_map(&mut self) -> Option<(FramebufferBinderReadDraw, [Mat4; 6])> {
+        let shadow_map = self.shadow_map.as_mut()?;
+
         let light_space: Mat4 = cgmath::PerspectiveFov {
             fovy: Rad(std::f32::consts::PI / 2.0),
-            aspect: (self.shadow_map.width as f32) / (self.shadow_map.height as f32),
-            near: self.shadow_map.near,
-            far: self.shadow_map.far,
+            aspect: (shadow_map.width as f32) / (shadow_map.height as f32),
+            near: shadow_map.near,
+            far: shadow_map.far,
         }.into();
 
         let origo = P3::new(0.0, 0.0, 0.0);
@@ -601,7 +635,7 @@ impl PointLight {
             look_at(v3(0.0, 0.0, -1.0), v3(0.0, -1.0, 0.0)),
         ];
 
-        (self.shadow_map.fbo.bind(), shadow_transforms)
+        Some((shadow_map.fbo.bind(), shadow_transforms))
     }
 }
 #[repr(C)]
@@ -664,7 +698,7 @@ pub struct ShadowMap {
 #[allow(unused)]
 impl ShadowMap {
     pub fn new() -> ShadowMap {
-        let (width, height) = (1024, 1024);
+        let (width, height) = ShadowMap::size();
         let mut fbo = Framebuffer::new();
         let map = Texture::new(TextureKind::Texture2d);
         map.bind()
@@ -692,6 +726,9 @@ impl ShadowMap {
             map,
         }
     }
+    pub fn size() -> (u32, u32) {
+        (1024, 1024)
+    }
 }
 
 #[derive(Debug)]
@@ -699,14 +736,14 @@ pub struct PointShadowMap {
     width: u32,
     height: u32,
     near: f32,
-    far: f32,
+    pub far: f32,
     fbo: Framebuffer,
     map: Texture,
 }
 
 impl PointShadowMap {
     pub fn new() -> PointShadowMap {
-        let (width, height) = (1024, 1024);
+        let (width, height) = PointShadowMap::size();
         let mut fbo = Framebuffer::new();
         let map = Texture::new(TextureKind::CubeMap);
         {
@@ -738,8 +775,8 @@ impl PointShadowMap {
             .check_status()
             .expect("point shadow map framebuffer not complete");
 
-        let near = 1.0;
-        let far = 25.0;
+        let near = 0.6;
+        let far = 100.0;
 
         PointShadowMap {
             width,
@@ -749,6 +786,9 @@ impl PointShadowMap {
             fbo,
             map,
         }
+    }
+    pub fn size() -> (u32, u32) {
+        (1024, 1024)
     }
 }
 
@@ -766,12 +806,12 @@ pub struct Object {
 }
 
 pub struct GRenderPass {
-    fbo: Framebuffer,
+    pub fbo: Framebuffer,
     #[allow(unused)]
-    depth: Renderbuffer,
-    position: Texture,
-    normal: Texture,
-    albedo_spec: Texture,
+    pub depth: Renderbuffer,
+    pub position: Texture,
+    pub normal: Texture,
+    pub albedo_spec: Texture,
 }
 impl GRenderPass {
     pub fn new(w: u32, h: u32) -> GRenderPass {
@@ -864,7 +904,7 @@ pub struct CubeMapBuilder<T> {
 }
 
 impl<'a> CubeMapBuilder<&'a str> {
-    fn build(self) -> Image {
+    pub fn build(self) -> Image {
         let texture = Texture::new(TextureKind::CubeMap);
         let mut sum_path = String::new();
         {
@@ -962,690 +1002,4 @@ impl Camera {
             far: 100.0,
         }.into()
     }
-}
-
-pub struct RenderProps<'a> {
-    pub objects: &'a [Object],
-    pub camera: &'a Camera,
-    pub time: f32,
-
-    pub directional_lights: &'a mut [&'a mut DirectionalLight],
-    pub point_lights: &'a mut [PointLight],
-}
-
-pub struct Pipeline {
-    pub vertex_program: Program,
-    pub directional_shadow_program: Program,
-    pub point_shadow_program: Program,
-    pub directional_lighting_program: Program,
-    pub point_lighting_program: Program,
-    pub skybox_program: Program,
-    pub hdr_program: Program,
-
-    pub nanosuit: Model,
-    pub cyborg: Model,
-    pub cube: Mesh,
-    pub rect: Mesh,
-
-    pub screen_width: u32,
-    pub screen_height: u32,
-
-    pub g: GRenderPass,
-    pub color_a_fbo: Framebuffer,
-    pub color_a_tex: Texture,
-    pub color_b_fbo: Framebuffer,
-    pub color_b_tex: Texture,
-
-    pub window_fbo: Framebuffer,
-
-    pub skybox: Texture,
-}
-
-impl Pipeline {
-    pub fn new(w: u32, h: u32) -> Pipeline {
-        unsafe {
-            gl::Enable(gl::DEPTH_TEST);
-            gl::Enable(gl::CULL_FACE);
-            gl::Enable(gl::FRAMEBUFFER_SRGB);
-        }
-
-        let vertex_program =
-            Program::new_from_disk("shaders/shader.vs", None, "shaders/shader.fs").unwrap();
-        let skybox_program =
-            Program::new_from_disk("shaders/skybox.vs", None, "shaders/skybox.fs").unwrap();
-        let hdr_program =
-            Program::new_from_disk("shaders/hdr.vs", None, "shaders/hdr.fs").unwrap();
-        let directional_shadow_program =
-            Program::new_from_disk("shaders/shadow.vs", None, "shaders/shadow.fs").unwrap();
-        let point_shadow_program = Program::new_from_disk(
-            "shaders/point_shadow.vs",
-            Some("shaders/point_shadow.gs"),
-            "shaders/point_shadow.fs",
-        ).unwrap();
-        let directional_lighting_program = Program::new_from_disk(
-            "shaders/lighting.vs",
-            None,
-            "shaders/directional_lighting.fs",
-        ).unwrap();
-        let point_lighting_program =
-            Program::new_from_disk("shaders/lighting.vs", None, "shaders/point_lighting.fs")
-                .unwrap();
-
-        let skybox = CubeMapBuilder {
-            back: "assets/skybox/back.jpg",
-            front: "assets/skybox/front.jpg",
-            right: "assets/skybox/right.jpg",
-            bottom: "assets/skybox/bottom.jpg",
-            left: "assets/skybox/left.jpg",
-            top: "assets/skybox/top.jpg",
-        }.build();
-        let nanosuit = Model::new_from_disk("assets/nanosuit_reflection/nanosuit.obj");
-        let cyborg = Model::new_from_disk("assets/cyborg/cyborg.obj");
-
-        let tex1 = Image::new_from_disk("assets/container2.png", ImageKind::Diffuse);
-        let tex2 = Image::new_from_disk("assets/container2_specular.png", ImageKind::Specular);
-        let (tex1, tex2) = (Rc::new(tex1), Rc::new(tex2));
-
-        let (a, b, c, d) = Vertex::soa(&cube_vertices());
-        let cube_mesh = Mesh::new(a, b, c, d, None, vec![tex1, tex2]);
-        let (a, b, c, d) = Vertex::soa(&rect_vertices());
-        let rect_mesh = Mesh::new(a, b, c, d, None, vec![]);
-
-        let window_fbo = unsafe { Framebuffer::window() };
-
-        let g = GRenderPass::new(w, h);
-
-        let mut color_a_fbo = Framebuffer::new();
-        let mut color_a_depth = Renderbuffer::new();
-        color_a_depth
-            .bind()
-            .storage(TextureInternalFormat::DepthComponent, w, h);
-        let color_a_tex = Texture::new(TextureKind::Texture2d);
-        color_a_tex
-            .bind()
-            .empty(
-                TextureTarget::Texture2d,
-                0,
-                TextureInternalFormat::Rgba16f,
-                w,
-                h,
-                TextureFormat::Rgba,
-                GlType::Float,
-            )
-            .parameter_int(TextureParameter::MinFilter, gl::LINEAR as i32)
-            .parameter_int(TextureParameter::MagFilter, gl::LINEAR as i32);
-        color_a_fbo
-            .bind()
-            .texture_2d(
-                Attachment::Color0,
-                TextureTarget::Texture2d,
-                &color_a_tex,
-                0,
-            )
-            .renderbuffer(Attachment::Depth, &color_a_depth)
-            .check_status()
-            .expect("framebuffer not complete");
-
-        let mut color_b_fbo = Framebuffer::new();
-        let mut color_b_depth = Renderbuffer::new();
-        color_b_depth
-            .bind()
-            .storage(TextureInternalFormat::DepthComponent, w, h);
-        let color_b_tex = Texture::new(TextureKind::Texture2d);
-        color_b_tex
-            .bind()
-            .empty(
-                TextureTarget::Texture2d,
-                0,
-                TextureInternalFormat::Rgba16f,
-                w,
-                h,
-                TextureFormat::Rgba,
-                GlType::Float,
-            )
-            .parameter_int(TextureParameter::MinFilter, gl::LINEAR as i32)
-            .parameter_int(TextureParameter::MagFilter, gl::LINEAR as i32);
-        color_b_fbo
-            .bind()
-            .texture_2d(
-                Attachment::Color0,
-                TextureTarget::Texture2d,
-                &color_b_tex,
-                0,
-            )
-            .renderbuffer(Attachment::Depth, &color_a_depth)
-            .check_status()
-            .expect("framebuffer not complete");
-
-        Pipeline {
-            vertex_program,
-            directional_shadow_program,
-            point_shadow_program,
-            directional_lighting_program,
-            point_lighting_program,
-            skybox_program,
-            hdr_program,
-
-            nanosuit,
-            cyborg,
-            cube: cube_mesh,
-            rect: rect_mesh,
-
-            screen_width: w,
-            screen_height: h,
-
-            g,
-            color_a_fbo,
-            color_a_tex,
-            color_b_fbo,
-            color_b_tex,
-
-            window_fbo,
-
-            skybox: skybox.texture,
-        }
-    }
-    pub fn render(&mut self, update_shadows: bool, props: RenderProps) {
-        let view = props.camera.get_view();
-        let view_pos = props.camera.pos;
-        let projection = props.camera.get_projection();
-
-        let mut nanosuit_transforms = vec![];
-        let mut cyborg_transforms = vec![];
-        let mut cube_transforms = vec![];
-
-        for obj in props.objects.iter() {
-            match obj.kind {
-                ObjectKind::Cube => cube_transforms.push(obj.transform),
-                ObjectKind::Nanosuit => nanosuit_transforms.push(obj.transform),
-                ObjectKind::Cyborg => cyborg_transforms.push(obj.transform),
-            }
-        }
-        let mut nanosuit_vbo = VertexBuffer::from_data(&nanosuit_transforms);
-        let mut cyborg_vbo = VertexBuffer::from_data(&cyborg_transforms);
-        let mut cube_vbo = VertexBuffer::from_data(&cube_transforms);
-
-        let pi = std::f32::consts::PI;
-
-        macro_rules! render_scene {
-            ($fbo:expr, $program:expr) => {{
-                {
-                    let model = Mat4::from_scale(1.0 / 4.0) * Mat4::from_translation(v3(0.0, 0.0, 4.0));
-                    $program.bind_mat4("model", model);
-                    self.nanosuit
-                        .draw_instanced(&$fbo, &$program, &nanosuit_vbo.bind());
-                }
-                {
-                    let model = Mat4::from_angle_y(Rad(pi));
-                    $program.bind_mat4("model", model);
-                    self.cyborg
-                        .draw_instanced(&$fbo, &$program, &cyborg_vbo.bind());
-                }
-                {
-                    let model = Mat4::from_scale(1.0);
-                    $program.bind_mat4("model", model);
-                    self.cube
-                        .bind()
-                        .draw_instanced(&$fbo, &$program, &cube_vbo.bind());
-                }
-            }};
-        };
-
-        {
-            // Render geometry
-            let fbo = self.g.fbo.bind();
-            fbo.clear(ClearMask::ColorDepth);
-            let program = self.vertex_program.bind();
-            program
-                .bind_mat4("projection", projection)
-                .bind_mat4("view", view)
-                .bind_vec3("viewPos", view_pos)
-                .bind_float("time", props.time)
-                .bind_texture("skybox", &self.skybox, TextureSlot::Six);
-
-            render_scene!(fbo, program);
-        }
-
-        // Clear backbuffer
-        self.color_b_fbo.bind().clear(ClearMask::ColorDepth);
-        if update_shadows {
-            {
-                // Render depth map for directional lights
-                let p = self.directional_shadow_program.bind();
-                unsafe {
-                    gl::Viewport(
-                        0,
-                        0,
-                        props.directional_lights[0].shadow_map.width as i32,
-                        props.directional_lights[0].shadow_map.height as i32,
-                    );
-                    gl::CullFace(gl::FRONT);
-                }
-                for light in props.directional_lights.iter_mut() {
-                    let (fbo, light_space) = light.bind_shadow_map();
-                    fbo.clear(ClearMask::Depth);
-                    p.bind_mat4("lightSpace", light_space);
-                    render_scene!(fbo, p);
-                }
-            }
-            {
-                // Render depth map for point lights
-                unsafe {
-                    gl::Viewport(
-                        0,
-                        0,
-                        props.point_lights[0].shadow_map.width as i32,
-                        props.point_lights[0].shadow_map.height as i32,
-                    );
-                    gl::CullFace(gl::FRONT);
-                }
-                let p = self.point_shadow_program.bind();
-                for light in props.point_lights.iter_mut() {
-                    let far = light.shadow_map.far;
-                    let position = light.position;
-                    light.last_shadow_map_position = position;
-                    let (fbo, light_spaces) = light.bind_shadow_map();
-                    fbo.clear(ClearMask::Depth);
-                    p.bind_mat4s("shadowMatrices", &light_spaces)
-                        .bind_vec3("lightPos", position)
-                        .bind_float("farPlane", far);
-                    render_scene!(fbo, p);
-                }
-                unsafe {
-                    gl::CullFace(gl::BACK);
-                    gl::Viewport(
-                        0,
-                        0,
-                        self.screen_width as i32,
-                        self.screen_height as i32,
-                    );
-                }
-            }
-        }
-
-        {
-            // Render lighting
-
-            {
-                let fbo = self.color_a_fbo.bind();
-                fbo.clear(ClearMask::ColorDepth);
-
-                let g = self.directional_lighting_program.bind();
-                g.bind_texture("aPosition", &self.g.position, TextureSlot::Zero)
-                    .bind_texture("aNormal", &self.g.normal, TextureSlot::One)
-                    .bind_texture("aAlbedoSpec", &self.g.albedo_spec, TextureSlot::Two)
-                    .bind_texture("skybox", &self.skybox, TextureSlot::Three)
-                    .bind_vec3("viewPos", view_pos);
-
-                let lights: &[_] = &props.directional_lights;
-
-                DirectionalLight::bind_multiple(
-                    lights,
-                    TextureSlot::Four,
-                    "lights",
-                    "nrLights",
-                    &g,
-                );
-
-                let mut c = VertexBuffer::from_data(&vec![Mat4::from_scale(1.0)]);
-                self.rect.bind().draw_instanced(&fbo, &g, &c.bind());
-            }
-
-            {
-                let fbo = self.color_b_fbo.bind();
-                fbo.clear(ClearMask::ColorDepth);
-
-                let g = self.point_lighting_program.bind();
-                g.bind_texture("aPosition", &self.g.position, TextureSlot::Zero)
-                    .bind_texture("aNormal", &self.g.normal, TextureSlot::One)
-                    .bind_texture("aAlbedoSpec", &self.g.albedo_spec, TextureSlot::Two)
-                    .bind_texture("skybox", &self.skybox, TextureSlot::Three)
-                    .bind_texture("accumulator", &self.color_a_tex, TextureSlot::Four)
-                    .bind_vec3("viewPos", view_pos);
-
-                PointLight::bind_multiple(
-                    props.point_lights,
-                    TextureSlot::Five,
-                    "lights",
-                    "nrLights",
-                    &g,
-                );
-
-                let mut c = VertexBuffer::from_data(&vec![Mat4::from_scale(1.0)]);
-                self.rect.bind().draw_instanced(&fbo, &g, &c.bind());
-            }
-        }
-
-        let color_fbo = &mut self.color_b_fbo;
-        let color_tex = &self.color_b_tex;
-
-        // Skybox Pass
-        {
-            // Copy z-buffer over from geometry pass
-            let g_binding = self.g.fbo.read();
-            let hdr_binding = color_fbo.draw();
-            let (w, h) = (self.screen_width as i32, self.screen_height as i32);
-            hdr_binding.blit_framebuffer(
-                &g_binding,
-                (0, 0, w, h),
-                (0, 0, w, h),
-                gl::DEPTH_BUFFER_BIT,
-                gl::NEAREST,
-            );
-        }
-        {
-            // Render skybox
-            let fbo = color_fbo.bind();
-            {
-                unsafe {
-                    gl::DepthFunc(gl::LEQUAL);
-                    gl::Disable(gl::CULL_FACE);
-                }
-                let program = self.skybox_program.bind();
-                let mut view = view.clone();
-                view.w = V4::new(0.0, 0.0, 0.0, 0.0);
-                program
-                    .bind_mat4("projection", projection)
-                    .bind_mat4("view", view)
-                    .bind_texture("skybox", &self.skybox, TextureSlot::Ten);
-                self.cube.bind().draw(&fbo, &program);
-                unsafe {
-                    gl::DepthFunc(gl::LESS);
-                    gl::Enable(gl::CULL_FACE);
-                }
-            }
-        }
-
-        // HDR/Screen Pass
-        {
-            let fbo = self.window_fbo.bind();
-            fbo.clear(ClearMask::ColorDepth);
-
-            let hdr = self.hdr_program.bind();
-            hdr.bind_texture("hdrBuffer", &color_tex, TextureSlot::Zero)
-                .bind_float("time", props.time);
-            let mut c = VertexBuffer::from_data(&vec![Mat4::from_scale(1.0)]);
-            self.rect.bind().draw_instanced(&fbo, &hdr, &c.bind());
-        }
-    }
-}
-
-macro_rules! v {
-    ($pos:expr, $norm:expr, $tex:expr, $tangent:expr) => {{
-        let tangent = $tangent.into();
-        Vertex {
-            pos: $pos.into(),
-            tex: $tex.into(),
-            norm: $norm.into(),
-            tangent: tangent,
-        }
-    }};
-}
-
-fn rect_vertices() -> Vec<Vertex> {
-    vec![
-        v!(
-            [-1.0, 1.0, 0.0],
-            [0.0, 0.0, 1.0],
-            [0.0, 1.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [-1.0, -1.0, 0.0],
-            [0.0, 0.0, 1.0],
-            [0.0, 0.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [1.0, 1.0, 0.0],
-            [0.0, 0.0, 1.0],
-            [1.0, 1.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [-1.0, -1.0, 0.0],
-            [0.0, 0.0, 1.0],
-            [0.0, 0.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [1.0, -1.0, 0.0],
-            [0.0, 0.0, 1.0],
-            [1.0, 0.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [1.0, 1.0, 0.0],
-            [0.0, 0.0, 1.0],
-            [1.0, 1.0],
-            [0.0, 1.0, 0.0]
-        ),
-    ]
-}
-
-fn cube_vertices() -> Vec<Vertex> {
-    vec![
-        // Back face
-        v!(
-            [-0.5, -0.5, -0.5],
-            [0.0, 0.0, -1.0],
-            [0.0, 0.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [0.5, 0.5, -0.5],
-            [0.0, 0.0, -1.0],
-            [1.0, 1.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [0.5, -0.5, -0.5],
-            [0.0, 0.0, -1.0],
-            [1.0, 0.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [0.5, 0.5, -0.5],
-            [0.0, 0.0, -1.0],
-            [1.0, 1.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [-0.5, -0.5, -0.5],
-            [0.0, 0.0, -1.0],
-            [0.0, 0.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [-0.5, 0.5, -0.5],
-            [0.0, 0.0, -1.0],
-            [0.0, 1.0],
-            [0.0, 1.0, 0.0]
-        ),
-        // Front face
-        v!(
-            [-0.5, -0.5, 0.5],
-            [0.0, 0.0, 1.0],
-            [0.0, 0.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [0.5, -0.5, 0.5],
-            [0.0, 0.0, 1.0],
-            [1.0, 0.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [0.5, 0.5, 0.5],
-            [0.0, 0.0, 1.0],
-            [1.0, 1.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [0.5, 0.5, 0.5],
-            [0.0, 0.0, 1.0],
-            [1.0, 1.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [-0.5, 0.5, 0.5],
-            [0.0, 0.0, 1.0],
-            [0.0, 1.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [-0.5, -0.5, 0.5],
-            [0.0, 0.0, 1.0],
-            [0.0, 0.0],
-            [0.0, 1.0, 0.0]
-        ),
-        // Left face
-        v!(
-            [-0.5, 0.5, 0.5],
-            [-1.0, 0.0, 0.0],
-            [1.0, 0.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [-0.5, 0.5, -0.5],
-            [-1.0, 0.0, 0.0],
-            [1.0, 1.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [-0.5, -0.5, -0.5],
-            [-1.0, 0.0, 0.0],
-            [0.0, 1.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [-0.5, -0.5, -0.5],
-            [-1.0, 0.0, 0.0],
-            [0.0, 1.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [-0.5, -0.5, 0.5],
-            [-1.0, 0.0, 0.0],
-            [0.0, 0.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [-0.5, 0.5, 0.5],
-            [-1.0, 0.0, 0.0],
-            [1.0, 0.0],
-            [0.0, 1.0, 0.0]
-        ),
-        // Right face
-        v!(
-            [0.5, 0.5, 0.5],
-            [1.0, 0.0, 0.0],
-            [1.0, 0.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [0.5, -0.5, -0.5],
-            [1.0, 0.0, 0.0],
-            [0.0, 1.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [0.5, 0.5, -0.5],
-            [1.0, 0.0, 0.0],
-            [1.0, 1.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [0.5, -0.5, -0.5],
-            [1.0, 0.0, 0.0],
-            [0.0, 1.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [0.5, 0.5, 0.5],
-            [1.0, 0.0, 0.0],
-            [1.0, 0.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [0.5, -0.5, 0.5],
-            [1.0, 0.0, 0.0],
-            [0.0, 0.0],
-            [0.0, 1.0, 0.0]
-        ),
-        // Bottom face
-        v!(
-            [-0.5, -0.5, -0.5],
-            [0.0, -1.0, 0.0],
-            [0.0, 1.0],
-            [1.0, 0.0, 0.0]
-        ),
-        v!(
-            [0.5, -0.5, -0.5],
-            [0.0, -1.0, 0.0],
-            [1.0, 1.0],
-            [1.0, 0.0, 0.0]
-        ),
-        v!(
-            [0.5, -0.5, 0.5],
-            [0.0, -1.0, 0.0],
-            [1.0, 0.0],
-            [1.0, 0.0, 0.0]
-        ),
-        v!(
-            [0.5, -0.5, 0.5],
-            [0.0, -1.0, 0.0],
-            [1.0, 0.0],
-            [1.0, 0.0, 0.0]
-        ),
-        v!(
-            [-0.5, -0.5, 0.5],
-            [0.0, -1.0, 0.0],
-            [0.0, 0.0],
-            [1.0, 0.0, 0.0]
-        ),
-        v!(
-            [-0.5, -0.5, -0.5],
-            [0.0, -1.0, 0.0],
-            [0.0, 1.0],
-            [1.0, 0.0, 0.0]
-        ),
-        // Top face
-        v!(
-            [-0.5, 0.5, -0.5],
-            [0.0, 1.0, 0.0],
-            [0.0, 1.0],
-            [1.0, 0.0, 0.0]
-        ),
-        v!(
-            [0.5, 0.5, 0.5],
-            [0.0, 1.0, 0.0],
-            [1.0, 0.0],
-            [1.0, 0.0, 0.0]
-        ),
-        v!(
-            [0.5, 0.5, -0.5],
-            [0.0, 1.0, 0.0],
-            [1.0, 1.0],
-            [1.0, 0.0, 0.0]
-        ),
-        v!(
-            [0.5, 0.5, 0.5],
-            [0.0, 1.0, 0.0],
-            [1.0, 0.0],
-            [1.0, 0.0, 0.0]
-        ),
-        v!(
-            [-0.5, 0.5, -0.5],
-            [0.0, 1.0, 0.0],
-            [0.0, 1.0],
-            [1.0, 0.0, 0.0]
-        ),
-        v!(
-            [-0.5, 0.5, 0.5],
-            [0.0, 1.0, 0.0],
-            [0.0, 0.0],
-            [1.0, 0.0, 0.0]
-        ),
-    ]
 }

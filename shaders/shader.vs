@@ -26,6 +26,7 @@ void main() {
     vs_out.Normal =  aNormal;
     vs_out.TexCoords = vec2(aTexCoords.x, -aTexCoords.y);
 
+#if 1
     vec3 T = normalize(vec3(model_ * vec4(aTangent, 0.0)));
     vec3 N = normalize(vec3(model_ * vec4(aNormal, 0.0)));
 
@@ -34,6 +35,9 @@ void main() {
     vec3 B = cross(N, T);
 
     vs_out.TBN = mat3(T, B, N);
+#else
+    vs_out.TBN = mat3(1.0);
+#endif
 
     gl_Position = projection * view * pos;
 }

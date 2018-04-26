@@ -16,14 +16,12 @@ in VS_OUT {
 
 uniform sampler2D tex_diffuse1;
 uniform sampler2D tex_specular1;
-uniform sampler2D tex_reflection1;
 uniform sampler2D tex_normal1;
 uniform bool useNormalMap;
 uniform vec3 viewPos;
 uniform samplerCube skybox;
 
 void main() {
-
     vec3 norm;
     if (useNormalMap) {
         norm = texture(tex_normal1, fs_in.TexCoords).rgb;
@@ -36,5 +34,5 @@ void main() {
     aPosition = fs_in.FragPos;
     aNormal = norm;
     aAlbedoSpec.rgb = texture(tex_diffuse1, fs_in.TexCoords).rgb;
-    aAlbedoSpec.a = texture(tex_specular1, fs_in.TexCoords).a;
+    aAlbedoSpec.a = length(texture(tex_specular1, fs_in.TexCoords).rgb);
 }

@@ -278,6 +278,7 @@ impl<'a> ProgramBinding<'a> {
                     .as_ptr(),
             )
         };
+        GlError::check().expect(&format!("unable to get uniform location for name: '{}'", name));
         UniformLocation::new(loc)
     }
     pub fn bind_mat4<T: Into<[[f32; 4]; 4]>>(&self, name: &str, mat: T) -> &ProgramBinding {
@@ -1469,6 +1470,13 @@ impl<'a> VertexArrayBinder<'a> {
         unsafe {
             gl::DrawArraysInstanced(mode.into(), first as i32, count as i32, instances as i32);
         }
+        GlError::check().expect(
+            &format!(
+                r#"VertexArrayBinder::draw_arrays_instanced: failed to draw instanced.
+                Call looks like: gl::DrawArraysInstanced({:?}, {}, {}, {})"#,
+                mode, first, count, instances,
+            ),
+        );
         self
     }
     #[allow(unused)]

@@ -1,4 +1,4 @@
-#version 330 core
+#version 410 core
 #pragma optionNV (unroll all)
 
 out vec4 FragColor;
@@ -15,6 +15,8 @@ uniform samplerCube skybox;
 
 uniform vec3 viewPos;
 
+uniform samplerCube shadowMap;
+
 struct PointLight {
     vec3 ambient;    // 3
     vec3 diffuse;    // 6
@@ -27,11 +29,11 @@ struct PointLight {
     float linear;    // 14
     float quadratic; // 15
 
-    samplerCube shadowMap;
+    bool useShadowMap;
     float farPlane;
 };
 
-#define MAX_LIGHTS 4
+#define MAX_LIGHTS 10
 uniform int nrLights;
 uniform PointLight lights[MAX_LIGHTS];
 
@@ -40,17 +42,6 @@ struct TextureSamples {
     float spec;
 };
 
-float pointShadowCalculation(float bias, float farPlane, samplerCube shadowMap, vec3 lightPos, vec3 fragPos) {
-    vec3 fragToLight = fragPos - lightPos;
-    float closestDepth = texture(shadowMap, fragToLight).r;
-    closestDepth *= farPlane;
-    float currentDepth = length(fragToLight);
-
-    float shadow = currentDepth - bias > closestDepth ? 1.0 : 0.0;
-
-    return shadow;
-}
-
 vec3 calculatePointLight(
     PointLight light,
     TextureSamples samples,
@@ -58,17 +49,28 @@ vec3 calculatePointLight(
     vec3 normal,
     vec3 fragPos
 ) {
-    vec3 lightDir = normalize(light.position - fragPos);
+    vec3 fragToLight = fragPos - light.lastPosition;
+    vec3 lightDir = normalize(-fragToLight);
     vec3 halfwayDir = normalize(lightDir + viewDir);
-    float d = length(light.position - fragPos);
+    float d = length(fragToLight);
     float attenuation = 1.0 / (light.constant + d * (light.linear + d * light.quadratic));
 
     float diff = max(dot(normal, lightDir), 0.0);
 
     float spec = pow(max(dot(normal, halfwayDir), 0.0), 32.0);
 
-    float bias = 0.05;
-    float shadow = 1 - pointShadowCalculation(bias, light.farPlane, light.shadowMap, light.lastPosition, fragPos);
+    float shadow = 1.0;
+    // calculate shadow only if the shadow map is enabled
+    if (light.useShadowMap) {
+        float closestDepth = texture(shadowMap, fragToLight).r;
+        closestDepth *= light.farPlane;
+        float currentDepth = length(fragToLight);
+
+        float bias = 0.05;
+
+        shadow = currentDepth - bias > closestDepth ? 1.0 : 0.0;
+        shadow = 1 - shadow;
+    }
 
     vec3 ambient = light.ambient * samples.diff;
     vec3 diffuse = light.diffuse * diff * samples.diff * shadow;
@@ -98,7 +100,14 @@ void main() {
     vec3 color = texture(accumulator, TexCoords).rgb;
     for (int i = 0; i < nrLights; ++i) {
         color += calculatePointLight(lights[i], samples, viewDir, normal, fragPos);
+        // color += lights[0].position;
+        // color = calculatePointLight(lights[0], samples, viewDir, normal, fragPos);
+        // color += calculatePointLight(lights[1], samples, viewDir, normal, fragPos);
+        // color += calculatePointLight(lights[2], samples, viewDir, normal, fragPos);
+        // color += calculatePointLight(lights[3], samples, viewDir, normal, fragPos);
     }
+
+    // color = vec3(samples.spec);
 
     FragColor = vec4(color, length(fragPos - viewPos));
 }
