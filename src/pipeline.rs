@@ -51,7 +51,7 @@ pub struct Pipeline {
 
 impl Pipeline {
     fn load_vertex_program() -> Program {
-        Program::new_from_disk("shaders/shader.vs", None, "shaders/shader.fs").unwrap()
+        Program::new_from_disk("shaders/shader.vert", None, "shaders/shader.frag").unwrap()
     }
 
     pub fn new(w: u32, h: u32) -> Pipeline {
@@ -63,23 +63,23 @@ impl Pipeline {
 
         let vertex_program = Pipeline::load_vertex_program();
         let skybox_program =
-            Program::new_from_disk("shaders/skybox.vs", None, "shaders/skybox.fs").unwrap();
+            Program::new_from_disk("shaders/skybox.vert", None, "shaders/skybox.frag").unwrap();
         let hdr_program =
-            Program::new_from_disk("shaders/hdr.vs", None, "shaders/hdr.fs").unwrap();
+            Program::new_from_disk("shaders/hdr.vert", None, "shaders/hdr.frag").unwrap();
         let directional_shadow_program =
-            Program::new_from_disk("shaders/shadow.vs", None, "shaders/shadow.fs").unwrap();
+            Program::new_from_disk("shaders/shadow.vert", None, "shaders/shadow.frag").unwrap();
         let point_shadow_program = Program::new_from_disk(
-            "shaders/point_shadow.vs",
-            Some("shaders/point_shadow.gs"),
-            "shaders/point_shadow.fs",
+            "shaders/point_shadow.vert",
+            Some("shaders/point_shadow.geom"),
+            "shaders/point_shadow.frag",
         ).unwrap();
         let directional_lighting_program = Program::new_from_disk(
-            "shaders/lighting.vs",
+            "shaders/lighting.vert",
             None,
-            "shaders/directional_lighting.fs",
+            "shaders/directional_lighting.frag",
         ).unwrap();
         let point_lighting_program =
-            Program::new_from_disk("shaders/lighting.vs", None, "shaders/point_lighting.fs")
+            Program::new_from_disk("shaders/lighting.vert", None, "shaders/point_lighting.frag")
                 .unwrap();
 
         let skybox = CubeMapBuilder {
