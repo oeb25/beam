@@ -1,8 +1,9 @@
 use std::{self, rc::Rc};
 use gl;
 use cgmath::Rad;
-use timing::Timer;
+use timing::{Timer, NoopTimer};
 use mg::*;
+use flame;
 use render::{Camera, DirectionalLight, PointLight, Model, Mesh, GRenderPass,
              CubeMapBuilder, Object, ObjectKind, Vertex, v3, Image, ImageKind,
              Mat4, V4, ShadowMap, PointShadowMap};
@@ -12,7 +13,7 @@ pub struct RenderProps<'a> {
     pub camera: &'a Camera,
     pub time: f32,
 
-    pub directional_lights: &'a mut [&'a mut DirectionalLight],
+    pub directional_lights: &'a mut [DirectionalLight],
     pub point_lights: &'a mut [PointLight],
 }
 
@@ -97,9 +98,9 @@ impl Pipeline {
         let (tex1, tex2) = (Rc::new(tex1), Rc::new(tex2));
 
         let (a, b, c, d) = Vertex::soa(&cube_vertices());
-        let cube_mesh = Mesh::new(a, b, c, d, None, vec![tex1, tex2]);
+        let cube_mesh = Mesh::new(&a, &b, &c, &d, None, vec![tex1, tex2]);
         let (a, b, c, d) = Vertex::soa(&rect_vertices());
-        let rect_mesh = Mesh::new(a, b, c, d, None, vec![]);
+        let rect_mesh = Mesh::new(&a, &b, &c, &d, None, vec![]);
 
         let window_fbo = unsafe { Framebuffer::window() };
 
@@ -199,6 +200,7 @@ impl Pipeline {
             skybox: skybox.texture,
         }
     }
+    #[flame]
     pub fn render<'a, T: Timer<'a>>(&mut self, timings: &mut T, update_shadows: bool, props: RenderProps) {
         macro_rules! begin {
             ($name:expr) => (
@@ -242,19 +244,26 @@ impl Pipeline {
 
         macro_rules! render_scene {
             ($pass:expr, $fbo:expr, $program:expr) => {{
+                let _guard = flame::start_guard("render scene");
                 if false {
                     $pass.time("render nanosuit");
                     let model = Mat4::from_scale(1.0 / 4.0) * Mat4::from_translation(v3(0.0, 0.0, 4.0));
                     $program.bind_mat4("model", model);
+                    // let block = $pass.block("draw nanosuit instanced");
+                    let block = &mut NoopTimer;
                     self.nanosuit
-                        .draw_instanced(&$fbo, &$program, &self.nanosuit_vbo.bind());
+                        .draw_instanced(block, &$fbo, &$program, &self.nanosuit_vbo.bind());
+                    block.end_block();
                 }
                 {
                     $pass.time("render cyborg");
                     let model = Mat4::from_angle_y(Rad(pi));
                     $program.bind_mat4("model", model);
+                    // let block = $pass.block("draw cyborg instanced");
+                    let block = &mut NoopTimer;
                     self.cyborg
-                        .draw_instanced(&$fbo, &$program, &self.cyborg_vbo.bind());
+                        .draw_instanced(block, &$fbo, &$program, &self.cyborg_vbo.bind());
+                    block.end_block();
                 }
                 {
                     $pass.time("render cube");
@@ -262,16 +271,17 @@ impl Pipeline {
                     $program.bind_mat4("model", model);
                     self.cube
                         .bind()
-                        .draw_instanced(&$fbo, &$program, &self.cube_vbo.bind());
+                        .draw_instanced(&mut NoopTimer, &$fbo, &$program, &self.cube_vbo.bind());
                 }
             }};
         };
 
         {
+            let _guard = flame::start_guard("render geometry");
             begin!("prepare render geometry");
             // Render geometry
             let fbo = self.g.fbo.bind();
-            fbo.clear(ClearMask::ColorDepth);
+            fbo.clear(Mask::ColorDepth);
             let program = self.vertex_program.bind();
             program
                 .bind_mat4("projection", projection)
@@ -288,9 +298,10 @@ impl Pipeline {
         }
 
         // Clear backbuffer
-        self.color_b_fbo.bind().clear(ClearMask::ColorDepth);
+        self.color_b_fbo.bind().clear(Mask::ColorDepth);
         if update_shadows || true {
             {
+                let _guard = flame::start_guard("render directional shadows");
                 begin!("update directional shadowmap");
                 // Render depth map for directional lights
                 let p = self.directional_shadow_program.bind();
@@ -306,7 +317,7 @@ impl Pipeline {
                 }
                 for light in props.directional_lights.iter_mut() {
                     let (fbo, light_space) = light.bind_shadow_map();
-                    fbo.clear(ClearMask::Depth);
+                    fbo.clear(Mask::Depth);
                     p.bind_mat4("lightSpace", light_space);
                     let mut block = timings.block("dir");
                     render_scene!(block, fbo, p);
@@ -314,6 +325,7 @@ impl Pipeline {
                 }
             }
             {
+                let _guard = flame::start_guard("render point shadows");
                 begin!("update point shadowmap");
                 // Render depth map for point lights
                 let (w, h) = PointShadowMap::size();
@@ -336,7 +348,7 @@ impl Pipeline {
                     let position = light.position;
                     light.last_shadow_map_position = position;
                     let (fbo, light_spaces) = light.bind_shadow_map().unwrap();
-                    fbo.clear(ClearMask::Depth);
+                    fbo.clear(Mask::Depth);
                     p.bind_mat4s("shadowMatrices", &light_spaces)
                         .bind_vec3("lightPos", position)
                         .bind_float("farPlane", far);
@@ -358,11 +370,12 @@ impl Pipeline {
 
         {
             // Render lighting
+            let _guard = flame::start_guard("render lighting");
 
             begin!("render lighting, directional pass");
             {
                 let fbo = self.color_a_fbo.bind();
-                fbo.clear(ClearMask::ColorDepth);
+                fbo.clear(Mask::ColorDepth);
 
                 let g = self.directional_lighting_program.bind();
                 g.bind_texture("aPosition", &self.g.position, TextureSlot::Zero)
@@ -383,13 +396,13 @@ impl Pipeline {
                 );
 
                 let mut c = VertexBuffer::from_data(&vec![Mat4::from_scale(1.0)]);
-                self.rect.bind().draw_instanced(&fbo, &g, &c.bind());
+                self.rect.bind().draw_instanced(&mut NoopTimer, &fbo, &g, &c.bind());
             }
 
             begin!("render lighting, point light pass");
             {
                 let fbo = self.color_b_fbo.bind();
-                fbo.clear(ClearMask::ColorDepth);
+                fbo.clear(Mask::ColorDepth);
 
                 let g = self.point_lighting_program.bind();
                 g.bind_texture("aPosition", &self.g.position, TextureSlot::Zero)
@@ -415,7 +428,7 @@ impl Pipeline {
                 GlError::check().expect("post rect bind");
                 let c = c.bind();
                 GlError::check().expect("post c bind");
-                bind.draw_instanced(&fbo, &g, &c);
+                bind.draw_instanced(&mut NoopTimer, &fbo, &g, &c);
                 GlError::check().expect("post-render");
             }
         }
@@ -435,7 +448,7 @@ impl Pipeline {
                 &g_binding,
                 (0, 0, w, h),
                 (0, 0, w, h),
-                gl::DEPTH_BUFFER_BIT,
+                Mask::Depth,
                 gl::NEAREST,
             );
         }
@@ -467,7 +480,7 @@ impl Pipeline {
         // HDR/Screen Pass
         {
             let fbo = self.window_fbo.bind();
-            fbo.clear(ClearMask::ColorDepth);
+            fbo.clear(Mask::ColorDepth);
 
             let hdr = self.hdr_program.bind();
             hdr.bind_texture("hdrBuffer", &color_tex, TextureSlot::Zero)
@@ -475,7 +488,48 @@ impl Pipeline {
             let mut c = VertexBuffer::from_data(&vec![Mat4::from_scale(1.0)]);
 
             begin!("actual screen pass");
-            self.rect.bind().draw_instanced(&fbo, &hdr, &c.bind());
+            self.rect.bind().draw_instanced(&mut NoopTimer, &fbo, &hdr, &c.bind());
+
+
+            // #[repr(C)]
+            // struct Ve3(f32, f32, f32);
+            // let verticies = [
+            //     Ve3( 0.5,  0.5, 0.0),  // top right
+            //     Ve3( 0.5, -0.5, 0.0),  // bottom right
+            //     Ve3(-0.5, -0.5, 0.0),  // bottom left
+            //     Ve3(-0.5,  0.5, 0.0)   // top left
+            // ];
+            // #[repr(C)]
+            // struct Ve2(f32, f32);
+            // let instances = [
+            //     Ve2( 0.5,  0.5),  // top right
+            //     Ve2( 0.5, -0.5),  // bottom right
+            //     Ve2(-0.5, -0.5),  // bottom left
+            //     Ve2(-0.5,  0.5)   // top left
+            // ];
+            // let indecies: [u32; 6] = [
+            //     0, 3, 1,
+            //     1, 3, 2
+            // ];
+
+            // let mut vao = VertexArray::new();
+            // let mut vbo = VertexBuffer::from_data(&verticies);
+            // let mut vbo_instances = VertexBuffer::from_data(&instances);
+            // let mut ebo = ElementBuffer::from_data(&indecies);
+            // {
+            //     let mut vao = vao.bind();
+            //     {
+            //         let vbo = vbo.bind();
+            //         vao.vbo_attrib(&vbo, 0, 3, 0);
+            //     }
+            //     {
+            //         let vbo_instances = vbo_instances.bind();
+            //         vao.vbo_attrib(&vbo_instances, 1, 2, 2 * std::mem::size_of::<f32>());
+            //         vao.attrib_divisor(1, 1);
+            //     let ebo = ebo.bind();
+            //     vao.draw_elements_instanced(&fbo, DrawMode::Triangles, &ebo, vbo_instances.len());
+            //     }
+            // }
         }
     }
 }

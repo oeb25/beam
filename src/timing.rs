@@ -50,6 +50,7 @@ impl<'a> Timings<'a> {
 
         let mut iter = self.1.into_iter();
         let mut head = iter.next().unwrap();
+        let init_delta = *head.start_time();
 
         for next in iter {
             let item = match head {
@@ -66,7 +67,7 @@ impl<'a> Timings<'a> {
             report.push(item);
         }
 
-        Report(report)
+        Report(init_delta, report)
     }
 }
 
@@ -105,11 +106,11 @@ pub enum ReportEntry<'a> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Report<'a>(Vec<ReportEntry<'a>>);
+pub struct Report<'a>(Duration, Vec<ReportEntry<'a>>);
 impl<'a> Report<'a> {
     fn report_prefix(&self, prefix: &str) -> Duration {
-        let mut total = Duration::zero();
-        let timings = &self.0;
+        let mut total = self.0;
+        let timings = &self.1;
         let num = timings.len();
         for i in 0..num {
             let timing = &timings[i];
@@ -120,7 +121,7 @@ impl<'a> Report<'a> {
                     println!("{}{:040}: {:6.3}ms", prefix, name, ms);
                 },
                 ReportEntry::Block(name, block) => {
-                    println!("{}{}", prefix, name);
+                    println!("{}{:040}: {:6.3}ms", prefix, name, block.0.num_microseconds().unwrap() as f32 / 1000.0);
                     total = total + block.report_prefix(&(prefix.to_string() + "| "));
                 }
             }
@@ -139,9 +140,9 @@ impl<'a> Report<'a> {
     }
     pub fn add(&mut self, other: &Report<'a>) {
         let mut to_add = vec![];
-        'other: for (i, t) in other.0.iter().enumerate() {
-            if self.0.len() > i {
-                let time = &mut self.0[i];
+        'other: for (i, t) in other.1.iter().enumerate() {
+            if self.1.len() > i {
+                let time = &mut self.1[i];
                 match (time, t) {
                     (
                         ReportEntry::Item(name, ref mut time),
@@ -168,11 +169,11 @@ impl<'a> Report<'a> {
             }
         }
         for a in to_add.into_iter() {
-            self.0.push(a);
+            self.1.push(a);
         }
     }
     fn normalize_and_divide_all_times(&mut self, by: i32) {
-        for t in self.0.iter_mut() {
+        for t in self.1.iter_mut() {
             match t {
                 ReportEntry::Item(_, ref mut time) => {
                     *time = *time / by;
@@ -186,7 +187,7 @@ impl<'a> Report<'a> {
     pub fn averange<T>(timings: T) -> Report<'a>
         where T: Iterator<Item = &'a Report<'a>>
     {
-        let mut ts = Report(vec![]);
+        let mut ts = Report(Duration::zero(), vec![]);
         let mut n = 0;
         for t in timings {
             ts.add(&t);

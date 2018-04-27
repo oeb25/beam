@@ -1,6 +1,9 @@
 #![feature(fs_read_write, stmt_expr_attributes, transpose_result, box_syntax, box_patterns)]
+#![feature(plugin, custom_attribute)]
+#![plugin(flamer)]
 
 extern crate cgmath;
+extern crate flame;
 extern crate genmesh;
 extern crate gl;
 extern crate glutin;
@@ -14,18 +17,20 @@ use glutin::GlContext;
 
 use time::{Duration, PreciseTime};
 
-mod timing;
 mod mg;
-mod render;
 mod pipeline;
+mod render;
+mod timing;
 
-use timing::{Timer, Report, Timings, NoopTimer};
 use mg::*;
-use render::*;
 use pipeline::*;
+use render::*;
+use timing::{NoopTimer, Report, Timer, Timings};
 
 #[derive(Default)]
 struct Input {
+    mouse_delta: (f32, f32),
+
     w: f32,
     a: f32,
     s: f32,
@@ -40,13 +45,152 @@ struct Input {
     shift: f32,
 }
 
+struct Scene {
+    camera: Camera,
+    point_lights: Vec<PointLight>,
+    directional_lights: Vec<DirectionalLight>,
+}
+
+impl Scene {
+    fn new(screen_width: u32, screen_height: u32) -> Scene {
+        let light_pos1 = v3(1.5, 1.0, 0.0);
+        let light_pos2 = v3(1.5 + -10.0 * (23.0 / 14.0 as f32).sin(), 2.0, 0.0);
+
+        let one = v3(1.0, 1.0, 1.0);
+
+        let sun = DirectionalLight {
+            diffuse: v3(0.8, 0.8, 1.0) * 0.2,
+            ambient: one * 0.01,
+            specular: v3(0.8, 0.8, 0.8) * 0.2,
+
+            direction: v3(0.0, 1.0, -1.5).normalize(),
+
+            shadow_map: ShadowMap::new(),
+        };
+
+        let point_lights = vec![
+            PointLight {
+                diffuse: v3(0.0, 0.5, 0.3),
+                ambient: one * 0.0,
+                specular: one * 0.2,
+
+                position: light_pos1,
+                last_shadow_map_position: light_pos1,
+
+                constant: 1.0,
+                linear: 0.07,
+                quadratic: 0.017,
+
+                shadow_map: Some(PointShadowMap::new()),
+            },
+            PointLight {
+                diffuse: v3(0.0, 0.2, 0.2),
+                ambient: one * 0.2,
+                specular: one * 0.2,
+
+                position: light_pos2,
+                last_shadow_map_position: light_pos2,
+
+                constant: 1.0,
+                linear: 0.07,
+                quadratic: 0.007,
+
+                shadow_map: None,
+            },
+            PointLight {
+                diffuse: v3(0.0, 1.0, 0.2),
+                ambient: one * 0.0,
+                specular: one * 0.2,
+
+                position: light_pos1 + light_pos2,
+                last_shadow_map_position: light_pos1 + light_pos2,
+
+                constant: 1.0,
+                linear: 0.07,
+                quadratic: 0.007,
+
+                shadow_map: None,
+            },
+            PointLight {
+                diffuse: v3(0.2, 0.2, 0.8),
+                ambient: one * 0.0,
+                specular: one * 0.2,
+
+                position: v3(
+                    light_pos1.x * light_pos2.x,
+                    1.0,
+                    light_pos1.z * light_pos2.z,
+                ),
+                last_shadow_map_position: one,
+
+                constant: 1.0,
+                linear: 0.07,
+                quadratic: 0.007,
+
+                shadow_map: None,
+            },
+        ];
+
+        let directional_lights = vec![sun];
+
+        let camera = Camera::new(
+            v3(0.0, 0.0, 1.0),
+            Rad(std::f32::consts::PI / 2.0),
+            (screen_width as f32) / (screen_height as f32),
+        );
+
+        Scene {
+            camera,
+            point_lights,
+            directional_lights,
+        }
+    }
+    fn tick(&mut self, t: f32, _dt: f32, inputs: &Input) {
+        let lp1 = v3(9.0 * (t / 30.0).sin(), -13.0, 9.0 * (t / 40.0).sin());
+        self.point_lights[0].position = lp1;
+        let i = 1;
+        self.point_lights[i].position = v3(
+            1.5 + -10.0 * ((t + 23.0) / 14.0).sin(),
+            2.0,
+            -10.0 * (t / 90.0).sin(),
+        );
+        self.point_lights[i + 1].position = lp1 + self.point_lights[i].position;
+        self.point_lights[i + 2].position = v3(
+            lp1.x * self.point_lights[i].position.x,
+            lp1.y * self.point_lights[i].position.y,
+            lp1.z * self.point_lights[i].position.z,
+        );
+
+        let pi = std::f32::consts::PI;
+
+        let up = self.camera.up();
+        let right = self.camera.front().cross(up).normalize();
+        let front = up.cross(right).normalize();
+
+        let walk_speed = 0.1;
+        let sensitivity = 0.005;
+
+        self.camera.pos += walk_speed
+            * (front * (inputs.w - inputs.s) + right * (inputs.d - inputs.a)
+                + up * (inputs.space - inputs.shift));
+        self.camera.yaw += sensitivity * inputs.mouse_delta.0;
+        self.camera.pitch = (self.camera.pitch - sensitivity * inputs.mouse_delta.1)
+            .max(-pi / 2.001)
+            .min(pi / 2.001);
+        // self.camera.yaw += sensitivity * (inputs.right - inputs.left);
+        // self.camera.pitch = (self.camera.pitch + sensitivity * (inputs.up - inputs.down))
+        //     .max(-pi / 2.001)
+        //     .min(pi / 2.001);
+    }
+}
+
 fn main() {
     let (screen_width, screen_height) = (800, 600);
     let mut events_loop = glutin::EventsLoop::new();
     let window = glutin::WindowBuilder::new()
         .with_title("Hello, world!")
         .with_dimensions(screen_width, screen_height);
-    let context = glutin::ContextBuilder::new().with_vsync(false);
+    let context = glutin::ContextBuilder::new().with_vsync(true);
     let gl_window = glutin::GlWindow::new(window, context, &events_loop).unwrap();
 
     unsafe {
@@ -57,11 +201,9 @@ fn main() {
 
     let mut t: f32 = 0.0;
 
-    let mut camera = Camera::new(
-        v3(t.sin(), (t / 10.0).sin(), 1.0),
-        Rad(std::f32::consts::PI / 2.0),
-        (screen_width as f32) / (screen_height as f32),
-    );
+    let (w, h) = gl_window.get_inner_size().unwrap();
+
+    let mut scene = Scene::new(w, h);
 
     let mut inputs = Input::default();
 
@@ -88,96 +230,8 @@ fn main() {
         }
     }
 
-    let (w, h) = gl_window.get_inner_size().unwrap();
-
     let mut pipeline = Pipeline::new(w * 2, h * 2);
     println!("drawing {} nanosuits", is.len());
-
-    let light_pos1 = v3(
-        1.5 + -20.0 * (t / 10.0).sin(),
-        1.0,
-        -20.0 * (t / 20.0).sin(),
-    );
-    let light_pos2 = v3(
-        1.5 + -10.0 * ((t + 23.0) / 14.0).sin(),
-        2.0,
-        -10.0 * (t / 90.0).sin(),
-    );
-
-    let one = v3(1.0, 1.0, 1.0);
-
-    let mut sun = DirectionalLight {
-        diffuse: v3(0.8, 0.8, 0.8) * 0.2,
-        ambient: one * 0.01,
-        specular: v3(0.8, 0.8, 0.8) * 0.2,
-
-        direction: v3(0.0, 1.0, -1.5).normalize(),
-
-        shadow_map: ShadowMap::new(),
-    };
-
-    let mut point_lights = [
-        PointLight {
-            diffuse: v3(0.0, 0.5, 0.3),
-            ambient: one * 0.0,
-            specular: one * 0.2,
-
-            position: light_pos1,
-            last_shadow_map_position: light_pos1,
-
-            constant: 1.0,
-            linear: 0.07,
-            quadratic: 0.017,
-
-            shadow_map: Some(PointShadowMap::new()),
-        },
-        PointLight {
-            diffuse: v3(0.0, 0.2, 0.2),
-            ambient: one * 0.2,
-            specular: one * 0.2,
-
-            position: light_pos2,
-            last_shadow_map_position: light_pos2,
-
-            constant: 1.0,
-            linear: 0.07,
-            quadratic: 0.007,
-
-            shadow_map: None,
-        },
-        PointLight {
-            diffuse: v3(0.0, 1.0, 0.2),
-            ambient: one * 0.0,
-            specular: one * 0.2,
-
-            position: light_pos1 + light_pos2,
-            last_shadow_map_position: light_pos1 + light_pos2,
-
-            constant: 1.0,
-            linear: 0.07,
-            quadratic: 0.007,
-
-            shadow_map: None,
-        },
-        PointLight {
-            diffuse: v3(0.2, 0.2, 0.8),
-            ambient: one * 0.0,
-            specular: one * 0.2,
-
-            position: v3(
-                light_pos1.x * light_pos2.x,
-                1.0,
-                light_pos1.z * light_pos2.z,
-            ),
-            last_shadow_map_position: one,
-
-            constant: 1.0,
-            linear: 0.07,
-            quadratic: 0.007,
-
-            shadow_map: None,
-        },
-    ];
 
     let mut fps_last_time = PreciseTime::now();
     let fps_step = Duration::seconds(1);
@@ -188,13 +242,13 @@ fn main() {
 
     let mut update_shadows;
 
-    let mut report_cache: std::collections::VecDeque<Report> = std::collections::VecDeque::new();
+    // let mut report_cache: std::collections::VecDeque<Report> = std::collections::VecDeque::new();
 
     while running {
-        let mut timings = Timings::new();
+        // let mut timings = Timings::new();
+        let mut timings = NoopTimer;
 
         timings.time("time stuff");
-        let mut mouse_delta = (0.0, 0.0);
 
         let now = PreciseTime::now();
         {
@@ -227,7 +281,7 @@ fn main() {
                         }
                         Some(lp) => {
                             last_pos = Some(position);
-                            mouse_delta = (
+                            inputs.mouse_delta = (
                                 position.0 as f32 - lp.0 as f32,
                                 position.1 as f32 - lp.1 as f32,
                             );
@@ -273,45 +327,7 @@ fn main() {
 
         t += 1.0;
 
-        let lp1 = v3(
-            9.0 * (t / 30.0).sin(),
-            -13.0,
-            9.0 * (t / 40.0).sin(),
-        );
-        point_lights[0].position = lp1;
-        let i = 1;
-        point_lights[i].position = v3(
-            1.5 + -10.0 * ((t + 23.0) / 14.0).sin(),
-            2.0,
-            -10.0 * (t / 90.0).sin(),
-        );
-        point_lights[i + 1].position = lp1 + point_lights[i].position;
-        point_lights[i + 2].position = v3(
-            lp1.x * point_lights[i].position.x,
-            lp1.y * point_lights[i].position.y,
-            lp1.z * point_lights[i].position.z,
-        );
-
-        let pi = std::f32::consts::PI;
-
-        let up = camera.up();
-        let right = camera.front().cross(up).normalize();
-        let front = up.cross(right).normalize();
-
-        let walk_speed = 0.1;
-        let sensitivity = 0.005;
-
-        camera.pos += walk_speed
-            * (front * (inputs.w - inputs.s) + right * (inputs.d - inputs.a)
-                + up * (inputs.space - inputs.shift));
-        camera.yaw += sensitivity * mouse_delta.0;
-        camera.pitch = (camera.pitch - sensitivity * mouse_delta.1)
-            .max(-pi / 2.001)
-            .min(pi / 2.001);
-        // camera.yaw += sensitivity * (inputs.right - inputs.left);
-        // camera.pitch = (camera.pitch + sensitivity * (inputs.up - inputs.down))
-        //     .max(-pi / 2.001)
-        //     .min(pi / 2.001);
+        scene.tick(t, t, &inputs);
 
         timings.time("pre render");
 
@@ -325,14 +341,15 @@ fn main() {
                 (v3(-10.0, -10.0, 0.0), v3(0.1, 20.0, 20.0)),
                 (v3(0.0, -10.0, -10.0), v3(20.0, 20.0, 0.1)),
                 (v3(0.0, -10.0, 10.0), v3(20.0, 20.0, 0.1)),
-            ].into_iter().map(|(p, s)| {
-                Object {
+            ].into_iter()
+                .map(|(p, s)| Object {
                     kind: ObjectKind::Cube,
-                    transform: Mat4::from_translation(*p) * Mat4::from_nonuniform_scale(s.x, s.y, s.z),
-                }
-            }).collect();
+                    transform: Mat4::from_translation(*p)
+                        * Mat4::from_nonuniform_scale(s.x, s.y, s.z),
+                })
+                .collect();
 
-            for light in point_lights.iter() {
+            for light in scene.point_lights.iter() {
                 objects.push(Object {
                     kind: ObjectKind::Cube,
                     transform: Mat4::from_translation(light.position.clone()),
@@ -345,10 +362,10 @@ fn main() {
                 timings,
                 update_shadows,
                 RenderProps {
-                    camera: &camera,
+                    camera: &scene.camera,
                     objects: &objects,
-                    directional_lights: &mut [&mut sun],
-                    point_lights: &mut point_lights,
+                    directional_lights: &mut scene.directional_lights,
+                    point_lights: &mut scene.point_lights,
                     time: t,
                 },
             );
@@ -359,11 +376,13 @@ fn main() {
 
         gl_window.swap_buffers().unwrap();
 
-        let report = timings.end();
-        report_cache.push_front(report);
-        if report_cache.len() > 60 {
-            report_cache.truncate(30);
-        }
-        Report::averange(report_cache.iter()).print();
+        // let report = timings.end();
+        // report_cache.push_front(report);
+        // if report_cache.len() > 60 {
+        //     report_cache.truncate(30);
+        // }
+        // Report::averange(report_cache.iter()).print();
     }
+
+    flame::dump_html(&mut std::fs::File::create("flame-graph.html").unwrap()).unwrap();
 }

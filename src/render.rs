@@ -143,25 +143,28 @@ impl Image {
 
 #[allow(unused)]
 pub struct Mesh {
-    positions: Vec<V3>,
-    normals: Vec<V3>,
-    tex: Vec<V2>,
-    tangents: Vec<V3>,
+    // positions: Vec<V3>,
+    // normals: Vec<V3>,
+    // tex: Vec<V2>,
+    // tangents: Vec<V3>,
+    vcount: usize,
 
     indecies: Option<Vec<usize>>,
     textures: Vec<Rc<Image>>,
 
     vao: VertexArray,
     vbo: VertexBuffer<()>,
-    ebo: Option<Ebo>,
+    ebo: Option<ElementBuffer<u32>>,
+
+
 }
 
 impl Mesh {
     pub fn new(
-        positions: Vec<V3>,
-        normals: Vec<V3>,
-        tex: Vec<V2>,
-        tangents: Vec<V3>,
+        positions: &[V3],
+        normals: &[V3],
+        tex: &[V2],
+        tangents: &[V3],
 
         indecies: Option<Vec<usize>>,
         textures: Vec<Rc<Image>>,
@@ -181,7 +184,7 @@ impl Mesh {
             VertexBuffer::from_size(positions_size + normals_size + tex_size + tangents_size);
 
         let ebo = if indecies.is_some() {
-            Some(Ebo::new())
+            Some(ElementBuffer::new())
         } else {
             None
         };
@@ -196,25 +199,24 @@ impl Mesh {
             let mut vbo_binder = vbo.bind();
 
             vbo_binder
-                .buffer_sub_data(positions_offset, &positions)
-                .buffer_sub_data(normals_offset, &normals)
-                .buffer_sub_data(tex_offset, &tex)
-                .buffer_sub_data(tangents_offset, &tangents);
-
-            let float_size = mem::size_of::<f32>();
+                .buffer_sub_data(positions_offset, positions)
+                .buffer_sub_data(normals_offset, normals)
+                .buffer_sub_data(tex_offset, tex)
+                .buffer_sub_data(tangents_offset, tangents);
 
             vao.bind()
-                .attrib(0, 3, 3 * float_size, positions_offset)
-                .attrib(1, 3, 3 * float_size, normals_offset)
-                .attrib(2, 2, 2 * float_size, tex_offset)
-                .attrib(3, 3, 3 * float_size, tangents_offset);
+                .attrib(&vbo_binder, 0, 3, GlType::Float, 0, positions_offset)
+                .attrib(&vbo_binder, 1, 3, GlType::Float, 0, normals_offset)
+                .attrib(&vbo_binder, 2, 2, GlType::Float, 0, tex_offset)
+                .attrib(&vbo_binder, 3, 3, GlType::Float, 0, tangents_offset);
         }
 
         Mesh {
-            positions,
-            normals,
-            tex,
-            tangents,
+            // positions,
+            // normals,
+            // tex,
+            // tangents,
+            vcount: positions.len(),
 
             indecies,
             textures,
@@ -231,6 +233,7 @@ impl Mesh {
 
 pub struct MeshBinding<'a>(&'a mut Mesh);
 impl<'a> MeshBinding<'a> {
+    #[flame]
     fn bind_textures(&self, program: &ProgramBinding) {
         let mut diffuse_n = 0;
         let mut ambient_n = 0;
@@ -277,15 +280,25 @@ impl<'a> MeshBinding<'a> {
         self.0
             .vao
             .bind()
-            .draw_arrays(fbo, DrawMode::Triangles, 0, self.0.positions.len());
+            .draw_arrays(fbo, DrawMode::Triangles, 0, self.0.vcount);
     }
-    pub fn draw_instanced<T>(&mut self, fbo: &T, program: &ProgramBinding, transforms: &VboBinder<Mat4>)
-    where
-        T: FramebufferBinderDrawer,
+    #[flame]
+    pub fn draw_instanced<'b, T, S>(
+        &mut self,
+        timer: &mut S,
+        fbo: &T,
+        program: &ProgramBinding,
+        transforms: &VertexBufferBinder<Mat4>
+    )
+        where
+            T: FramebufferBinderDrawer,
+            S: Timer<'b>
     {
+        timer.time("prepare textures");
         self.bind_textures(program);
         GlError::check().expect("Mesh::draw_instanced: failed to bind textures");
 
+        timer.time("prepare instance vao");
         let mut vao = self.0.vao.bind();
         GlError::check().expect("Mesh::draw_instanced: failed to bind vao");
         let offset = 4;
@@ -297,13 +310,15 @@ impl<'a> MeshBinding<'a> {
             GlError::check().expect("Mesh::draw_instanced: failed to bind transforms");
         }
 
+        timer.time("draw instanced");
         vao.draw_arrays_instanced(
             fbo,
             DrawMode::Triangles,
             0,
-            self.0.positions.len(),
+            self.0.vcount,
             transforms.len(),
         );
+        timer.time("draw instanced done");
         GlError::check().expect("Mesh::draw_instanced: failed to draw instanced");
     }
 }
@@ -432,7 +447,7 @@ impl Model {
             }
 
             let (a, b, c, d) = Vertex::soa(&vertices);
-            let mesh = Mesh::new(a, b, c, d, None, materials);
+            let mesh = Mesh::new(&a, &b, &c, &d, None, materials);
 
             meshes.push(mesh);
         }
@@ -451,12 +466,16 @@ impl Model {
             mesh.bind().draw(fbo, &program);
         }
     }
-    pub fn draw_instanced<T>(&mut self, fbo: &T, program: &ProgramBinding, offsets: &VboBinder<Mat4>)
+    #[flame]
+    pub fn draw_instanced<'a, T, S>(&mut self, timer: &mut S, fbo: &T, program: &ProgramBinding, offsets: &VertexBufferBinder<Mat4>)
     where
         T: FramebufferBinderDrawer,
+        S: Timer<'a>
     {
         for mut mesh in self.meshes.iter_mut() {
-            mesh.bind().draw_instanced(fbo, &program, offsets);
+            let block = timer.block("draw mesh...");
+            mesh.bind().draw_instanced(block, fbo, &program, offsets);
+            block.end_block();
         }
     }
 }
@@ -509,7 +528,7 @@ impl DirectionalLight {
         program.bind_texture(&ext("shadowMap"), &shadow_map.map, texture_slot);
     }
     pub fn bind_multiple(
-        lights: &[&mut DirectionalLight],
+        lights: &[DirectionalLight],
         initial_slot: TextureSlot,
         name_uniform: &str,
         amt_uniform: &str,

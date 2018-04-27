@@ -11,6 +11,8 @@ image = "*"
 obj = { version = "0.8", features = ["genmesh"] }
 genmesh = "0.5"
 time = "*"
+flame = "0.2.2"
+flamer = "^0.2.1"
 
 [profile.dev]
 opt-level = 3
