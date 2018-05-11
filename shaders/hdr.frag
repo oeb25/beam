@@ -6,6 +6,8 @@ in vec2 TexCoords;
 
 uniform float time;
 uniform sampler2D hdrBuffer;
+uniform sampler2D blur1;
+uniform sampler2D blur2;
 uniform sampler2D shadowMap;
 
 void main() {
@@ -48,6 +50,9 @@ void main() {
     }
 
     color = sample.rgb;
+
+    color += texture(blur1, TexCoords).rgb * 1.0;
+    color += texture(blur2, TexCoords).rgb * 0.25;
 
     bool pip = false;
     if (pip && TexCoords.x < 0.25 && TexCoords.y < 0.25) {

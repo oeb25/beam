@@ -194,7 +194,7 @@ impl<'a> VertexArrayBinder<'a> {
 impl<'a> Drop for VertexArrayBinder<'a> {
     fn drop(&mut self) {
         unsafe {
-            gl::BindVertexArray(0);
+            // gl::BindVertexArray(0);
         }
     }
 }

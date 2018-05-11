@@ -250,7 +250,7 @@ impl<'a> ProgramBinding<'a> {
                     .as_ptr(),
             )
         };
-        GlError::check().expect(&format!("unable to get uniform location for name: '{}'", name));
+        // GlError::check().expect(&format!("unable to get uniform location for name: '{}'", name));
         UniformLocation::new(loc)
     }
     pub fn bind_mat4<T: Into<[[f32; 4]; 4]>>(&self, name: &str, mat: T) -> &ProgramBinding {

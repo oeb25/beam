@@ -1,15 +1,14 @@
 #![feature(fs_read_write, stmt_expr_attributes, transpose_result, box_syntax, box_patterns)]
-#![feature(plugin, custom_attribute)]
-#![plugin(flamer)]
+#![feature(custom_attribute)]
 
 extern crate cgmath;
-extern crate flame;
 extern crate genmesh;
 extern crate gl;
 extern crate glutin;
 extern crate image;
 extern crate obj;
 extern crate time;
+extern crate mg;
 
 use cgmath::{InnerSpace, Rad};
 
@@ -17,7 +16,7 @@ use glutin::GlContext;
 
 use time::{Duration, PreciseTime};
 
-mod mg;
+// mod mg;
 mod pipeline;
 mod render;
 mod timing;
@@ -59,9 +58,9 @@ impl Scene {
         let one = v3(1.0, 1.0, 1.0);
 
         let sun = DirectionalLight {
-            diffuse: v3(0.8, 0.8, 1.0) * 0.2,
-            ambient: one * 0.01,
-            specular: v3(0.8, 0.8, 0.8) * 0.2,
+            diffuse: v3(0.2, 0.4, 1.0) * 0.2,
+            ambient: v3(0.0, 0.0, 1.0) * 0.1,
+            specular: v3(0.2, 0.4, 1.0) * 0.2,
 
             direction: v3(0.0, 1.0, -1.5).normalize(),
 
@@ -69,24 +68,24 @@ impl Scene {
         };
 
         let point_lights = vec![
+            // PointLight {
+            //     diffuse: v3(0.0, 0.3, 0.7),
+            //     ambient: one * 0.0,
+            //     specular: one * 0.2,
+
+            //     position: light_pos1,
+            //     last_shadow_map_position: light_pos1,
+
+            //     constant: 1.0,
+            //     linear: 0.07,
+            //     quadratic: 0.017,
+
+            //     shadow_map: Some(PointShadowMap::new()),
+            // },
             PointLight {
-                diffuse: v3(0.0, 0.5, 0.3),
-                ambient: one * 0.0,
-                specular: one * 0.2,
-
-                position: light_pos1,
-                last_shadow_map_position: light_pos1,
-
-                constant: 1.0,
-                linear: 0.07,
-                quadratic: 0.017,
-
-                shadow_map: Some(PointShadowMap::new()),
-            },
-            PointLight {
-                diffuse: v3(0.0, 0.2, 0.2),
-                ambient: one * 0.2,
-                specular: one * 0.2,
+                diffuse: v3(0.7, 0.4, 0.2),
+                ambient: v3(0.7, 0.4, 0.2) * 0.2,
+                specular: v3(0.7, 0.4, 0.2) * 0.7,
 
                 position: light_pos2,
                 last_shadow_map_position: light_pos2,
@@ -95,40 +94,41 @@ impl Scene {
                 linear: 0.07,
                 quadratic: 0.007,
 
-                shadow_map: None,
+                // shadow_map: None,
+                shadow_map: Some(PointShadowMap::new()),
             },
-            PointLight {
-                diffuse: v3(0.0, 1.0, 0.2),
-                ambient: one * 0.0,
-                specular: one * 0.2,
+            // PointLight {
+            //     diffuse: v3(0.0, 1.0, 0.2),
+            //     ambient: one * 0.0,
+            //     specular: one * 0.2,
 
-                position: light_pos1 + light_pos2,
-                last_shadow_map_position: light_pos1 + light_pos2,
+            //     position: light_pos1 + light_pos2,
+            //     last_shadow_map_position: light_pos1 + light_pos2,
 
-                constant: 1.0,
-                linear: 0.07,
-                quadratic: 0.007,
+            //     constant: 1.0,
+            //     linear: 0.07,
+            //     quadratic: 0.007,
 
-                shadow_map: None,
-            },
-            PointLight {
-                diffuse: v3(0.2, 0.2, 0.8),
-                ambient: one * 0.0,
-                specular: one * 0.2,
+            //     shadow_map: None,
+            // },
+            // PointLight {
+            //     diffuse: v3(0.2, 0.2, 0.8),
+            //     ambient: one * 0.0,
+            //     specular: one * 0.2,
 
-                position: v3(
-                    light_pos1.x * light_pos2.x,
-                    1.0,
-                    light_pos1.z * light_pos2.z,
-                ),
-                last_shadow_map_position: one,
+            //     position: v3(
+            //         light_pos1.x * light_pos2.x,
+            //         1.0,
+            //         light_pos1.z * light_pos2.z,
+            //     ),
+            //     last_shadow_map_position: one,
 
-                constant: 1.0,
-                linear: 0.07,
-                quadratic: 0.007,
+            //     constant: 1.0,
+            //     linear: 0.07,
+            //     quadratic: 0.007,
 
-                shadow_map: None,
-            },
+            //     shadow_map: None,
+            // },
         ];
 
         let directional_lights = vec![sun];
@@ -148,18 +148,18 @@ impl Scene {
     fn tick(&mut self, t: f32, _dt: f32, inputs: &Input) {
         let lp1 = v3(9.0 * (t / 30.0).sin(), -13.0, 9.0 * (t / 40.0).sin());
         self.point_lights[0].position = lp1;
-        let i = 1;
-        self.point_lights[i].position = v3(
-            1.5 + -10.0 * ((t + 23.0) / 14.0).sin(),
-            2.0,
-            -10.0 * (t / 90.0).sin(),
-        );
-        self.point_lights[i + 1].position = lp1 + self.point_lights[i].position;
-        self.point_lights[i + 2].position = v3(
-            lp1.x * self.point_lights[i].position.x,
-            lp1.y * self.point_lights[i].position.y,
-            lp1.z * self.point_lights[i].position.z,
-        );
+        // let i = 1;
+        // self.point_lights[i].position = v3(
+        //     1.5 + -10.0 * ((t + 23.0) / 14.0).sin(),
+        //     2.0,
+        //     -10.0 * (t / 90.0).sin(),
+        // );
+        // self.point_lights[i + 1].position = lp1 + self.point_lights[i].position;
+        // self.point_lights[i + 2].position = v3(
+        //     lp1.x * self.point_lights[i].position.x,
+        //     lp1.y * self.point_lights[i].position.y,
+        //     lp1.z * self.point_lights[i].position.z,
+        // );
 
         let pi = std::f32::consts::PI;
 
@@ -192,6 +192,7 @@ fn main() {
         .with_dimensions(screen_width, screen_height);
     let context = glutin::ContextBuilder::new().with_vsync(true);
     let gl_window = glutin::GlWindow::new(window, context, &events_loop).unwrap();
+    gl_window.window().set_cursor_state(glutin::CursorState::Grab).unwrap();
 
     unsafe {
         gl_window.make_current().unwrap();
@@ -269,6 +270,8 @@ fn main() {
             }
         }
 
+        inputs.mouse_delta = (0.0, 0.0);
+
         timings.time("event polling");
         events_loop.poll_events(|event| match event {
             glutin::Event::WindowEvent { event, .. } => match event {
@@ -318,8 +321,18 @@ fn main() {
                         }
                     }
                 }
-                _ => {}
+                // x => println!("{:?}", x),
+                _ => {},
             },
+            glutin::Event::DeviceEvent { event, .. } => {
+                match event {
+                    glutin::DeviceEvent::MouseMotion { delta } => {
+                        inputs.mouse_delta = (delta.0 as f32, delta.1 as f32);
+                    }
+                    _ => {},
+                }
+            },
+            // x => println!("{:?}", x),
             _ => (),
         });
 
@@ -384,5 +397,5 @@ fn main() {
         // Report::averange(report_cache.iter()).print();
     }
 
-    flame::dump_html(&mut std::fs::File::create("flame-graph.html").unwrap()).unwrap();
+    // flame::dump_html(&mut std::fs::File::create("flame-graph.html").unwrap()).unwrap();
 }

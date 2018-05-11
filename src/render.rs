@@ -6,8 +6,8 @@ use obj;
 
 use std::{self, collections::HashMap, mem, path::Path, rc::Rc};
 
-use timing::{Timings, Report, Timer};
 use mg::*;
+use timing::{Report, Timer, Timings};
 
 pub type V2 = cgmath::Vector2<f32>;
 pub type V3 = cgmath::Vector3<f32>;
@@ -155,8 +155,6 @@ pub struct Mesh {
     vao: VertexArray,
     vbo: VertexBuffer<()>,
     ebo: Option<ElementBuffer<u32>>,
-
-
 }
 
 impl Mesh {
@@ -233,7 +231,6 @@ impl Mesh {
 
 pub struct MeshBinding<'a>(&'a mut Mesh);
 impl<'a> MeshBinding<'a> {
-    #[flame]
     fn bind_textures(&self, program: &ProgramBinding) {
         let mut diffuse_n = 0;
         let mut ambient_n = 0;
@@ -282,17 +279,15 @@ impl<'a> MeshBinding<'a> {
             .bind()
             .draw_arrays(fbo, DrawMode::Triangles, 0, self.0.vcount);
     }
-    #[flame]
     pub fn draw_instanced<'b, T, S>(
         &mut self,
         timer: &mut S,
         fbo: &T,
         program: &ProgramBinding,
-        transforms: &VertexBufferBinder<Mat4>
-    )
-        where
-            T: FramebufferBinderDrawer,
-            S: Timer<'b>
+        transforms: &VertexBufferBinder<Mat4>,
+    ) where
+        T: FramebufferBinderDrawer,
+        S: Timer<'b>,
     {
         timer.time("prepare textures");
         self.bind_textures(program);
@@ -311,13 +306,7 @@ impl<'a> MeshBinding<'a> {
         }
 
         timer.time("draw instanced");
-        vao.draw_arrays_instanced(
-            fbo,
-            DrawMode::Triangles,
-            0,
-            self.0.vcount,
-            transforms.len(),
-        );
+        vao.draw_arrays_instanced(fbo, DrawMode::Triangles, 0, self.0.vcount, transforms.len());
         timer.time("draw instanced done");
         GlError::check().expect("Mesh::draw_instanced: failed to draw instanced");
     }
@@ -441,7 +430,7 @@ impl Model {
                                 vertices.push(v);
                             }
                         }
-                        _ => unimplemented!(),
+                        x => unimplemented!("{:?}", x),
                     }
                 }
             }
@@ -466,11 +455,15 @@ impl Model {
             mesh.bind().draw(fbo, &program);
         }
     }
-    #[flame]
-    pub fn draw_instanced<'a, T, S>(&mut self, timer: &mut S, fbo: &T, program: &ProgramBinding, offsets: &VertexBufferBinder<Mat4>)
-    where
+    pub fn draw_instanced<'a, T, S>(
+        &mut self,
+        timer: &mut S,
+        fbo: &T,
+        program: &ProgramBinding,
+        offsets: &VertexBufferBinder<Mat4>,
+    ) where
         T: FramebufferBinderDrawer,
-        S: Timer<'a>
+        S: Timer<'a>,
     {
         for mut mesh in self.meshes.iter_mut() {
             let block = timer.block("draw mesh...");
@@ -602,7 +595,7 @@ impl PointLight {
                 GlError::check().expect("Failed to bind light: shadowMap");
                 program.bind_float(&ext("farPlane"), shadow_map.far);
                 GlError::check().expect("Failed to bind light: farPlane");
-            },
+            }
             None => {
                 program.bind_vec3(&ext("lastPosition"), *position);
                 program.bind_bool(&ext("useShadowMap"), false);
@@ -730,8 +723,8 @@ impl ShadowMap {
                 TextureFormat::DepthComponent,
                 GlType::Float,
             )
-            .parameter_int(TextureParameter::MinFilter, gl::NEAREST as i32)
-            .parameter_int(TextureParameter::MagFilter, gl::NEAREST as i32)
+            .parameter_int(TextureParameter::MinFilter, gl::LINEAR as i32)
+            .parameter_int(TextureParameter::MagFilter, gl::LINEAR as i32)
             .parameter_int(TextureParameter::WrapS, gl::REPEAT as i32)
             .parameter_int(TextureParameter::WrapT, gl::REPEAT as i32);
         fbo.bind()
@@ -746,7 +739,10 @@ impl ShadowMap {
         }
     }
     pub fn size() -> (u32, u32) {
-        (1024, 1024)
+        // (1024, 1024)
+        // (2048, 2048)
+        // (4096, 4096)
+        (8192, 8192)
     }
 }
 
@@ -781,8 +777,8 @@ impl PointShadowMap {
                 );
             }
 
-            tex.parameter_int(TextureParameter::MinFilter, gl::NEAREST as i32)
-                .parameter_int(TextureParameter::MagFilter, gl::NEAREST as i32)
+            tex.parameter_int(TextureParameter::MinFilter, gl::LINEAR as i32)
+                .parameter_int(TextureParameter::MagFilter, gl::LINEAR as i32)
                 .parameter_int(TextureParameter::WrapS, gl::CLAMP_TO_EDGE as i32)
                 .parameter_int(TextureParameter::WrapT, gl::CLAMP_TO_EDGE as i32)
                 .parameter_int(TextureParameter::WrapR, gl::CLAMP_TO_EDGE as i32);
@@ -808,6 +804,9 @@ impl PointShadowMap {
     }
     pub fn size() -> (u32, u32) {
         (1024, 1024)
+        // (2048, 2048)
+        // (4096, 4096)
+        // (8192, 8192)
     }
 }
 
@@ -826,8 +825,8 @@ pub struct Object {
 
 pub struct GRenderPass {
     pub fbo: Framebuffer,
-    #[allow(unused)]
-    pub depth: Renderbuffer,
+    // #[allow(unused)]
+    // pub depth: Renderbuffer,
     pub position: Texture,
     pub normal: Texture,
     pub albedo_spec: Texture,
@@ -905,11 +904,69 @@ impl GRenderPass {
 
         GRenderPass {
             fbo,
-            depth,
+            // depth,
             position,
             normal,
             albedo_spec,
         }
+    }
+}
+
+pub struct RenderTarget {
+    pub size: (u32, u32),
+    pub framebuffer: Framebuffer,
+    pub texture: Texture,
+}
+
+impl RenderTarget {
+    pub fn new(w: u32, h: u32) -> RenderTarget {
+        let mut framebuffer = Framebuffer::new();
+        let mut depth = Renderbuffer::new();
+        let texture = Texture::new(TextureKind::Texture2d);
+        texture
+            .bind()
+            .empty(
+                TextureTarget::Texture2d,
+                0,
+                TextureInternalFormat::Rgba,
+                w,
+                h,
+                TextureFormat::Rgba,
+                GlType::UnsignedByte,
+            )
+            .parameter_int(TextureParameter::MinFilter, gl::LINEAR as i32)
+            .parameter_int(TextureParameter::MagFilter, gl::LINEAR as i32)
+            .parameter_int(TextureParameter::WrapS, gl::CLAMP_TO_EDGE as i32)
+            .parameter_int(TextureParameter::WrapT, gl::CLAMP_TO_EDGE as i32)
+            .parameter_int(TextureParameter::WrapR, gl::CLAMP_TO_EDGE as i32);
+
+        depth
+            .bind()
+            .storage(TextureInternalFormat::DepthComponent, w, h);
+
+        framebuffer
+            .bind()
+            .texture_2d(Attachment::Color0, TextureTarget::Texture2d, &texture, 0)
+            .draw_buffers(&[Attachment::Color0])
+            .renderbuffer(Attachment::Depth, &depth);
+
+        RenderTarget {
+            size: (w, h),
+            framebuffer,
+            texture,
+        }
+    }
+
+    pub fn bind(&mut self) -> FramebufferBinderReadDraw {
+        self.framebuffer.bind()
+    }
+
+    pub fn read(&mut self) -> FramebufferBinderRead {
+        self.framebuffer.read()
+    }
+
+    pub fn draw(&mut self) -> FramebufferBinderDraw {
+        self.framebuffer.draw()
     }
 }
 

@@ -2,3 +2,5 @@
 /target
 **/*.rs.bk
 flame-graph.html
+pack
+pack.zip

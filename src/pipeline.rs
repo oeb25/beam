@@ -3,10 +3,10 @@ use gl;
 use cgmath::Rad;
 use timing::{Timer, NoopTimer};
 use mg::*;
-use flame;
+
 use render::{Camera, DirectionalLight, PointLight, Model, Mesh, GRenderPass,
              CubeMapBuilder, Object, ObjectKind, Vertex, v3, Image, ImageKind,
-             Mat4, V4, ShadowMap, PointShadowMap};
+             Mat4, V4, ShadowMap, PointShadowMap, RenderTarget};
 
 pub struct RenderProps<'a> {
     pub objects: &'a [Object],
@@ -24,6 +24,7 @@ pub struct Pipeline {
     pub directional_lighting_program: Program,
     pub point_lighting_program: Program,
     pub skybox_program: Program,
+    pub blur_program: Program,
     pub hdr_program: Program,
 
     pub nanosuit: Model,
@@ -39,10 +40,12 @@ pub struct Pipeline {
     pub screen_height: u32,
 
     pub g: GRenderPass,
-    pub color_a_fbo: Framebuffer,
-    pub color_a_tex: Texture,
-    pub color_b_fbo: Framebuffer,
-    pub color_b_tex: Texture,
+
+    pub color_a: RenderTarget,
+    pub color_b: RenderTarget,
+
+    pub blur_1: RenderTarget,
+    pub blur_2: RenderTarget,
 
     pub window_fbo: Framebuffer,
 
@@ -64,6 +67,8 @@ impl Pipeline {
         let vertex_program = Pipeline::load_vertex_program();
         let skybox_program =
             Program::new_from_disk("shaders/skybox.vert", None, "shaders/skybox.frag").unwrap();
+        let blur_program =
+            Program::new_from_disk("shaders/hdr.vert", None, "shaders/blur.frag").unwrap();
         let hdr_program =
             Program::new_from_disk("shaders/hdr.vert", None, "shaders/hdr.frag").unwrap();
         let directional_shadow_program =
@@ -82,15 +87,32 @@ impl Pipeline {
             Program::new_from_disk("shaders/lighting.vert", None, "shaders/point_lighting.frag")
                 .unwrap();
 
+        // let skybox = CubeMapBuilder {
+        //     back: "assets/skybox/back.jpg",
+        //     front: "assets/skybox/front.jpg",
+        //     right: "assets/skybox/right.jpg",
+        //     bottom: "assets/skybox/bottom.jpg",
+        //     left: "assets/skybox/left.jpg",
+        //     top: "assets/skybox/top.jpg",
+        // }.build();
         let skybox = CubeMapBuilder {
-            back: "assets/skybox/back.jpg",
-            front: "assets/skybox/front.jpg",
-            right: "assets/skybox/right.jpg",
-            bottom: "assets/skybox/bottom.jpg",
-            left: "assets/skybox/left.jpg",
-            top: "assets/skybox/top.jpg",
+            back: "assets/darkcity/darkcity_bk.tga",
+            front: "assets/darkcity/darkcity_ft.tga",
+            right: "assets/darkcity/darkcity_lf.tga",
+            bottom: "assets/darkcity/darkcity_dn.tga",
+            left: "assets/darkcity/darkcity_rt.tga",
+            top: "assets/darkcity/darkcity_up.tga",
+        }.build();
+        let skybox = CubeMapBuilder {
+            back: "assets/darkcity/darkcity_lf.tga",
+            front: "assets/darkcity/darkcity_rt.tga",
+            right: "assets/darkcity/darkcity_ft.tga",
+            bottom: "assets/darkcity/darkcity_dn.tga",
+            left: "assets/darkcity/darkcity_bk.tga",
+            top: "assets/darkcity/darkcity_up.tga",
         }.build();
         let nanosuit = Model::new_from_disk("assets/nanosuit_reflection/nanosuit.obj");
+        // let cyborg = Model::new_from_disk("assets/nice_thing/nice.obj");
         let cyborg = Model::new_from_disk("assets/cyborg/cyborg.obj");
 
         let tex1 = Image::new_from_disk("assets/container2.png", ImageKind::Diffuse);
@@ -106,67 +128,13 @@ impl Pipeline {
 
         let g = GRenderPass::new(w, h);
 
-        let mut color_a_fbo = Framebuffer::new();
-        let mut color_a_depth = Renderbuffer::new();
-        color_a_depth
-            .bind()
-            .storage(TextureInternalFormat::DepthComponent, w, h);
-        let color_a_tex = Texture::new(TextureKind::Texture2d);
-        color_a_tex
-            .bind()
-            .empty(
-                TextureTarget::Texture2d,
-                0,
-                TextureInternalFormat::Rgba16f,
-                w,
-                h,
-                TextureFormat::Rgba,
-                GlType::Float,
-            )
-            .parameter_int(TextureParameter::MinFilter, gl::LINEAR as i32)
-            .parameter_int(TextureParameter::MagFilter, gl::LINEAR as i32);
-        color_a_fbo
-            .bind()
-            .texture_2d(
-                Attachment::Color0,
-                TextureTarget::Texture2d,
-                &color_a_tex,
-                0,
-            )
-            .renderbuffer(Attachment::Depth, &color_a_depth)
-            .check_status()
-            .expect("framebuffer not complete");
+        let color_a = RenderTarget::new(w, h);
+        let color_b = RenderTarget::new(w, h);
 
-        let mut color_b_fbo = Framebuffer::new();
-        let mut color_b_depth = Renderbuffer::new();
-        color_b_depth
-            .bind()
-            .storage(TextureInternalFormat::DepthComponent, w, h);
-        let color_b_tex = Texture::new(TextureKind::Texture2d);
-        color_b_tex
-            .bind()
-            .empty(
-                TextureTarget::Texture2d,
-                0,
-                TextureInternalFormat::Rgba16f,
-                w,
-                h,
-                TextureFormat::Rgba,
-                GlType::Float,
-            )
-            .parameter_int(TextureParameter::MinFilter, gl::LINEAR as i32)
-            .parameter_int(TextureParameter::MagFilter, gl::LINEAR as i32);
-        color_b_fbo
-            .bind()
-            .texture_2d(
-                Attachment::Color0,
-                TextureTarget::Texture2d,
-                &color_b_tex,
-                0,
-            )
-            .renderbuffer(Attachment::Depth, &color_a_depth)
-            .check_status()
-            .expect("framebuffer not complete");
+        let blur_scale = 2;
+        let blur_1 = RenderTarget::new(w / blur_scale, h / blur_scale);
+        let blur_scale = 4;
+        let blur_2 = RenderTarget::new(w / blur_scale, h / blur_scale);
 
         Pipeline {
             vertex_program,
@@ -175,6 +143,7 @@ impl Pipeline {
             directional_lighting_program,
             point_lighting_program,
             skybox_program,
+            blur_program,
             hdr_program,
 
             nanosuit,
@@ -190,17 +159,18 @@ impl Pipeline {
             screen_height: h,
 
             g,
-            color_a_fbo,
-            color_a_tex,
-            color_b_fbo,
-            color_b_tex,
+
+            color_a,
+            color_b,
+
+            blur_1,
+            blur_2,
 
             window_fbo,
 
             skybox: skybox.texture,
         }
     }
-    #[flame]
     pub fn render<'a, T: Timer<'a>>(&mut self, timings: &mut T, update_shadows: bool, props: RenderProps) {
         macro_rules! begin {
             ($name:expr) => (
@@ -244,7 +214,6 @@ impl Pipeline {
 
         macro_rules! render_scene {
             ($pass:expr, $fbo:expr, $program:expr) => {{
-                let _guard = flame::start_guard("render scene");
                 if false {
                     $pass.time("render nanosuit");
                     let model = Mat4::from_scale(1.0 / 4.0) * Mat4::from_translation(v3(0.0, 0.0, 4.0));
@@ -277,7 +246,6 @@ impl Pipeline {
         };
 
         {
-            let _guard = flame::start_guard("render geometry");
             begin!("prepare render geometry");
             // Render geometry
             let fbo = self.g.fbo.bind();
@@ -298,10 +266,9 @@ impl Pipeline {
         }
 
         // Clear backbuffer
-        self.color_b_fbo.bind().clear(Mask::ColorDepth);
+        self.color_b.bind().clear(Mask::ColorDepth);
         if update_shadows || true {
             {
-                let _guard = flame::start_guard("render directional shadows");
                 begin!("update directional shadowmap");
                 // Render depth map for directional lights
                 let p = self.directional_shadow_program.bind();
@@ -325,7 +292,6 @@ impl Pipeline {
                 }
             }
             {
-                let _guard = flame::start_guard("render point shadows");
                 begin!("update point shadowmap");
                 // Render depth map for point lights
                 let (w, h) = PointShadowMap::size();
@@ -370,11 +336,10 @@ impl Pipeline {
 
         {
             // Render lighting
-            let _guard = flame::start_guard("render lighting");
 
             begin!("render lighting, directional pass");
             {
-                let fbo = self.color_a_fbo.bind();
+                let fbo = self.color_a.bind();
                 fbo.clear(Mask::ColorDepth);
 
                 let g = self.directional_lighting_program.bind();
@@ -401,7 +366,7 @@ impl Pipeline {
 
             begin!("render lighting, point light pass");
             {
-                let fbo = self.color_b_fbo.bind();
+                let fbo = self.color_b.bind();
                 fbo.clear(Mask::ColorDepth);
 
                 let g = self.point_lighting_program.bind();
@@ -410,7 +375,7 @@ impl Pipeline {
                     .bind_texture("aAlbedoSpec", &self.g.albedo_spec, TextureSlot::Two)
                     .bind_texture("skybox", &self.skybox, TextureSlot::Three)
                     .bind_texture("shadowMap", &self.skybox, TextureSlot::Three)
-                    .bind_texture("accumulator", &self.color_a_tex, TextureSlot::Four)
+                    .bind_texture("accumulator", &self.color_a.texture, TextureSlot::Four)
                     .bind_vec3("viewPos", view_pos);
 
                 PointLight::bind_multiple(
@@ -435,14 +400,11 @@ impl Pipeline {
 
         begin!("render lighting, skybox pass");
 
-        let color_fbo = &mut self.color_b_fbo;
-        let color_tex = &self.color_b_tex;
-
         // Skybox Pass
         {
             // Copy z-buffer over from geometry pass
             let g_binding = self.g.fbo.read();
-            let hdr_binding = color_fbo.draw();
+            let hdr_binding = self.color_b.draw();
             let (w, h) = (self.screen_width as i32, self.screen_height as i32);
             hdr_binding.blit_framebuffer(
                 &g_binding,
@@ -455,7 +417,7 @@ impl Pipeline {
         GlError::check().unwrap();
         {
             // Render skybox
-            let fbo = color_fbo.bind();
+            let fbo = self.color_b.bind();
             {
                 unsafe {
                     gl::DepthFunc(gl::LEQUAL);
@@ -476,6 +438,31 @@ impl Pipeline {
             }
         }
 
+        // Blur passes
+        {
+            let passes = vec![&mut self.blur_1, &mut self.blur_2];
+            {
+                let size = self.color_b.size.0 as f32;
+                let mut prev = &self.color_b;
+
+                for mut next in passes {
+                    let scale = size / next.size.0 as f32;
+                    {
+                        let fbo = next.bind();
+                        fbo.clear(Mask::ColorDepth);
+
+                        let blur = self.blur_program.bind();
+                        blur.bind_texture("tex", &prev.texture, TextureSlot::Zero)
+                            .bind_float("scale", scale);
+                        let mut c = VertexBuffer::from_data(&vec![Mat4::from_scale(1.0)]);
+                        self.rect.bind().draw_instanced(&mut NoopTimer, &fbo, &blur, &c.bind());
+                    }
+
+                    prev = next;
+                }
+            }
+        }
+
         begin!("screen pass pre");
         // HDR/Screen Pass
         {
@@ -483,7 +470,9 @@ impl Pipeline {
             fbo.clear(Mask::ColorDepth);
 
             let hdr = self.hdr_program.bind();
-            hdr.bind_texture("hdrBuffer", &color_tex, TextureSlot::Zero)
+            hdr.bind_texture("hdrBuffer", &self.color_b.texture, TextureSlot::Zero)
+                .bind_texture("blur1", &self.blur_1.texture, TextureSlot::One)
+                .bind_texture("blur2", &self.blur_2.texture, TextureSlot::Two)
                 .bind_float("time", props.time);
             let mut c = VertexBuffer::from_data(&vec![Mat4::from_scale(1.0)]);
 

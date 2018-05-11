@@ -101,7 +101,7 @@ impl Texture {
             gl::ActiveTexture(slot.into());
         }
         self.bind();
-        GlError::check().expect(&format!("unable to bind texture to slot {:?}", slot));
+        // GlError::check().expect(&format!("unable to bind texture to slot {:?}", slot));
     }
 }
 impl Drop for Texture {

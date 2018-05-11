@@ -11,7 +11,15 @@ Beam.app: $(BIN)
 
 clean:
 	rm -rf Beam.app
+	rm -rf pack
 
 app: Beam.app
+
+pack/beam: $(BIN)
+	mkdir -p pack/assets
+	mkdir -p pack/shaders
+	cp $(BIN) pack/beam
+	cp -r assets pack
+	cp -r shaders pack
 
 .PHONY: clean app
