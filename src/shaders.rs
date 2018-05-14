@@ -36,7 +36,7 @@ impl Shader {
         Shader::new(&src, kind)
     }
     pub fn new(src: &str, kind: ShaderKind) -> Result<Shader, ()> {
-        let id = unsafe {
+        let id = unsafe {;
             let shader_id = gl::CreateShader(kind.into());
             let source = ffi::CString::new(src.as_bytes()).unwrap();
             gl::ShaderSource(
@@ -59,9 +59,9 @@ impl Shader {
                     buffer.as_mut_ptr() as *mut _,
                 );
                 buffer.set_len(error_log_size as usize);
-                let error_msg = String::from_utf8(buffer);
+                let error_msg = String::from_utf8(buffer).expect("error message could not be turned into utf8");
                 println!("Error while compiling shader of type {:?}", kind);
-                for line in error_msg.unwrap().lines() {
+                for line in error_msg.lines() {
                     println!("{}", line);
                 }
                 panic!();
@@ -131,6 +131,7 @@ impl<'a> UniformBlockIndex<'a> {
     }
 }
 
+#[derive(Debug)]
 pub struct Program {
     id: gl::types::GLuint,
 }
@@ -203,15 +204,15 @@ impl Program {
     }
     #[allow(unused)]
     pub fn new_from_src(
-        vs_src: Cow<str>,
-        gs_src: Option<Cow<str>>,
-        fs_src: Cow<str>,
+        vs_src: &str,
+        gs_src: Option<&str>,
+        fs_src: &str,
     ) -> Result<Program, ()> {
-        let vs = VertexShader::new(&vs_src)?;
+        let vs = VertexShader::new(&vs_src).expect("unable to create vertex shader");
         let gs = gs_src
             .map(|gs_src| GeometryShader::new(&gs_src))
             .transpose()?;
-        let fs = FragmentShader::new(&fs_src)?;
+        let fs = FragmentShader::new(&fs_src).expect("unable to create fragment shader");
 
         Program::new(&vs, gs.as_ref(), &fs)
     }

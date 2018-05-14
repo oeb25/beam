@@ -2,6 +2,7 @@ use gl;
 use std::{ptr, os::{self}, mem};
 
 use types::{GlType, GlError};
+use shaders::{ProgramBinding};
 use framebuffers::FramebufferBinderDrawer;
 use buffers::{ElementKind, ElementBufferBinder, VertexBufferBinder};
 
@@ -59,6 +60,7 @@ impl<'a> VertexArrayBinder<'a> {
     pub fn draw_arrays<T>(
         &mut self,
         _fbo: &T,
+        _program: &ProgramBinding,
         mode: DrawMode,
         first: usize,
         count: usize,
@@ -194,7 +196,7 @@ impl<'a> VertexArrayBinder<'a> {
 impl<'a> Drop for VertexArrayBinder<'a> {
     fn drop(&mut self) {
         unsafe {
-            // gl::BindVertexArray(0);
+            gl::BindVertexArray(0);
         }
     }
 }
