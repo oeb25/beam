@@ -1,7 +1,5 @@
-#version 330 core
-
 layout (location = 0) in vec3 aPos;
-layout (location = 4) in mat4 aModel;
+layout (location = 5) in mat4 aModel;
 
 uniform mat4 lightSpace;
 uniform mat4 model;

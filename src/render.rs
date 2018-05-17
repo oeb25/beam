@@ -4,10 +4,9 @@ use gl;
 use image;
 use obj;
 
-use std::{self, collections::HashMap, mem, path::Path, rc::Rc};
+use std::{self, collections::HashMap, mem, path::Path, rc::{Rc, Weak}};
 
 use mg::*;
-use timing::{Report, Timer, Timings};
 
 pub type V2 = cgmath::Vector2<f32>;
 pub type V3 = cgmath::Vector3<f32>;
@@ -55,20 +54,23 @@ pub struct Vertex {
     pub norm: V3,
     pub tex: V2,
     pub tangent: V3,
+    pub bitangent: V3,
 }
 impl Vertex {
-    pub fn soa(vs: &[Vertex]) -> (Vec<V3>, Vec<V3>, Vec<V2>, Vec<V3>) {
+    pub fn soa(vs: &[Vertex]) -> (Vec<V3>, Vec<V3>, Vec<V2>, Vec<V3>, Vec<V3>) {
         let mut pos = vec![];
         let mut norm = vec![];
         let mut tex = vec![];
         let mut tangent = vec![];
+        let mut bitangent = vec![];
         for v in vs.into_iter() {
             pos.push(v.pos);
             norm.push(v.norm);
             tex.push(v.tex);
             tangent.push(v.tangent);
+            bitangent.push(v.bitangent);
         }
-        (pos, norm, tex, tangent)
+        (pos, norm, tex, tangent, bitangent)
     }
 }
 
@@ -92,81 +94,137 @@ impl Vertexable for Vertex {
     }
 }
 #[allow(unused)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum ImageKind {
     Diffuse,
     Ambient,
     Specular,
     Reflection,
+    Emissive,
     CubeMap,
     NormalMap,
 }
 
 #[derive(Debug)]
+pub struct TextureCache {
+    pub cache: HashMap<String, Weak<Texture>>,
+}
+
+impl TextureCache {
+    pub fn new() -> TextureCache {
+        let cache = HashMap::new();
+        TextureCache { cache }
+    }
+    pub fn load(&mut self, path: impl AsRef<Path>) -> Rc<Texture> {
+        let path: &Path = path.as_ref();
+        let path_str = path.to_str().unwrap();
+
+        self.cache.get(path_str).and_then(|c| c.upgrade()).unwrap_or_else(|| {
+            let img = image::open(&path).expect(&format!("unable to read {:?}", path));
+            let texture = Texture::new(TextureKind::Texture2d);
+            texture
+                .bind()
+                .parameter_int(TextureParameter::WrapS, gl::REPEAT as i32)
+                .parameter_int(TextureParameter::WrapT, gl::REPEAT as i32)
+                .parameter_int(TextureParameter::MinFilter, gl::LINEAR as i32)
+                .parameter_int(TextureParameter::MagFilter, gl::LINEAR as i32)
+                .load_image(
+                    TextureTarget::Texture2d,
+                    TextureInternalFormat::Srgb,
+                    TextureFormat::Rgb,
+                    &img,
+                );
+            let tex = Rc::new(texture);
+            self.cache.insert(path_str.to_owned(), Rc::downgrade(&tex));
+            tex
+        })
+
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Image {
-    pub texture: Texture,
-    pub path: String,
+    pub texture: Rc<Texture>,
+    pub path: Option<String>,
     pub kind: ImageKind,
 }
 impl Image {
-    pub fn new_from_disk(path: &str, kind: ImageKind) -> Image {
-        let img = image::open(path).expect(&format!("unable to read {}", path));
-        let tex_kind = match kind {
-            ImageKind::Diffuse
-            | ImageKind::Ambient
-            | ImageKind::Specular
-            | ImageKind::NormalMap
-            | ImageKind::Reflection => TextureKind::Texture2d,
-            ImageKind::CubeMap => unimplemented!(),
-        };
-        let texture = Texture::new(tex_kind);
-        texture
-            .bind()
-            .parameter_int(TextureParameter::WrapS, gl::REPEAT as i32)
-            .parameter_int(TextureParameter::WrapT, gl::REPEAT as i32)
-            .parameter_int(TextureParameter::MinFilter, gl::LINEAR as i32)
-            .parameter_int(TextureParameter::MagFilter, gl::LINEAR as i32)
-            .load_image(
-                TextureTarget::Texture2d,
-                TextureInternalFormat::Srgb,
-                TextureFormat::Rgb,
-                &img,
-            );
+    pub fn new_from_disk<'a>(texture_cache: &mut TextureCache, path: impl AsRef<Path>, kind: ImageKind) -> Image {
+        // let tex_kind = match kind {
+        //     ImageKind::Diffuse
+        //     | ImageKind::Ambient
+        //     | ImageKind::Specular
+        //     | ImageKind::NormalMap
+        //     | ImageKind::Reflection
+        //     | ImageKind::Emissive => TextureKind::Texture2d,
+        //     ImageKind::CubeMap => unimplemented!(),
+        // };
+        let tex = texture_cache.load(&path);
 
-        Image {
-            texture,
-            path: path.to_string(),
-            kind,
-        }
+        Image::new(tex, Some(path.as_ref().to_str().unwrap().to_owned()), kind)
+    }
+    pub fn new(texture: Rc<Texture>, path: Option<String>, kind: ImageKind) -> Image {
+        Image { texture, path, kind }
     }
 }
 
 #[allow(unused)]
-pub struct Mesh {
-    // positions: Vec<V3>,
-    // normals: Vec<V3>,
-    // tex: Vec<V2>,
-    // tangents: Vec<V3>,
+pub struct Mesh<T> {
     vcount: usize,
 
     indecies: Option<Vec<usize>>,
-    textures: Vec<Rc<Image>>,
+    textures: Vec<Image>,
 
     vao: VertexArray,
-    vbo: VertexBuffer<()>,
+    vbo: VertexBuffer<T>,
     ebo: Option<ElementBuffer<u32>>,
 }
 
-impl Mesh {
+impl Mesh<Vertex> {
     pub fn new(
+        vertices: &[Vertex],
+        textures: Vec<Image>,
+    ) -> Mesh<Vertex> {
+        let mut vao = VertexArray::new();
+        let mut vbo = VertexBuffer::from_data(vertices);
+
+        {
+            let float_size = mem::size_of::<f32>();
+            let vao_binder = vao.bind();
+            let vbo_binder = vbo.bind();
+
+            macro_rules! x {
+                ($i:expr, $e:ident) => (vao_binder.vbo_attrib(&vbo_binder, $i, size_of!(Vertex, $e) / float_size, offset_of!(Vertex, $e)))
+            }
+
+            x!(0, pos);
+            x!(1, norm);
+            x!(2, tex);
+            x!(3, tangent);
+            x!(4, bitangent);
+        }
+
+        Mesh {
+            vcount: vertices.len(),
+            indecies: None,
+            textures: textures,
+            vao: vao,
+            vbo: vbo,
+            ebo: None,
+        }
+    }
+}
+impl Mesh<()> {
+    pub fn new_soa(
         positions: &[V3],
         normals: &[V3],
         tex: &[V2],
         tangents: &[V3],
+        bitangents: &[V3],
 
         indecies: Option<Vec<usize>>,
-        textures: Vec<Rc<Image>>,
-    ) -> Mesh {
+        textures: Vec<Image>,
+    ) -> Mesh<()> {
         let positions_size = positions.len() * mem::size_of::<V3>();
         let normals_size = normals.len() * mem::size_of::<V3>();
         let tex_size = tex.len() * mem::size_of::<V2>();
@@ -223,21 +281,23 @@ impl Mesh {
             ebo,
         }
     }
-
-    pub fn bind(&mut self) -> MeshBinding {
+}
+impl<T> Mesh<T> {
+    pub fn bind(&mut self) -> MeshBinding<T> {
         MeshBinding(self)
     }
 }
 
-pub struct MeshBinding<'a>(&'a mut Mesh);
-impl<'a> MeshBinding<'a> {
+pub struct MeshBinding<'a, T: 'a>(&'a mut Mesh<T>);
+impl<'a, T> MeshBinding<'a, T> {
     fn bind_textures(&self, program: &ProgramBinding) {
         let mut diffuse_n = 0;
         let mut ambient_n = 0;
         let mut specular_n = 0;
         let mut reflection_n = 0;
         let mut normal_n = 0;
-        for (i, tex) in self.0.textures.iter().enumerate() {
+        let mut emissive_n = 0;
+        for tex in self.0.textures.iter() {
             let (name, number) = match tex.kind {
                 ImageKind::Diffuse => {
                     diffuse_n += 1;
@@ -259,108 +319,101 @@ impl<'a> MeshBinding<'a> {
                     normal_n += 1;
                     ("normal", normal_n)
                 }
+                ImageKind::Emissive => {
+                    emissive_n += 1;
+                    ("emissive", emissive_n)
+                }
                 ImageKind::CubeMap => unimplemented!(),
             };
 
             assert_eq!(number, 1);
 
-            program.bind_texture(&format!("tex_{}{}", name, number), &tex.texture, i.into());
+            program.bind_texture(&format!("tex_{}{}", name, number), &tex.texture);
         }
         program.bind_bool("useNormalMap", normal_n > 0);
     }
-    pub fn draw<T>(&mut self, fbo: &T, program: &ProgramBinding)
+    pub fn draw<F>(&mut self, fbo: &F, program: &ProgramBinding)
     where
-        T: FramebufferBinderDrawer,
+        F: FramebufferBinderDrawer,
     {
         self.bind_textures(program);
 
         self.0
             .vao
             .bind()
-            .draw_arrays(fbo, DrawMode::Triangles, 0, self.0.vcount);
+            .draw_arrays(fbo, program, DrawMode::Triangles, 0, self.0.vcount);
     }
-    pub fn draw_instanced<'b, T, S>(
+    pub fn draw_geometry_instanced<F>(
         &mut self,
-        timer: &mut S,
-        fbo: &T,
+        fbo: &F,
         program: &ProgramBinding,
         transforms: &VertexBufferBinder<Mat4>,
     ) where
-        T: FramebufferBinderDrawer,
-        S: Timer<'b>,
+        F: FramebufferBinderDrawer,
     {
-        timer.time("prepare textures");
-        self.bind_textures(program);
-        GlError::check().expect("Mesh::draw_instanced: failed to bind textures");
-
-        timer.time("prepare instance vao");
         let mut vao = self.0.vao.bind();
-        GlError::check().expect("Mesh::draw_instanced: failed to bind vao");
-        let offset = 4;
+        let offset = 5;
         let width = 4;
         for i in 0..width {
             let index = i + offset;
             vao.vbo_attrib(&transforms, index, width, width * i * mem::size_of::<f32>())
                 .attrib_divisor(index, 1);
-            GlError::check().expect("Mesh::draw_instanced: failed to bind transforms");
         }
 
-        timer.time("draw instanced");
         vao.draw_arrays_instanced(fbo, DrawMode::Triangles, 0, self.0.vcount, transforms.len());
-        timer.time("draw instanced done");
-        GlError::check().expect("Mesh::draw_instanced: failed to draw instanced");
+    }
+    pub fn draw_instanced<F>(
+        &mut self,
+        fbo: &F,
+        program: &ProgramBinding,
+        transforms: &VertexBufferBinder<Mat4>,
+    ) where
+        F: FramebufferBinderDrawer,
+    {
+        self.bind_textures(program);
+        self.draw_geometry_instanced(fbo, program, transforms);
     }
 }
 
 #[allow(unused)]
-pub struct Model {
-    meshes: Vec<Mesh>,
-    texture_cache: HashMap<String, Rc<Image>>,
+pub struct Model<T> {
+    meshes: Vec<Mesh<T>>,
+    // texture_cache: HashMap<String, Rc<Image>>,
 }
-impl Model {
-    pub fn new_from_disk(path: &str) -> Model {
-        let path = Path::new(path);
+impl<T> Model<T> {
+    fn new_vertex_data_from_disk(texture_cache: &mut TextureCache, path: &'static str) -> Vec<(Vec<Vertex>, Vec<Image>)> {
+        let path = Path::new(path.clone());
         let mut raw_model = obj::Obj::load(path).unwrap();
         let _ = raw_model.load_mtls().unwrap();
         let obj::Obj {
             position,
             texture,
             normal,
-            material_libs,
             objects,
             ..
         } = raw_model;
 
-        println!("{:?}", position.len());
-        println!("{:?}", texture.len());
-        println!("{:?}", normal.len());
-        println!("{:?}", material_libs);
-        println!("{:?}", objects.len());
-
-        let mut meshes = vec![];
-        let mut texture_cache: HashMap<String, Rc<Image>> = HashMap::new();
-
-        for mut o in objects.into_iter() {
+        let vertex_groups = objects.into_iter().map(|o| {
             let mut vertices = vec![];
             let mut materials = vec![];
             macro_rules! add_tex {
                 ($name:expr, $tex_kind:expr) => {{
                     let path = path.with_file_name($name);
-                    let path_string = path.to_str().unwrap().to_string();
-                    let tex: Rc<Image> = if texture_cache.contains_key(&path_string) {
-                        texture_cache.get(&path_string).unwrap().clone()
-                    } else {
-                        let tex = Image::new_from_disk(path.to_str().unwrap(), $tex_kind);
-                        let tex = Rc::new(tex);
-                        texture_cache.insert(path_string, tex.clone());
-                        tex
-                    };
-                    materials.push(tex);
+                    // let path_string = path.to_str().unwrap().to_string();
+                    // let img: Image = if texture_cache.contains_key(&path_string) {
+                    //     Image::new(texture_cache.get(&path_string).unwrap().clone(), Some(path_string), $tex_kind)
+                    // } else {
+                    //     let img = Image::new_from_disk(path.to_str().unwrap(), $tex_kind);
+                    //     texture_cache.insert(path_string, img.texture.clone());
+                    //     img
+                    // };
+                    let img = Image::new_from_disk(texture_cache, path, $tex_kind);
+                    materials.push(img);
                 }};
             }
             for group in o.groups {
                 if let Some(mat) = group.material {
-                    println!("{:?}", mat);
+                    // println!("{:?}", mat);
                     mat.map_kd
                         .as_ref()
                         .map(|diff| add_tex!(diff, ImageKind::Diffuse));
@@ -370,10 +423,13 @@ impl Model {
                     // mat.map_ka.as_ref().map(|ambient| add_tex!(ambient, ImageKind::Ambient));
                     mat.map_ka
                         .as_ref()
-                        .map(|refl| add_tex!(refl, ImageKind::Reflection));
+                        .map(|refl| add_tex!(refl, ImageKind::Emissive));
                     mat.map_refl
                         .as_ref()
                         .map(|_| unimplemented!("REFLECTION MAP!"));
+                    mat.ke
+                        .as_ref()
+                        .map(|_| unimplemented!("EMISSIVE MAP!"));
                     mat.map_bump
                         .as_ref()
                         .map(|bump| add_tex!(bump, ImageKind::NormalMap));
@@ -421,11 +477,15 @@ impl Model {
                                 let tangent =
                                     (delta_pos2 * delta_uv1.x - delta_pos1 * delta_uv2.x) * r;
 
+                                let bitangent =
+                                    (delta_pos1 * delta_uv2.y - delta_pos2 * delta_uv1.y) * r;
+
                                 let v = Vertex {
                                     pos,
                                     norm,
                                     tex,
                                     tangent,
+                                    bitangent,
                                 };
                                 vertices.push(v);
                             }
@@ -435,40 +495,77 @@ impl Model {
                 }
             }
 
-            let (a, b, c, d) = Vertex::soa(&vertices);
-            let mesh = Mesh::new(&a, &b, &c, &d, None, materials);
+            (vertices, materials)
+        });
 
-            meshes.push(mesh);
-        }
-
-        Model {
-            meshes,
-            texture_cache,
-        }
+        vertex_groups.collect()
     }
     #[allow(unused)]
-    fn draw<T>(&mut self, fbo: &T, program: &ProgramBinding)
+    fn draw<F>(&mut self, fbo: &F, program: &ProgramBinding)
     where
-        T: FramebufferBinderDrawer,
+        F: FramebufferBinderDrawer,
     {
         for mut mesh in self.meshes.iter_mut() {
-            mesh.bind().draw(fbo, &program);
+            mesh.bind().draw(fbo, program);
         }
     }
-    pub fn draw_instanced<'a, T, S>(
+    pub fn draw_geometry_instanced<F>(
         &mut self,
-        timer: &mut S,
-        fbo: &T,
+        fbo: &F,
         program: &ProgramBinding,
         offsets: &VertexBufferBinder<Mat4>,
     ) where
-        T: FramebufferBinderDrawer,
-        S: Timer<'a>,
+        F: FramebufferBinderDrawer,
     {
         for mut mesh in self.meshes.iter_mut() {
-            let block = timer.block("draw mesh...");
-            mesh.bind().draw_instanced(block, fbo, &program, offsets);
-            block.end_block();
+            mesh.bind().draw_geometry_instanced(fbo, program, offsets);
+        }
+    }
+    pub fn draw_instanced<F>(
+        &mut self,
+        fbo: &F,
+        program: &ProgramBinding,
+        offsets: &VertexBufferBinder<Mat4>,
+    ) where
+        F: FramebufferBinderDrawer,
+    {
+        let start_slot = program.next_texture_slot();
+        for mut mesh in self.meshes.iter_mut() {
+            mesh.bind().draw_instanced(fbo, program, offsets);
+            program.set_next_texture_slot(start_slot);
+        }
+    }
+}
+impl Model<()> {
+    pub fn new_from_disk(texture_cache: &mut TextureCache, path: &'static str) -> Model<()> {
+        let vertex_groups = Model::<()>::new_vertex_data_from_disk(texture_cache, path);
+
+        let meshes = vertex_groups.into_iter().map(|(vertices, materials)| {
+            let (a, b, c, d, e) = Vertex::soa(&vertices);
+            let mesh = Mesh::new_soa(&a, &b, &c, &d, &e, None, materials);
+
+            mesh
+        }).collect();
+
+        Model {
+            meshes,
+            // texture_cache,
+        }
+    }
+}
+impl Model<Vertex> {
+    pub fn new_from_disk(texture_cache: &mut TextureCache, path: &'static str) -> Model<Vertex> {
+        let vertex_groups = Model::<()>::new_vertex_data_from_disk(texture_cache, path);
+
+        let meshes = vertex_groups.into_iter().map(|(vertices, materials)| {
+            let mesh = Mesh::new(&vertices, materials);
+
+            mesh
+        }).collect();
+
+        Model {
+            meshes,
+            // texture_cache,
         }
     }
 }
@@ -485,7 +582,7 @@ pub struct DirectionalLight {
     pub shadow_map: ShadowMap,
 }
 impl DirectionalLight {
-    fn space(&self) -> Mat4 {
+    fn space(&self, camera_pos: V3) -> Mat4 {
         let size = 50.0;
         let projection: Mat4 = cgmath::Ortho {
             left: -size,
@@ -496,13 +593,19 @@ impl DirectionalLight {
             far: 300.0,
         }.into();
         let origo = P3::new(0.0, 0.0, 0.0);
-        let o = origo;
+        let o = origo + camera_pos + self.direction * 100.0;
         let view = Mat4::look_at(o, o - self.direction, v3(0.0, 1.0, 0.0));
         projection * view
     }
-    fn bind(&self, name: &str, texture_slot: TextureSlot, program: &ProgramBinding) {
+    fn bind(
+        &self,
+        camera_pos: V3,
+        name: &str,
+        texture_slot: TextureSlot,
+        program: &ProgramBinding,
+    ) {
         let ext = |e| format!("{}.{}", name, e);
-        let space = self.space();
+        let space = self.space(camera_pos);
         let DirectionalLight {
             ambient,
             diffuse,
@@ -518,9 +621,10 @@ impl DirectionalLight {
 
         program.bind_mat4(&ext("space"), space);
 
-        program.bind_texture(&ext("shadowMap"), &shadow_map.map, texture_slot);
+        program.bind_texture(&ext("shadowMap"), &shadow_map.map);
     }
     pub fn bind_multiple(
+        camera_pos: V3,
         lights: &[DirectionalLight],
         initial_slot: TextureSlot,
         name_uniform: &str,
@@ -531,11 +635,16 @@ impl DirectionalLight {
         for (i, light) in lights.iter().enumerate() {
             let slot: i32 = initial_slot.into();
             let slot = (slot as usize + i).into();
-            light.bind(&format!("{}[{}]", name_uniform, i), slot, program);
+            light.bind(
+                camera_pos,
+                &format!("{}[{}]", name_uniform, i),
+                slot,
+                program,
+            );
         }
     }
-    pub fn bind_shadow_map(&mut self) -> (FramebufferBinderReadDraw, Mat4) {
-        let light_space = self.space();
+    pub fn bind_shadow_map(&mut self, camera_pos: V3) -> (FramebufferBinderReadDraw, Mat4) {
+        let light_space = self.space(camera_pos);
         (self.shadow_map.fbo.bind(), light_space)
     }
 }
@@ -590,20 +699,12 @@ impl PointLight {
         match shadow_map {
             Some(shadow_map) => {
                 program.bind_bool(&ext("useShadowMap"), true);
-                GlError::check().expect("Failed to bind light: useShadowMap");
-                program.bind_texture("shadowMap", &shadow_map.map, texture_slot);
-                GlError::check().expect("Failed to bind light: shadowMap");
+                program.bind_texture("pointShadowMap", &shadow_map.map);
                 program.bind_float(&ext("farPlane"), shadow_map.far);
-                GlError::check().expect("Failed to bind light: farPlane");
             }
             None => {
                 program.bind_vec3(&ext("lastPosition"), *position);
                 program.bind_bool(&ext("useShadowMap"), false);
-                GlError::check().expect("Failed to bind light: useShadowMap");
-                // program.bind_int(&ext("shadowMap"), TextureSlot::Zero.into());
-                // GlError::check().expect("Failed to not bind light: shadowMap");
-                // program.bind_float(&ext("farPlane"), 0.0);
-                // GlError::check().expect("Failed to bind light: farPlane");
             }
         }
         GlError::check().expect(&format!("Failed to bind light: {:?}", self));
@@ -616,6 +717,7 @@ impl PointLight {
         program: &ProgramBinding,
     ) {
         program.bind_int(amt_uniform, lights.len() as i32);
+        GlError::check().expect("Failed to bind number of lights");
         for (i, light) in lights.iter().enumerate() {
             let slot: i32 = initial_slot.into();
             let slot = (slot as usize + i).into();
@@ -624,7 +726,7 @@ impl PointLight {
         }
         GlError::check().expect("Failed to bind multiple lights");
     }
-    pub fn bind_shadow_map(&mut self) -> Option<(FramebufferBinderReadDraw, [Mat4; 6])> {
+    pub fn bind_shadow_map(&mut self) -> Option<(FramebufferBinderReadDraw, [[[f32; 4]; 4]; 6])> {
         let shadow_map = self.shadow_map.as_mut()?;
 
         let light_space: Mat4 = cgmath::PerspectiveFov {
@@ -636,7 +738,7 @@ impl PointLight {
 
         let origo = P3::new(0.0, 0.0, 0.0);
         let lp = origo + self.last_shadow_map_position;
-        let look_at = |p, up| light_space * Mat4::look_at(lp, lp + p, up);
+        let look_at = |p, up| (light_space * Mat4::look_at(lp, lp + p, up)).into();
 
         let shadow_transforms = [
             look_at(v3(1.0, 0.0, 0.0), v3(0.0, -1.0, 0.0)),
@@ -739,10 +841,10 @@ impl ShadowMap {
         }
     }
     pub fn size() -> (u32, u32) {
-        // (1024, 1024)
+        (1024, 1024)
         // (2048, 2048)
         // (4096, 4096)
-        (8192, 8192)
+        // (8192, 8192)
     }
 }
 
@@ -773,7 +875,7 @@ impl PointShadowMap {
                     width,
                     height,
                     TextureFormat::DepthComponent,
-                    GlType::Float,
+                    GlType::UnsignedByte,
                 );
             }
 
@@ -803,7 +905,10 @@ impl PointShadowMap {
         }
     }
     pub fn size() -> (u32, u32) {
-        (1024, 1024)
+        // (128, 128)
+        // (256, 256)
+        (512, 512)
+        // (1024, 1024)
         // (2048, 2048)
         // (4096, 4096)
         // (8192, 8192)
@@ -842,57 +947,33 @@ impl GRenderPass {
         let (position, normal, albedo_spec) = {
             let buffer = fbo.bind();
 
-            let position = Texture::new(TextureKind::Texture2d);
-            position
-                .bind()
-                .empty(
-                    TextureTarget::Texture2d,
-                    0,
-                    TextureInternalFormat::Rgb16f,
-                    w,
-                    h,
-                    TextureFormat::Rgb,
-                    GlType::Float,
-                )
-                .parameter_int(TextureParameter::MinFilter, gl::NEAREST as i32)
-                .parameter_int(TextureParameter::MagFilter, gl::NEAREST as i32);
-            buffer.texture_2d(Attachment::Color0, TextureTarget::Texture2d, &position, 0);
+            let create_texture = |internal, format, typ, attachment| {
+                let tex = Texture::new(TextureKind::Texture2d);
+                tex.bind()
+                    .empty(TextureTarget::Texture2d, 0, internal, w, h, format, typ)
+                    .parameter_int(TextureParameter::MinFilter, gl::LINEAR as i32)
+                    .parameter_int(TextureParameter::MagFilter, gl::LINEAR as i32);
+                buffer.texture_2d(attachment, TextureTarget::Texture2d, &tex, 0);
+                tex
+            };
 
-            let normal = Texture::new(TextureKind::Texture2d);
-            normal
-                .bind()
-                .empty(
-                    TextureTarget::Texture2d,
-                    0,
-                    TextureInternalFormat::Rgb16f,
-                    w,
-                    h,
-                    TextureFormat::Rgb,
-                    GlType::Float,
-                )
-                .parameter_int(TextureParameter::MinFilter, gl::NEAREST as i32)
-                .parameter_int(TextureParameter::MagFilter, gl::NEAREST as i32);
-            buffer.texture_2d(Attachment::Color1, TextureTarget::Texture2d, &normal, 0);
-
-            let albedo_spec = Texture::new(TextureKind::Texture2d);
-            albedo_spec
-                .bind()
-                .empty(
-                    TextureTarget::Texture2d,
-                    0,
-                    TextureInternalFormat::Rgba,
-                    w,
-                    h,
-                    TextureFormat::Rgba,
-                    GlType::UnsignedByte,
-                )
-                .parameter_int(TextureParameter::MinFilter, gl::NEAREST as i32)
-                .parameter_int(TextureParameter::MagFilter, gl::NEAREST as i32);
-            buffer.texture_2d(
+            let position = create_texture(
+                TextureInternalFormat::Rgb16f,
+                TextureFormat::Rgb,
+                GlType::Float,
+                Attachment::Color0,
+            );
+            let normal = create_texture(
+                TextureInternalFormat::Rgba16f,
+                TextureFormat::Rgba,
+                GlType::Float,
+                Attachment::Color1,
+            );
+            let albedo_spec = create_texture(
+                TextureInternalFormat::Srgb8Alpha8,
+                TextureFormat::Rgba,
+                GlType::UnsignedByte,
                 Attachment::Color2,
-                TextureTarget::Texture2d,
-                &albedo_spec,
-                0,
             );
 
             buffer
@@ -928,10 +1009,10 @@ impl RenderTarget {
             .empty(
                 TextureTarget::Texture2d,
                 0,
-                TextureInternalFormat::Rgba,
+                TextureInternalFormat::Srgb,
                 w,
                 h,
-                TextureFormat::Rgba,
+                TextureFormat::Rgb,
                 GlType::UnsignedByte,
             )
             .parameter_int(TextureParameter::MinFilter, gl::LINEAR as i32)
@@ -1017,11 +1098,7 @@ impl<'a> CubeMapBuilder<&'a str> {
                 .parameter_int(TextureParameter::WrapR, gl::CLAMP_TO_EDGE as i32);
         }
 
-        Image {
-            texture,
-            path: sum_path,
-            kind: ImageKind::CubeMap,
-        }
+        Image::new(Rc::new(texture), Some(sum_path.into()), ImageKind::CubeMap)
     }
 }
 
@@ -1074,7 +1151,7 @@ impl Camera {
         cgmath::PerspectiveFov {
             fovy: self.fov,
             aspect: self.aspect,
-            near: 0.01,
+            near: 0.1,
             far: 100.0,
         }.into()
     }

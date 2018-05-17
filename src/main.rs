@@ -9,6 +9,7 @@ extern crate image;
 extern crate obj;
 extern crate time;
 extern crate mg;
+extern crate warmy;
 
 use cgmath::{InnerSpace, Rad};
 
@@ -17,14 +18,12 @@ use glutin::GlContext;
 use time::{Duration, PreciseTime};
 
 // mod mg;
+mod hot;
 mod pipeline;
 mod render;
-mod timing;
 
-use mg::*;
 use pipeline::*;
 use render::*;
-use timing::{NoopTimer, Report, Timer, Timings};
 
 #[derive(Default)]
 struct Input {
@@ -58,8 +57,8 @@ impl Scene {
         let one = v3(1.0, 1.0, 1.0);
 
         let sun = DirectionalLight {
-            diffuse: v3(0.2, 0.4, 1.0) * 0.2,
-            ambient: v3(0.0, 0.0, 1.0) * 0.1,
+            diffuse: v3(0.2, 0.4, 1.0) * 0.01,
+            ambient: v3(0.0, 0.0, 1.0) * 0.00,
             specular: v3(0.2, 0.4, 1.0) * 0.2,
 
             direction: v3(0.0, 1.0, -1.5).normalize(),
@@ -84,7 +83,7 @@ impl Scene {
             // },
             PointLight {
                 diffuse: v3(0.7, 0.4, 0.2),
-                ambient: v3(0.7, 0.4, 0.2) * 0.2,
+                ambient: v3(0.7, 0.4, 0.2) * 0.1,
                 specular: v3(0.7, 0.4, 0.2) * 0.7,
 
                 position: light_pos2,
@@ -185,14 +184,19 @@ impl Scene {
 }
 
 fn main() {
-    let (screen_width, screen_height) = (800, 600);
+    let (screen_width, screen_height) = (1024, 768);
     let mut events_loop = glutin::EventsLoop::new();
     let window = glutin::WindowBuilder::new()
         .with_title("Hello, world!")
         .with_dimensions(screen_width, screen_height);
-    let context = glutin::ContextBuilder::new().with_vsync(true);
+    let context = glutin::ContextBuilder::new()
+        .with_vsync(false)
+        .with_gl_profile(glutin::GlProfile::Core)
+        .with_srgb(true);
     let gl_window = glutin::GlWindow::new(window, context, &events_loop).unwrap();
-    gl_window.window().set_cursor_state(glutin::CursorState::Grab).unwrap();
+    // gl_window.window().set_cursor_state(glutin::CursorState::Grab).unwrap();
+
+    let hidpi_factor = gl_window.window().hidpi_factor();
 
     unsafe {
         gl_window.make_current().unwrap();
@@ -216,22 +220,24 @@ fn main() {
             let x = i as f32 / 2.0;
             let v = v3(n as f32 - x, -i as f32 - 5.0, i as f32 / 2.0) * 2.0;
             let v = Mat4::from_translation(v) * Mat4::from_angle_y(Rad(i as f32 - 1.0));
-            {
+            if true {
                 let obj = Object {
                     kind: ObjectKind::Nanosuit,
                     transform: v,
                 };
                 is.push(obj);
             }
-            let obj = Object {
-                kind: ObjectKind::Cyborg,
-                transform: v,
-            };
-            is.push(obj);
+            if true {
+                let obj = Object {
+                    kind: ObjectKind::Cyborg,
+                    transform: v,
+                };
+                is.push(obj);
+            }
         }
     }
 
-    let mut pipeline = Pipeline::new(w * 2, h * 2);
+    let mut pipeline = Pipeline::new(w, h, hidpi_factor);
     println!("drawing {} nanosuits", is.len());
 
     let mut fps_last_time = PreciseTime::now();
@@ -241,15 +247,10 @@ fn main() {
     let mut shadows_last_time = PreciseTime::now();
     let shadows_step = Duration::milliseconds(16 * 1);
 
-    let mut update_shadows;
-
-    // let mut report_cache: std::collections::VecDeque<Report> = std::collections::VecDeque::new();
+    let mut update_shadows = false;
 
     while running {
-        // let mut timings = Timings::new();
-        let mut timings = NoopTimer;
-
-        timings.time("time stuff");
+        update_shadows = !update_shadows;
 
         let now = PreciseTime::now();
         {
@@ -262,21 +263,23 @@ fn main() {
             }
         }
         {
-            update_shadows = false;
+            // update_shadows = false;
             let delta = shadows_last_time.to(now);
             if delta > shadows_step {
                 shadows_last_time = now;
-                update_shadows = true;
+                // update_shadows = true;
             }
         }
 
         inputs.mouse_delta = (0.0, 0.0);
 
-        timings.time("event polling");
         events_loop.poll_events(|event| match event {
             glutin::Event::WindowEvent { event, .. } => match event {
                 glutin::WindowEvent::Closed => running = false,
-                glutin::WindowEvent::Resized(w, h) => gl_window.resize(w, h),
+                glutin::WindowEvent::Resized(w, h) => {
+                    gl_window.resize(w, h);
+                    pipeline.resize((w as f32 / hidpi_factor) as u32, (h as f32 / hidpi_factor) as u32);
+                },
                 glutin::WindowEvent::CursorMoved { position, .. } => {
                     match last_pos {
                         None => {
@@ -336,18 +339,12 @@ fn main() {
             _ => (),
         });
 
-        timings.time("game stuff");
-
         t += 1.0;
 
         scene.tick(t, t, &inputs);
 
-        timings.time("pre render");
-
         // Begin rendering!
         {
-            let timings = timings.block("rendering");
-
             let mut objects: Vec<_> = [
                 (v3(0.0, -20.0, 0.0), v3(100.0, 0.1, 100.0)),
                 (v3(10.0, -10.0, 0.0), v3(0.1, 20.0, 20.0)),
@@ -357,7 +354,9 @@ fn main() {
             ].into_iter()
                 .map(|(p, s)| Object {
                     kind: ObjectKind::Cube,
-                    transform: Mat4::from_translation(*p)
+                    transform:
+                        Mat4::from_angle_y(Rad(t / 300.0))
+                        * Mat4::from_translation(*p)
                         * Mat4::from_nonuniform_scale(s.x, s.y, s.z),
                 })
                 .collect();
@@ -372,7 +371,6 @@ fn main() {
             objects.append(&mut is.clone());
 
             pipeline.render(
-                timings,
                 update_shadows,
                 RenderProps {
                     camera: &scene.camera,
@@ -382,10 +380,7 @@ fn main() {
                     time: t,
                 },
             );
-            timings.end_block();
         }
-
-        timings.time("swap buffers");
 
         gl_window.swap_buffers().unwrap();
 

@@ -1,4 +1,3 @@
-#version 330 core
 #pragma optionNV (unroll all)
 
 out vec4 FragColor;
@@ -53,10 +52,6 @@ float directionalShadowCalculation(float bias, sampler2D shadowMap, vec4 fragPos
     }
     int m = n * 2 + 1;
     shadow /= m * m;
-    // float closestDepth = texture(shadowMap, projCoors.xy).r;
-    // float shadow = currentDepth - bias > closestDepth ? 1.0 : 0.0;
-    // if (currentDepth > 1.0)
-    //     shadow = 0.0;
 
     return shadow;
 }
@@ -83,6 +78,8 @@ vec3 calculateDirectionalLight(
     vec3 specular = light.specular * spec * samples.spec * shadow;
 
     vec3 color = diffuse + ambient + specular;
+
+    // color = vec3(shadow);
 
     return color;
 }

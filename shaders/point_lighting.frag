@@ -1,4 +1,3 @@
-#version 410 core
 #pragma optionNV (unroll all)
 
 out vec4 FragColor;
@@ -87,7 +86,9 @@ vec3 calculatePointLight(
 
 void main() {
     vec3 fragPos = texture(aPosition, TexCoords).rgb;
-    vec3 normal = texture(aNormal, TexCoords).rgb;
+    vec4 normal_ = texture(aNormal, TexCoords);
+    vec3 normal = normal_.rgb;
+    float emission = normal_.a;
     vec4 albedoSpec = texture(aAlbedoSpec, TexCoords);
 
     TextureSamples samples;
@@ -106,6 +107,8 @@ void main() {
         // color += calculatePointLight(lights[2], samples, viewDir, normal, fragPos);
         // color += calculatePointLight(lights[3], samples, viewDir, normal, fragPos);
     }
+
+    color += samples.diff * pow(emission, 5.0) * 0.15;
 
     // color = vec3(samples.spec);
 

@@ -1,25 +1,24 @@
-#version 330 core
-
 out vec4 FragColor;
 
 in vec2 TexCoords;
 
 uniform float time;
 uniform sampler2D hdrBuffer;
-uniform sampler2D blur1;
-uniform sampler2D blur2;
+uniform sampler2D blur[6];
+// uniform sampler2D blur2;
+// uniform sampler2D blur3;
+// uniform sampler2D blur4;
+// uniform sampler2D blur5;
+// uniform sampler2D blur6;
 uniform sampler2D shadowMap;
 
 void main() {
-    const float gamma = 2.2;
-    const float exposure = 0.6;
+/*
     float lookDepth = texture(hdrBuffer, vec2(0.5, 0.5)).a;
-    vec4 sample = texture(hdrBuffer, TexCoords);
 
     float center = pow(1.0 - length(TexCoords - vec2(0.5)), 1.0 / 2.0);
 
     float deltaDepth = pow(sample.a - lookDepth, 1.0 / 2.0);
-    vec3 color;
 
     float weights[] = float[](
         1, 2, 1,
@@ -41,23 +40,35 @@ void main() {
 
     color /= 16.0;
 
-    color = vec3(1.0) - exp(-color * exposure);
-    color = pow(color, vec3(1.0 / gamma));
     color = color * center;
 
     if (length(TexCoords - vec2(0.5)) < 0.001) {
         color = vec3(1.0);
     }
+*/
+    vec4 c = texture(hdrBuffer, TexCoords);
+    vec3 color;
 
-    color = sample.rgb;
+    const float gamma = 2.2;
+    const float exposure = 5.0;
 
-    color += texture(blur1, TexCoords).rgb * 1.0;
-    color += texture(blur2, TexCoords).rgb * 0.25;
+    color = c.rgb;
 
-    bool pip = false;
-    if (pip && TexCoords.x < 0.25 && TexCoords.y < 0.25) {
-        color = texture(shadowMap, TexCoords * 4.0).rgb;
-    }
+#if 1
+    #define blur(n) (texture(blur[n], TexCoords).rgb * 1.0 / pow(float(n) + 1.0, 1.0/2.0))
+    color += blur(0);
+    color += blur(1);
+    color += blur(2);
+    color += blur(3);
+    color += blur(4);
+    color += blur(5);
+#endif
 
-    FragColor = vec4(color * center, 1.0);
+    color = vec3(1.0) - exp(-color * exposure);
+
+    // color = vec3(texture(blur[5], TexCoords));
+
+    // color = pow(color, vec3(1.0 / gamma));
+
+    FragColor = vec4(color, 1.0);
 }

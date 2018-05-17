@@ -12,3 +12,4 @@ illum 2
 map_Kd cyborg_diffuse.png
 map_Bump cyborg_normal.png
 map_Ks cyborg_specular.png
+map_Ka cyborg_diffuse.png

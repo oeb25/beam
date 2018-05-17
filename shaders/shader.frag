@@ -1,9 +1,7 @@
-#version 410 core
-
 // out vec4 FragColor;
 
 layout (location = 0) out vec3 aPosition;
-layout (location = 1) out vec3 aNormal;
+layout (location = 1) out vec4 aNormal;
 layout (location = 2) out vec4 aAlbedoSpec;
 
 in VS_OUT {
@@ -17,6 +15,7 @@ in VS_OUT {
 uniform sampler2D tex_diffuse1;
 uniform sampler2D tex_specular1;
 uniform sampler2D tex_normal1;
+uniform sampler2D tex_emissive1;
 uniform bool useNormalMap;
 uniform vec3 viewPos;
 uniform samplerCube skybox;
@@ -28,11 +27,12 @@ void main() {
         norm = normalize(norm * 2.0 - 1.0);
         norm = normalize(fs_in.TBN * norm);
     } else {
-        norm = fs_in.Normal;
+        norm = normalize(fs_in.Normal);
     }
 
     aPosition = fs_in.FragPos;
-    aNormal = norm;
+    aNormal.rgb = norm;
+    aNormal.a = length(texture(tex_emissive1, fs_in.TexCoords).rgb);
     aAlbedoSpec.rgb = texture(tex_diffuse1, fs_in.TexCoords).rgb;
     aAlbedoSpec.a = length(texture(tex_specular1, fs_in.TexCoords).rgb);
 }
