@@ -4,7 +4,9 @@ use gl;
 use image;
 use obj;
 
-use std::{self, collections::HashMap, mem, path::Path, rc::{Rc, Weak}};
+use std::{
+    self, collections::HashMap, mem, path::Path, rc::{Rc, Weak},
+};
 
 use mg::*;
 
@@ -56,43 +58,7 @@ pub struct Vertex {
     pub tangent: V3,
     pub bitangent: V3,
 }
-impl Vertex {
-    pub fn soa(vs: &[Vertex]) -> (Vec<V3>, Vec<V3>, Vec<V2>, Vec<V3>, Vec<V3>) {
-        let mut pos = vec![];
-        let mut norm = vec![];
-        let mut tex = vec![];
-        let mut tangent = vec![];
-        let mut bitangent = vec![];
-        for v in vs.into_iter() {
-            pos.push(v.pos);
-            norm.push(v.norm);
-            tex.push(v.tex);
-            tangent.push(v.tangent);
-            bitangent.push(v.bitangent);
-        }
-        (pos, norm, tex, tangent, bitangent)
-    }
-}
 
-impl Vertexable for Vertex {
-    fn sizes() -> (usize, usize, usize, usize) {
-        let float_size = mem::size_of::<f32>();
-        (
-            size_of!(Vertex, pos) / float_size,
-            size_of!(Vertex, norm) / float_size,
-            size_of!(Vertex, tex) / float_size,
-            size_of!(Vertex, tangent) / float_size,
-        )
-    }
-    fn offsets() -> (usize, usize, usize, usize) {
-        (
-            offset_of!(Vertex, pos),
-            offset_of!(Vertex, norm),
-            offset_of!(Vertex, tex),
-            offset_of!(Vertex, tangent),
-        )
-    }
-}
 #[allow(unused)]
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum ImageKind {
@@ -115,11 +81,50 @@ impl TextureCache {
         let cache = HashMap::new();
         TextureCache { cache }
     }
-    pub fn load(&mut self, path: impl AsRef<Path>) -> Rc<Texture> {
-        let path: &Path = path.as_ref();
-        let path_str = path.to_str().unwrap();
+    pub fn load_srgb(&mut self, path: impl AsRef<Path>) -> Rc<Texture> {
+        self.load(path, TextureInternalFormat::Srgb, TextureFormat::Rgb)
+    }
+    pub fn load_rgb(&mut self, path: impl AsRef<Path>) -> Rc<Texture> {
+        self.load(path, TextureInternalFormat::Rgb, TextureFormat::Rgb)
+    }
+    pub fn load_hdr(&mut self, path: impl AsRef<Path>) -> Rc<Texture> {
+        let path = path.as_ref();
 
-        self.cache.get(path_str).and_then(|c| c.upgrade()).unwrap_or_else(|| {
+        self.cache_or_load(path, || {
+            use std::{fs::File, io::BufReader};
+            let decoder = image::hdr::HDRDecoder::new(BufReader::new(File::open(path)?))?;
+            let metadata = decoder.metadata();
+            let data = decoder.read_image_hdr()?;
+            let texture = Texture::new(TextureKind::Texture2d);
+            unsafe {
+                texture
+                    .bind()
+                    .parameter_int(TextureParameter::WrapS, gl::REPEAT as i32)
+                    .parameter_int(TextureParameter::WrapT, gl::REPEAT as i32)
+                    .parameter_int(TextureParameter::MinFilter, gl::LINEAR as i32)
+                    .parameter_int(TextureParameter::MagFilter, gl::LINEAR as i32)
+                    .image_2d(
+                        TextureTarget::Texture2d,
+                        0,
+                        TextureInternalFormat::Rgba16,
+                        metadata.width,
+                        metadata.height,
+                        TextureFormat::Rgb,
+                        &data,
+                    );
+            }
+            Ok(texture)
+        })
+    }
+    pub fn load(
+        &mut self,
+        path: impl AsRef<Path>,
+        internal_format: TextureInternalFormat,
+        format: TextureFormat,
+    ) -> Rc<Texture> {
+        let path = path.as_ref();
+
+        self.cache_or_load(path, move || {
             let img = image::open(&path).expect(&format!("unable to read {:?}", path));
             let texture = Texture::new(TextureKind::Texture2d);
             texture
@@ -128,17 +133,27 @@ impl TextureCache {
                 .parameter_int(TextureParameter::WrapT, gl::REPEAT as i32)
                 .parameter_int(TextureParameter::MinFilter, gl::LINEAR as i32)
                 .parameter_int(TextureParameter::MagFilter, gl::LINEAR as i32)
-                .load_image(
-                    TextureTarget::Texture2d,
-                    TextureInternalFormat::Srgb,
-                    TextureFormat::Rgb,
-                    &img,
-                );
-            let tex = Rc::new(texture);
-            self.cache.insert(path_str.to_owned(), Rc::downgrade(&tex));
-            tex
+                .load_image(TextureTarget::Texture2d, internal_format, format, &img);
+            Ok(texture)
         })
+    }
+    pub fn cache_or_load(
+        &mut self,
+        path: impl AsRef<Path>,
+        f: impl FnOnce() -> Result<Texture, Box<std::error::Error>>,
+    ) -> Rc<Texture> {
+        let path: &Path = path.as_ref();
+        let path_str = path.to_str().unwrap();
 
+        self.cache
+            .get(path_str)
+            .and_then(|c| c.upgrade())
+            .unwrap_or_else(|| {
+                let texture = f().unwrap();
+                let tex = Rc::new(texture);
+                self.cache.insert(path_str.to_owned(), Rc::downgrade(&tex));
+                tex
+            })
     }
 }
 
@@ -149,42 +164,88 @@ pub struct Image {
     pub kind: ImageKind,
 }
 impl Image {
-    pub fn new_from_disk<'a>(texture_cache: &mut TextureCache, path: impl AsRef<Path>, kind: ImageKind) -> Image {
-        // let tex_kind = match kind {
-        //     ImageKind::Diffuse
-        //     | ImageKind::Ambient
-        //     | ImageKind::Specular
-        //     | ImageKind::NormalMap
-        //     | ImageKind::Reflection
-        //     | ImageKind::Emissive => TextureKind::Texture2d,
-        //     ImageKind::CubeMap => unimplemented!(),
-        // };
-        let tex = texture_cache.load(&path);
+    pub fn new_from_disk<'a>(
+        texture_cache: &mut TextureCache,
+        path: impl AsRef<Path>,
+        kind: ImageKind,
+    ) -> Image {
+        let tex = match kind {
+            ImageKind::NormalMap
+            | ImageKind::Ambient
+            | ImageKind::Specular
+            | ImageKind::Reflection
+            | ImageKind::Emissive => texture_cache.load_rgb(&path),
+            ImageKind::Diffuse => texture_cache.load_srgb(&path),
+            ImageKind::CubeMap => unimplemented!(),
+        };
 
         Image::new(tex, Some(path.as_ref().to_str().unwrap().to_owned()), kind)
     }
     pub fn new(texture: Rc<Texture>, path: Option<String>, kind: ImageKind) -> Image {
-        Image { texture, path, kind }
+        Image {
+            texture,
+            path,
+            kind,
+        }
     }
 }
 
-#[allow(unused)]
-pub struct Mesh<T> {
-    vcount: usize,
-
-    indecies: Option<Vec<usize>>,
-    textures: Vec<Image>,
-
-    vao: VertexArray,
-    vbo: VertexBuffer<T>,
-    ebo: Option<ElementBuffer<u32>>,
+#[derive(Debug)]
+pub struct PbrMaterial {
+    pub albedo_map: Rc<Texture>,
+    pub ao_map: Rc<Texture>,
+    pub metallic_map: Rc<Texture>,
+    pub roughness_map: Rc<Texture>,
+    pub normal_map: Rc<Texture>,
 }
 
-impl Mesh<Vertex> {
-    pub fn new(
-        vertices: &[Vertex],
-        textures: Vec<Image>,
-    ) -> Mesh<Vertex> {
+impl PbrMaterial {
+    pub fn new_with_default_filenames(
+        texture_cache: &mut TextureCache,
+        path: impl AsRef<Path>,
+        extension: &str,
+    ) -> PbrMaterial {
+        let path = path.as_ref();
+
+        let mut load_srgb = |map| {
+            let p = path.join(map).with_extension(extension);
+            let tex = texture_cache.load_srgb(p);
+            tex
+        };
+        let albedo_map = load_srgb("albedo");
+        let mut load_rgb = |map| {
+            let p = path.join(map).with_extension(extension);
+            let tex = texture_cache.load_rgb(p);
+            tex
+        };
+
+        PbrMaterial {
+            albedo_map,
+            ao_map: load_rgb("ao"),
+            metallic_map: load_rgb("metallic"),
+            roughness_map: load_rgb("roughness"),
+            normal_map: load_rgb("normal"),
+        }
+    }
+
+    pub fn bind(&self, program: &ProgramBinding) {
+        program
+            .bind_texture("tex_albedo", &self.albedo_map)
+            .bind_texture("tex_metallic", &self.metallic_map)
+            .bind_texture("tex_roughness", &self.roughness_map)
+            .bind_texture("tex_normal", &self.normal_map)
+            .bind_texture("tex_ao", &self.ao_map);
+    }
+}
+
+pub struct Mesh {
+    vcount: usize,
+    textures: Vec<Image>,
+    vao: VertexArray,
+}
+
+impl Mesh {
+    pub fn new(vertices: &[Vertex], textures: Vec<Image>) -> Mesh {
         let mut vao = VertexArray::new();
         let mut vbo = VertexBuffer::from_data(vertices);
 
@@ -206,90 +267,17 @@ impl Mesh<Vertex> {
 
         Mesh {
             vcount: vertices.len(),
-            indecies: None,
             textures: textures,
             vao: vao,
-            vbo: vbo,
-            ebo: None,
         }
     }
-}
-impl Mesh<()> {
-    pub fn new_soa(
-        positions: &[V3],
-        normals: &[V3],
-        tex: &[V2],
-        tangents: &[V3],
-        bitangents: &[V3],
-
-        indecies: Option<Vec<usize>>,
-        textures: Vec<Image>,
-    ) -> Mesh<()> {
-        let positions_size = positions.len() * mem::size_of::<V3>();
-        let normals_size = normals.len() * mem::size_of::<V3>();
-        let tex_size = tex.len() * mem::size_of::<V2>();
-        let tangents_size = tangents.len() * mem::size_of::<V3>();
-
-        let positions_offset = 0;
-        let normals_offset = positions_offset + positions_size;
-        let tex_offset = normals_offset + normals_size;
-        let tangents_offset = tex_offset + tex_size;
-
-        let mut vao = VertexArray::new();
-        let mut vbo =
-            VertexBuffer::from_size(positions_size + normals_size + tex_size + tangents_size);
-
-        let ebo = if indecies.is_some() {
-            Some(ElementBuffer::new())
-        } else {
-            None
-        };
-        {
-            // if let Some(ref indecies) = &indecies {
-            //     if let Some(ref mut ebo) = &mut ebo {
-            //         let ebo_binder = vao_binder.bind_ebo(ebo);
-            //         ebo_binder.buffer_data(&indecies);
-            //     }
-            // }
-
-            let mut vbo_binder = vbo.bind();
-
-            vbo_binder
-                .buffer_sub_data(positions_offset, positions)
-                .buffer_sub_data(normals_offset, normals)
-                .buffer_sub_data(tex_offset, tex)
-                .buffer_sub_data(tangents_offset, tangents);
-
-            vao.bind()
-                .attrib(&vbo_binder, 0, 3, GlType::Float, 0, positions_offset)
-                .attrib(&vbo_binder, 1, 3, GlType::Float, 0, normals_offset)
-                .attrib(&vbo_binder, 2, 2, GlType::Float, 0, tex_offset)
-                .attrib(&vbo_binder, 3, 3, GlType::Float, 0, tangents_offset);
-        }
-
-        Mesh {
-            // positions,
-            // normals,
-            // tex,
-            // tangents,
-            vcount: positions.len(),
-
-            indecies,
-            textures,
-            vao,
-            vbo,
-            ebo,
-        }
-    }
-}
-impl<T> Mesh<T> {
-    pub fn bind(&mut self) -> MeshBinding<T> {
+    pub fn bind(&mut self) -> MeshBinding {
         MeshBinding(self)
     }
 }
 
-pub struct MeshBinding<'a, T: 'a>(&'a mut Mesh<T>);
-impl<'a, T> MeshBinding<'a, T> {
+pub struct MeshBinding<'a>(&'a mut Mesh);
+impl<'a> MeshBinding<'a> {
     fn bind_textures(&self, program: &ProgramBinding) {
         let mut diffuse_n = 0;
         let mut ambient_n = 0;
@@ -346,7 +334,7 @@ impl<'a, T> MeshBinding<'a, T> {
     pub fn draw_geometry_instanced<F>(
         &mut self,
         fbo: &F,
-        program: &ProgramBinding,
+        _program: &ProgramBinding,
         transforms: &VertexBufferBinder<Mat4>,
     ) where
         F: FramebufferBinderDrawer,
@@ -375,13 +363,40 @@ impl<'a, T> MeshBinding<'a, T> {
     }
 }
 
-#[allow(unused)]
-pub struct Model<T> {
-    meshes: Vec<Mesh<T>>,
+pub fn calculate_tangent_and_bitangent(va: &mut Vertex, vb: &mut Vertex, vc: &mut Vertex) {
+    let v1 = va.pos;
+    let v2 = vb.pos;
+    let v3 = vc.pos;
+
+    let w1 = va.tex;
+    let w2 = vb.tex;
+    let w3 = vc.tex;
+
+    let d1 = v2 - v1;
+    let d2 = v3 - v1;
+    let t1 = w2 - w1;
+    let t2 = w3 - w1;
+
+    let r = 1.0 / (t1.x * t2.y - t2.x * t1.y);
+    let sdir = r * (t2.y * d1 - t1.y * d2);
+    let tdir = r * (t1.x * d2 - t2.x * d1);
+
+    va.tangent = sdir;
+    va.bitangent = tdir;
+    vb.tangent = sdir;
+    vb.bitangent = tdir;
+    vc.tangent = sdir;
+    vc.bitangent = tdir;
+}
+pub struct Model {
+    meshes: Vec<Mesh>,
     // texture_cache: HashMap<String, Rc<Image>>,
 }
-impl<T> Model<T> {
-    fn new_vertex_data_from_disk(texture_cache: &mut TextureCache, path: &'static str) -> Vec<(Vec<Vertex>, Vec<Image>)> {
+impl Model {
+    fn new_vertex_data_from_disk(
+        texture_cache: &mut TextureCache,
+        path: &'static str,
+    ) -> Vec<(Vec<Vertex>, Vec<Image>)> {
         let path = Path::new(path.clone());
         let mut raw_model = obj::Obj::load(path).unwrap();
         let _ = raw_model.load_mtls().unwrap();
@@ -427,70 +442,58 @@ impl<T> Model<T> {
                     mat.map_refl
                         .as_ref()
                         .map(|_| unimplemented!("REFLECTION MAP!"));
-                    mat.ke
-                        .as_ref()
-                        .map(|_| unimplemented!("EMISSIVE MAP!"));
+                    // mat.ke.as_ref().map(|_| unimplemented!("EMISSIVE MAP!"));
                     mat.map_bump
                         .as_ref()
                         .map(|bump| add_tex!(bump, ImageKind::NormalMap));
                 }
                 for ps in group.polys {
+                    let vertify = |v| {
+                        let obj::IndexTuple(vert, tex, norm) = v;
+                        let pos = position[vert].into();
+                        let zero = v3(0.0, 0.0, 0.0);
+                        let norm = norm.map(|i| normal[i].into()).unwrap_or(zero);
+                        let tex =
+                            tex.map(|i| texture[i].into()).unwrap_or(V2::new(0.0, 0.0));
+                        Vertex {
+                            pos,
+                            tex,
+                            norm,
+                            tangent: zero,
+                            bitangent: zero,
+                        }
+                    };
                     match ps {
                         genmesh::Polygon::PolyTri(genmesh::Triangle {
                             x: va,
                             y: vb,
                             z: vc,
                         }) => {
-                            let res = [va, vb, vc]
-                                .into_iter()
-                                .map(|v| {
-                                    let obj::IndexTuple(vert, tex, norm) = v;
-                                    let vert = position[*vert].into();
-                                    let norm =
-                                        norm.map(|i| normal[i].into()).unwrap_or(v3(0.0, 0.0, 0.0));
-                                    let tex =
-                                        tex.map(|i| texture[i].into()).unwrap_or(V2::new(0.0, 0.0));
-                                    (vert, tex, norm)
-                                })
-                                .collect::<Vec<_>>();
-                            let va = res[0];
-                            let vb = res[1];
-                            let vc = res[2];
-                            let meh = [(va, vb, vc), (vb, va, vc), (vc, va, vb)];
-                            for ((vert, tex, norm), (avert, atex, _anorm), (bvert, btex, _bnorm)) in
-                                meh.iter()
-                            {
-                                let pos = *vert;
-                                let norm = *norm;
-                                let tex = *tex;
+                            let mut va = vertify(va);
+                            let mut vb = vertify(vb);
+                            let mut vc = vertify(vc);
 
-                                // Tangets and bitangents
+                            calculate_tangent_and_bitangent(&mut va, &mut vb, &mut vc);
 
-                                let delta_pos1 = avert - pos;
-                                let delta_pos2 = bvert - pos;
+                            vertices.push(va);
+                            vertices.push(vb);
+                            vertices.push(vc);
+                        }
+                        genmesh::Polygon::PolyQuad(genmesh::Quad {
+                            x,y,z,w
+                        }) => {
+                            for (va,vb,vc) in [(x,y,z),(x,z,w)].into_iter() {
+                                let mut va = vertify(*va);
+                                let mut vb = vertify(*vb);
+                                let mut vc = vertify(*vc);
 
-                                let delta_uv1 = atex - tex;
-                                let delta_uv2 = btex - tex;
+                                calculate_tangent_and_bitangent(&mut va, &mut vb, &mut vc);
 
-                                let r =
-                                    1.0 / (delta_uv1.x * delta_uv2.y - delta_uv1.y * delta_uv2.x);
-                                let tangent =
-                                    (delta_pos2 * delta_uv1.x - delta_pos1 * delta_uv2.x) * r;
-
-                                let bitangent =
-                                    (delta_pos1 * delta_uv2.y - delta_pos2 * delta_uv1.y) * r;
-
-                                let v = Vertex {
-                                    pos,
-                                    norm,
-                                    tex,
-                                    tangent,
-                                    bitangent,
-                                };
-                                vertices.push(v);
+                                vertices.push(va);
+                                vertices.push(vb);
+                                vertices.push(vc);
                             }
                         }
-                        x => unimplemented!("{:?}", x),
                     }
                 }
             }
@@ -517,7 +520,7 @@ impl<T> Model<T> {
     ) where
         F: FramebufferBinderDrawer,
     {
-        for mut mesh in self.meshes.iter_mut() {
+        for mesh in self.meshes.iter_mut() {
             mesh.bind().draw_geometry_instanced(fbo, program, offsets);
         }
     }
@@ -530,43 +533,24 @@ impl<T> Model<T> {
         F: FramebufferBinderDrawer,
     {
         let start_slot = program.next_texture_slot();
-        for mut mesh in self.meshes.iter_mut() {
+        for mesh in self.meshes.iter_mut() {
             mesh.bind().draw_instanced(fbo, program, offsets);
             program.set_next_texture_slot(start_slot);
         }
     }
-}
-impl Model<()> {
-    pub fn new_from_disk(texture_cache: &mut TextureCache, path: &'static str) -> Model<()> {
-        let vertex_groups = Model::<()>::new_vertex_data_from_disk(texture_cache, path);
+    pub fn new_from_disk(texture_cache: &mut TextureCache, path: &'static str) -> Model {
+        let vertex_groups = Model::new_vertex_data_from_disk(texture_cache, path);
 
-        let meshes = vertex_groups.into_iter().map(|(vertices, materials)| {
-            let (a, b, c, d, e) = Vertex::soa(&vertices);
-            let mesh = Mesh::new_soa(&a, &b, &c, &d, &e, None, materials);
+        let meshes = vertex_groups
+            .into_iter()
+            .map(|(vertices, materials)| {
+                let mesh = Mesh::new(&vertices, materials);
 
-            mesh
-        }).collect();
+                mesh
+            })
+            .collect();
 
-        Model {
-            meshes,
-            // texture_cache,
-        }
-    }
-}
-impl Model<Vertex> {
-    pub fn new_from_disk(texture_cache: &mut TextureCache, path: &'static str) -> Model<Vertex> {
-        let vertex_groups = Model::<()>::new_vertex_data_from_disk(texture_cache, path);
-
-        let meshes = vertex_groups.into_iter().map(|(vertices, materials)| {
-            let mesh = Mesh::new(&vertices, materials);
-
-            mesh
-        }).collect();
-
-        Model {
-            meshes,
-            // texture_cache,
-        }
+        Model { meshes }
     }
 }
 
@@ -597,13 +581,7 @@ impl DirectionalLight {
         let view = Mat4::look_at(o, o - self.direction, v3(0.0, 1.0, 0.0));
         projection * view
     }
-    fn bind(
-        &self,
-        camera_pos: V3,
-        name: &str,
-        texture_slot: TextureSlot,
-        program: &ProgramBinding,
-    ) {
+    fn bind(&self, camera_pos: V3, name: &str, program: &ProgramBinding) {
         let ext = |e| format!("{}.{}", name, e);
         let space = self.space(camera_pos);
         let DirectionalLight {
@@ -621,26 +599,18 @@ impl DirectionalLight {
 
         program.bind_mat4(&ext("space"), space);
 
-        program.bind_texture(&ext("shadowMap"), &shadow_map.map);
+        program.bind_texture("directionalShadowMap", &shadow_map.map);
     }
     pub fn bind_multiple(
         camera_pos: V3,
         lights: &[DirectionalLight],
-        initial_slot: TextureSlot,
         name_uniform: &str,
         amt_uniform: &str,
         program: &ProgramBinding,
     ) {
         program.bind_int(amt_uniform, lights.len() as i32);
         for (i, light) in lights.iter().enumerate() {
-            let slot: i32 = initial_slot.into();
-            let slot = (slot as usize + i).into();
-            light.bind(
-                camera_pos,
-                &format!("{}[{}]", name_uniform, i),
-                slot,
-                program,
-            );
+            light.bind(camera_pos, &format!("{}[{}]", name_uniform, i), program);
         }
     }
     pub fn bind_shadow_map(&mut self, camera_pos: V3) -> (FramebufferBinderReadDraw, Mat4) {
@@ -665,10 +635,9 @@ pub struct PointLight {
     pub shadow_map: Option<PointShadowMap>,
 }
 impl PointLight {
-    fn bind(&self, name: &str, texture_slot: TextureSlot, program: &ProgramBinding) {
+    fn bind(&self, name: &str, program: &ProgramBinding) {
         let ext = |e| {
             let res = format!("{}.{}", name, e);
-            // println!("{}", res);
             res
         };
         let PointLight {
@@ -711,7 +680,6 @@ impl PointLight {
     }
     pub fn bind_multiple(
         lights: &[PointLight],
-        initial_slot: TextureSlot,
         name_uniform: &str,
         amt_uniform: &str,
         program: &ProgramBinding,
@@ -719,10 +687,8 @@ impl PointLight {
         program.bind_int(amt_uniform, lights.len() as i32);
         GlError::check().expect("Failed to bind number of lights");
         for (i, light) in lights.iter().enumerate() {
-            let slot: i32 = initial_slot.into();
-            let slot = (slot as usize + i).into();
             // println!("binding: {} into {:?}", format!("{}[{}]", name_uniform, i), slot);
-            light.bind(&format!("{}[{}]", name_uniform, i), slot, program);
+            light.bind(&format!("{}[{}]", name_uniform, i), program);
         }
         GlError::check().expect("Failed to bind multiple lights");
     }
@@ -770,6 +736,7 @@ struct SpotLight {
     quadratic: f32,
 }
 impl SpotLight {
+    #[allow(unused)]
     fn bind(&self, name: &str, program: &ProgramBinding) {
         let ext = |e| format!("{}.{}", name, e);
         let SpotLight {
@@ -800,7 +767,6 @@ impl SpotLight {
     }
 }
 
-#[allow(unused)]
 #[derive(Debug)]
 pub struct ShadowMap {
     width: u32,
@@ -809,7 +775,6 @@ pub struct ShadowMap {
     map: Texture,
 }
 
-#[allow(unused)]
 impl ShadowMap {
     pub fn new() -> ShadowMap {
         let (width, height) = ShadowMap::size();
@@ -841,8 +806,8 @@ impl ShadowMap {
         }
     }
     pub fn size() -> (u32, u32) {
-        (1024, 1024)
-        // (2048, 2048)
+        // (1024, 1024)
+        (2048, 2048)
         // (4096, 4096)
         // (8192, 8192)
     }
@@ -915,11 +880,13 @@ impl PointShadowMap {
     }
 }
 
+#[allow(unused)]
 #[derive(Debug, Clone, Copy)]
 pub enum ObjectKind {
     Cube,
     Nanosuit,
     Cyborg,
+    Wall,
 }
 
 #[derive(Debug, Clone)]
@@ -930,11 +897,13 @@ pub struct Object {
 
 pub struct GRenderPass {
     pub fbo: Framebuffer,
-    // #[allow(unused)]
-    // pub depth: Renderbuffer,
     pub position: Texture,
     pub normal: Texture,
-    pub albedo_spec: Texture,
+    pub albedo: Texture,
+    pub metallic_roughness_ao: Texture,
+
+    pub width: u32,
+    pub height: u32,
 }
 impl GRenderPass {
     pub fn new(w: u32, h: u32) -> GRenderPass {
@@ -944,7 +913,7 @@ impl GRenderPass {
             .bind()
             .storage(TextureInternalFormat::DepthComponent, w, h);
 
-        let (position, normal, albedo_spec) = {
+        let (position, normal, albedo, metallic_roughness_ao) = {
             let buffer = fbo.bind();
 
             let create_texture = |internal, format, typ, attachment| {
@@ -964,23 +933,34 @@ impl GRenderPass {
                 Attachment::Color0,
             );
             let normal = create_texture(
-                TextureInternalFormat::Rgba16f,
-                TextureFormat::Rgba,
+                TextureInternalFormat::Rgb16f,
+                TextureFormat::Rgb,
                 GlType::Float,
                 Attachment::Color1,
             );
-            let albedo_spec = create_texture(
-                TextureInternalFormat::Srgb8Alpha8,
-                TextureFormat::Rgba,
+            let albedo = create_texture(
+                TextureInternalFormat::Srgb8,
+                TextureFormat::Rgb,
                 GlType::UnsignedByte,
                 Attachment::Color2,
             );
+            let metallic_roughness_ao = create_texture(
+                TextureInternalFormat::Rgb8,
+                TextureFormat::Rgb,
+                GlType::UnsignedByte,
+                Attachment::Color3,
+            );
 
             buffer
-                .draw_buffers(&[Attachment::Color0, Attachment::Color1, Attachment::Color2])
+                .draw_buffers(&[
+                    Attachment::Color0,
+                    Attachment::Color1,
+                    Attachment::Color2,
+                    Attachment::Color3,
+                ])
                 .renderbuffer(Attachment::Depth, &depth);
 
-            (position, normal, albedo_spec)
+            (position, normal, albedo, metallic_roughness_ao)
         };
 
         GRenderPass {
@@ -988,19 +968,24 @@ impl GRenderPass {
             // depth,
             position,
             normal,
-            albedo_spec,
+            albedo,
+            metallic_roughness_ao,
+
+            width: w,
+            height: h,
         }
     }
 }
 
 pub struct RenderTarget {
-    pub size: (u32, u32),
+    pub width: u32,
+    pub height: u32,
     pub framebuffer: Framebuffer,
     pub texture: Texture,
 }
 
 impl RenderTarget {
-    pub fn new(w: u32, h: u32) -> RenderTarget {
+    pub fn new(width: u32, height: u32) -> RenderTarget {
         let mut framebuffer = Framebuffer::new();
         let mut depth = Renderbuffer::new();
         let texture = Texture::new(TextureKind::Texture2d);
@@ -1010,8 +995,8 @@ impl RenderTarget {
                 TextureTarget::Texture2d,
                 0,
                 TextureInternalFormat::Srgb,
-                w,
-                h,
+                width,
+                height,
                 TextureFormat::Rgb,
                 GlType::UnsignedByte,
             )
@@ -1023,7 +1008,7 @@ impl RenderTarget {
 
         depth
             .bind()
-            .storage(TextureInternalFormat::DepthComponent, w, h);
+            .storage(TextureInternalFormat::DepthComponent, width, height);
 
         framebuffer
             .bind()
@@ -1032,9 +1017,16 @@ impl RenderTarget {
             .renderbuffer(Attachment::Depth, &depth);
 
         RenderTarget {
-            size: (w, h),
+            width,
+            height,
             framebuffer,
             texture,
+        }
+    }
+
+    pub fn set_viewport(&self) {
+        unsafe {
+            gl::Viewport(0, 0, self.width as i32, self.height as i32);
         }
     }
 
@@ -1042,12 +1034,66 @@ impl RenderTarget {
         self.framebuffer.bind()
     }
 
+    #[allow(unused)]
     pub fn read(&mut self) -> FramebufferBinderRead {
         self.framebuffer.read()
     }
 
+    #[allow(unused)]
     pub fn draw(&mut self) -> FramebufferBinderDraw {
         self.framebuffer.draw()
+    }
+}
+
+pub trait Renderable {
+    fn framebuffer(&self) -> &Framebuffer;
+    fn framebuffer_mut(&mut self) -> &mut Framebuffer;
+    fn size(&self) -> (u32, u32);
+    fn framebuffer_read(&mut self) -> FramebufferBinderRead {
+        self.framebuffer_mut().read()
+    }
+    fn framebuffer_draw(&mut self) -> FramebufferBinderDraw {
+        self.framebuffer_mut().draw()
+    }
+    fn bounds(&self) -> (u32, u32, u32, u32) {
+        let (w, h) = self.size();
+
+        (0, 0, w, h)
+    }
+    fn blit_to<T>(&mut self, target: &mut T, mask: Mask, filter: u32)
+    where
+        T: Renderable,
+    {
+        let sb = self.bounds();
+        let tb = target.bounds();
+
+        target
+            .framebuffer_draw()
+            .blit_framebuffer(&self.framebuffer_read(), sb, tb, mask, filter);
+    }
+}
+
+impl Renderable for GRenderPass {
+    fn framebuffer(&self) -> &Framebuffer {
+        &self.fbo
+    }
+    fn framebuffer_mut(&mut self) -> &mut Framebuffer {
+        &mut self.fbo
+    }
+    fn size(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+}
+
+impl Renderable for RenderTarget {
+    fn framebuffer(&self) -> &Framebuffer {
+        &self.framebuffer
+    }
+    fn framebuffer_mut(&mut self) -> &mut Framebuffer {
+        &mut self.framebuffer
+    }
+    fn size(&self) -> (u32, u32) {
+        (self.width, self.height)
     }
 }
 
@@ -1100,6 +1146,141 @@ impl<'a> CubeMapBuilder<&'a str> {
 
         Image::new(Rc::new(texture), Some(sum_path.into()), ImageKind::CubeMap)
     }
+}
+
+pub fn map_cubemap(
+    size: u32,
+    mip_levels: usize,
+    program: &ProgramBinding,
+    mut render_cube: impl FnMut(&FramebufferBinderReadDraw, &ProgramBinding),
+) -> Image {
+    // Prepare
+    let mut fbo = Framebuffer::new();
+    let mut rbo = Renderbuffer::new();
+    rbo.bind()
+        .storage(TextureInternalFormat::DepthComponent24, size, size);
+    let map = Texture::new(TextureKind::CubeMap);
+    let faces = TextureTarget::cubemap_faces();
+    {
+        let tex = map.bind();
+        for face in faces.into_iter() {
+            tex.empty(
+                *face,
+                0,
+                TextureInternalFormat::Rgb16f,
+                size,
+                size,
+                TextureFormat::Rgb,
+                GlType::Float,
+            );
+        }
+
+        if mip_levels > 1 {
+            tex.parameter_int(TextureParameter::MinFilter, gl::LINEAR_MIPMAP_LINEAR as i32)
+        } else {
+            tex.parameter_int(TextureParameter::MinFilter, gl::LINEAR as i32)
+        }.parameter_int(TextureParameter::MagFilter, gl::LINEAR as i32)
+            .parameter_int(TextureParameter::WrapS, gl::CLAMP_TO_EDGE as i32)
+            .parameter_int(TextureParameter::WrapT, gl::CLAMP_TO_EDGE as i32)
+            .parameter_int(TextureParameter::WrapR, gl::CLAMP_TO_EDGE as i32);
+
+        if mip_levels > 1 {
+            unsafe {
+                gl::GenerateMipmap(gl::TEXTURE_CUBE_MAP);
+            }
+        }
+    }
+
+    fbo.bind()
+        .renderbuffer(Attachment::Depth, &rbo)
+        .check_status()
+        .expect("framebuffer for map_cubemap is not ready");
+
+    // Render
+
+    let capture_perspective: Mat4 = cgmath::PerspectiveFov {
+        fovy: Rad(std::f32::consts::PI / 2.0),
+        aspect: 1.0,
+        near: 0.1,
+        far: 10.0,
+    }.into();
+
+    let origo = P3::new(0.0, 0.0, 0.0);
+    let lp = origo;
+    let look_at = |p, up| (Mat4::look_at(lp, lp + p, up)).into();
+
+    let transforms: [Mat4; 6] = [
+        look_at(v3(1.0, 0.0, 0.0), v3(0.0, -1.0, 0.0)),
+        look_at(v3(-1.0, 0.0, 0.0), v3(0.0, -1.0, 0.0)),
+        look_at(v3(0.0, 1.0, 0.0), v3(0.0, 0.0, 1.0)),
+        look_at(v3(0.0, -1.0, 0.0), v3(0.0, 0.0, -1.0)),
+        look_at(v3(0.0, 0.0, 1.0), v3(0.0, -1.0, 0.0)),
+        look_at(v3(0.0, 0.0, -1.0), v3(0.0, -1.0, 0.0)),
+    ];
+
+    program.bind_mat4("projection", capture_perspective);
+
+    {
+        unsafe {
+            gl::Disable(gl::CULL_FACE);
+        }
+        let fbo = fbo.bind();
+        for mip in 0..mip_levels {
+            let mip_scale = (0.5 as f32).powf(mip as f32);
+            let mip_size = (size as f32 * mip_scale) as u32;
+
+            rbo.bind()
+                .storage(TextureInternalFormat::DepthComponent24, mip_size, mip_size);
+
+            unsafe {
+                gl::Viewport(0, 0, mip_size as i32, mip_size as i32);
+            }
+
+            let roughness = if mip_levels > 1 {
+                mip as f32 / (mip_levels - 1) as f32
+            } else {
+                0.0
+            };
+            program.bind_float("roughness", roughness);
+
+            for (i, face) in faces.iter().enumerate() {
+                program.bind_mat4("view", transforms[i]);
+                fbo.texture_2d(Attachment::Color0, *face, &map, mip)
+                    .clear(Mask::ColorDepth);
+                GlError::check().expect("pre render cube");
+                render_cube(&fbo, program);
+                GlError::check().expect("post render cube");
+            }
+        }
+        unsafe {
+            gl::Enable(gl::CULL_FACE);
+        }
+    }
+
+    GlError::check().expect("falied to make cubemap from equirectangular");
+
+    Image::new(Rc::new(map), None, ImageKind::CubeMap)
+}
+pub fn cubemap_from_equirectangular(
+    size: u32,
+    program: &ProgramBinding,
+    render_cube: impl FnMut(&FramebufferBinderReadDraw, &ProgramBinding),
+) -> Image {
+    map_cubemap(size, 1, program, render_cube)
+}
+pub fn cubemap_from_importance(
+    size: u32,
+    program: &ProgramBinding,
+    render_cube: impl FnMut(&FramebufferBinderReadDraw, &ProgramBinding),
+) -> Image {
+    map_cubemap(size, 5, program, render_cube)
+}
+pub fn convolute_cubemap(
+    size: u32,
+    program: &ProgramBinding,
+    render_cube: impl FnMut(&FramebufferBinderReadDraw, &ProgramBinding),
+) -> Image {
+    map_cubemap(size, 1, program, render_cube)
 }
 
 pub struct Camera {

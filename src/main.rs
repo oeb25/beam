@@ -1,5 +1,5 @@
 #![feature(fs_read_write, stmt_expr_attributes, transpose_result, box_syntax, box_patterns)]
-#![feature(custom_attribute)]
+#![feature(custom_attribute, nll)]
 
 extern crate cgmath;
 extern crate genmesh;
@@ -57,7 +57,7 @@ impl Scene {
         let one = v3(1.0, 1.0, 1.0);
 
         let sun = DirectionalLight {
-            diffuse: v3(0.2, 0.4, 1.0) * 0.01,
+            diffuse: v3(0.2, 0.4, 1.0) * 10.00,
             ambient: v3(0.0, 0.0, 1.0) * 0.00,
             specular: v3(0.2, 0.4, 1.0) * 0.2,
 
@@ -82,7 +82,8 @@ impl Scene {
             //     shadow_map: Some(PointShadowMap::new()),
             // },
             PointLight {
-                diffuse: v3(0.7, 0.4, 0.2),
+                // diffuse: v3(0.7, 0.4, 0.2),
+                diffuse: v3(0.7, 0.4, 0.2) * 10.0,
                 ambient: v3(0.7, 0.4, 0.2) * 0.1,
                 specular: v3(0.7, 0.4, 0.2) * 0.7,
 
@@ -96,38 +97,38 @@ impl Scene {
                 // shadow_map: None,
                 shadow_map: Some(PointShadowMap::new()),
             },
-            // PointLight {
-            //     diffuse: v3(0.0, 1.0, 0.2),
-            //     ambient: one * 0.0,
-            //     specular: one * 0.2,
+            PointLight {
+                diffuse: v3(1.0, 0.0, 0.2),
+                ambient: one * 0.0,
+                specular: one * 0.2,
 
-            //     position: light_pos1 + light_pos2,
-            //     last_shadow_map_position: light_pos1 + light_pos2,
+                position: light_pos1 + light_pos2,
+                last_shadow_map_position: light_pos1 + light_pos2,
 
-            //     constant: 1.0,
-            //     linear: 0.07,
-            //     quadratic: 0.007,
+                constant: 1.0,
+                linear: 0.07,
+                quadratic: 0.007,
 
-            //     shadow_map: None,
-            // },
-            // PointLight {
-            //     diffuse: v3(0.2, 0.2, 0.8),
-            //     ambient: one * 0.0,
-            //     specular: one * 0.2,
+                shadow_map: None,
+            },
+            PointLight {
+                diffuse: v3(0.2, 0.2, 0.8),
+                ambient: one * 0.0,
+                specular: one * 0.2,
 
-            //     position: v3(
-            //         light_pos1.x * light_pos2.x,
-            //         1.0,
-            //         light_pos1.z * light_pos2.z,
-            //     ),
-            //     last_shadow_map_position: one,
+                position: v3(
+                    light_pos1.x * light_pos2.x,
+                    1.0,
+                    light_pos1.z * light_pos2.z,
+                ),
+                last_shadow_map_position: one,
 
-            //     constant: 1.0,
-            //     linear: 0.07,
-            //     quadratic: 0.007,
+                constant: 1.0,
+                linear: 0.07,
+                quadratic: 0.007,
 
-            //     shadow_map: None,
-            // },
+                shadow_map: None,
+            },
         ];
 
         let directional_lights = vec![sun];
@@ -190,7 +191,7 @@ fn main() {
         .with_title("Hello, world!")
         .with_dimensions(screen_width, screen_height);
     let context = glutin::ContextBuilder::new()
-        .with_vsync(false)
+        .with_vsync(true)
         .with_gl_profile(glutin::GlProfile::Core)
         .with_srgb(true);
     let gl_window = glutin::GlWindow::new(window, context, &events_loop).unwrap();
@@ -215,14 +216,14 @@ fn main() {
     let mut running = true;
     let mut last_pos = None;
     let mut is = vec![];
-    for i in 0..5 {
+    for i in 1..2 {
         for n in 0..i {
             let x = i as f32 / 2.0;
-            let v = v3(n as f32 - x, -i as f32 - 5.0, i as f32 / 2.0) * 2.0;
+            let v = v3(i as f32 / 2.0, -i as f32 - 5.0, n as f32 - x) * 2.0;
             let v = Mat4::from_translation(v) * Mat4::from_angle_y(Rad(i as f32 - 1.0));
             if true {
                 let obj = Object {
-                    kind: ObjectKind::Nanosuit,
+                    kind: ObjectKind::Wall,
                     transform: v,
                 };
                 is.push(obj);
@@ -374,7 +375,7 @@ fn main() {
                 update_shadows,
                 RenderProps {
                     camera: &scene.camera,
-                    objects: &objects,
+                    objects: objects.into_iter(),
                     directional_lights: &mut scene.directional_lights,
                     point_lights: &mut scene.point_lights,
                     time: t,

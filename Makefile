@@ -23,3 +23,6 @@ pack/beam: $(BIN)
 	cp -r shaders pack
 
 .PHONY: clean app
+
+beam: $(BIN)
+	cp $(BIN) beam

@@ -24,21 +24,21 @@ void main() {
     vs_out.FragPos = vec3(pos);
     mat3 normalMatrix = transpose(inverse(mat3(model_)));
     vs_out.Normal = normalMatrix * aNormal;
-    vs_out.TexCoords = vec2(aTexCoords.x, -aTexCoords.y);
+    vs_out.TexCoords = vec2(aTexCoords.x, vec2(1.0) - aTexCoords.y);
 
 #if 1
-    vec3 T = normalize(vec3(model_ * vec4(aTangent, 0.0)));
-    vec3 N = normalize(vec3(model_ * vec4(aNormal, 0.0)));
+    vec3 T = normalize(normalMatrix * aTangent);
+    vec3 N = normalize(normalMatrix * aNormal);
 
     T = normalize(T - dot(T, N) * N);
 
     vec3 B = cross(N, T);
 
-    vs_out.TBN = mat3(T, B, N);
+    vs_out.TBN = mat3(T, B, N);;
 #else
-    vec3 T = normalize(vec3(model_ * vec4(aTangent, 0.0)));
-    vec3 N = normalize(vec3(model_ * vec4(aNormal, 0.0)));
-    vec3 B = normalize(vec3(model_ * vec4(aBitangent, 0.0)));
+    vec3 T = normalize(normalMatrix * aTangent);
+    vec3 N = normalize(normalMatrix * aNormal);
+    vec3 B = normalize(normalMatrix * aBitangent);
 
     vs_out.TBN = mat3(T, B, N);
 #endif

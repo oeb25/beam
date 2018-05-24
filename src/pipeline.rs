@@ -1,6 +1,6 @@
 use cgmath::Rad;
 use gl;
-use std::{self, rc::Rc, cell::RefMut};
+use std::{self, cell::RefMut, rc::Rc};
 
 use mg::*;
 
@@ -8,13 +8,14 @@ use hot;
 use warmy;
 
 use render::{
-    v3, Camera, CubeMapBuilder, DirectionalLight, GRenderPass, Image, ImageKind, Mat4, Mesh, Model,
-    Object, ObjectKind, PointLight, PointShadowMap, RenderTarget, ShadowMap, TextureCache, V3, V4,
-    Vertex,
+    convolute_cubemap, cubemap_from_equirectangular, cubemap_from_importance, v3, Camera,
+    CubeMapBuilder, DirectionalLight, GRenderPass, Image, ImageKind, Mat4, Mesh, Model, Object,
+    ObjectKind, PbrMaterial, PointLight, PointShadowMap, RenderTarget, Renderable, ShadowMap,
+    TextureCache, V3, V4, Vertex,
 };
 
-pub struct RenderProps<'a> {
-    pub objects: &'a [Object],
+pub struct RenderProps<'a, T: Iterator<Item = Object>> {
+    pub objects: T,
     pub camera: &'a Camera,
     pub time: f32,
 
@@ -33,43 +34,48 @@ impl HotShader {
 pub struct Pipeline {
     pub warmy_store: warmy::Store<()>,
 
-    pub vertex_program: HotShader,
+    pub equirectangular_program: HotShader,
+    pub convolute_cubemap_program: HotShader,
+    pub prefilter_cubemap_program: HotShader,
+
+    pub pbr_program: HotShader,
     pub directional_shadow_program: HotShader,
     pub point_shadow_program: HotShader,
 
-    pub directional_lighting_program: HotShader,
-    pub point_lighting_program: HotShader,
-
-    pub lighting_program: HotShader,
+    pub lighting_pbr_program: HotShader,
 
     pub skybox_program: HotShader,
     pub blur_program: HotShader,
     pub hdr_program: HotShader,
     pub screen_program: HotShader,
 
-    pub nanosuit: Model<Vertex>,
-    pub cyborg: Model<Vertex>,
-    pub cube: Mesh<Vertex>,
+    pub pbr_material: PbrMaterial,
+    pub ibl_raw: Rc<Texture>,
+    pub ibl_cubemap: Image,
+    pub ibl_cubemap_convoluted: Image,
+    pub ibl_prefiltered_cubemap: Image,
+    pub brdf_lut: Texture,
+
+    pub nanosuit: Model,
+    pub cyborg: Model,
+    pub wall: Model,
+    pub cube: Mesh,
     pub rect: VertexArray,
 
     pub nanosuit_vbo: VertexBuffer<Mat4>,
     pub cyborg_vbo: VertexBuffer<Mat4>,
     pub cube_vbo: VertexBuffer<Mat4>,
+    pub wall_vbo: VertexBuffer<Mat4>,
 
-    pub screen_width: u32,
-    pub screen_height: u32,
     pub hidpi_factor: f32,
 
     pub g: GRenderPass,
 
-    pub color_a: RenderTarget,
-    pub color_b: RenderTarget,
+    pub lighting_target: RenderTarget,
 
-    // pub blur_1: RenderTarget,
-    // pub blur_2: RenderTarget,
     pub blur_targets: Vec<RenderTarget>,
 
-    pub final_target: RenderTarget,
+    pub screen_target: RenderTarget,
     pub window_fbo: Framebuffer,
 
     pub skybox: Rc<Texture>,
@@ -103,7 +109,29 @@ impl Pipeline {
             };
         }
 
-        let vertex_program = shader!("shaders/shader.vert", None, "shaders/shader.frag");
+        let mut equirectangular_program = shader!(
+            "shaders/rect.vert",
+            Some("shaders/cube.geom"),
+            "shaders/equirectangular.frag"
+        );
+        let mut convolute_cubemap_program = shader!(
+            "shaders/rect.vert",
+            Some("shaders/cube.geom"),
+            "shaders/convolute_cubemap.frag"
+        );
+        let mut prefilter_cubemap_program = shader!(
+            "shaders/rect.vert",
+            Some("shaders/cube.geom"),
+            "shaders/prefilter_cubemap.frag"
+        );
+
+        let mut brdf_lut_program = shader!(
+            "shaders/rect.vert",
+            Some("shaders/rect.geom"),
+            "shaders/brdf.frag"
+        );
+
+        let pbr_program = shader!("shaders/shader.vert", None, "shaders/shader_pbr.frag");
         let skybox_program = shader!("shaders/skybox.vert", None, "shaders/skybox.frag");
         let blur_program = shader!(
             "shaders/rect.vert",
@@ -117,20 +145,10 @@ impl Pipeline {
             Some("shaders/point_shadow.geom"),
             "shaders/point_shadow.frag",
         );
-        let directional_lighting_program = shader!(
+        let lighting_pbr_program = shader!(
             "shaders/rect.vert",
             Some("shaders/rect.geom"),
-            "shaders/directional_lighting.frag",
-        );
-        let point_lighting_program = shader!(
-            "shaders/rect.vert",
-            Some("shaders/rect.geom"),
-            "shaders/point_lighting.frag"
-        );
-        let lighting_program = shader!(
-            "shaders/rect.vert",
-            Some("shaders/rect.geom"),
-            "shaders/lighting.frag"
+            "shaders/lighting_pbr.frag"
         );
         let hdr_program = shader!(
             "shaders/rect.vert",
@@ -160,12 +178,18 @@ impl Pipeline {
             top: "assets/darkcity/darkcity_up.tga",
         }.build();
         let mut texture_cache = TextureCache::new();
-        let nanosuit = Model::<Vertex>::new_from_disk(
+        let nanosuit = Model::new_from_disk(
             &mut texture_cache,
             "assets/nanosuit_reflection/nanosuit.obj",
         );
         // let nanosuit = Model::new_from_disk(&mut texture_cache, "assets/nice_thing/nice.obj");
-        let cyborg = Model::<Vertex>::new_from_disk(&mut texture_cache, "assets/cyborg/cyborg.obj");
+        let cyborg = Model::new_from_disk(&mut texture_cache, "assets/cyborg/cyborg.obj");
+        // let cyborg = Model::new_from_disk(&mut texture_cache, "assets/Cerberus_LP/Cerberus_LP.obj");
+        // let wall = Model::new_from_disk(
+        //     &mut texture_cache,
+        //     "assets/castle_wall/Aset_castle_wall_M_scDxB_LOD4.obj",
+        // );
+        let wall = Model::new_from_disk(&mut texture_cache, "assets/weew/weew.obj");
 
         let tex1 = Image::new_from_disk(
             &mut texture_cache,
@@ -178,10 +202,36 @@ impl Pipeline {
             ImageKind::Specular,
         );
 
+        // let pbr_material = PbrMaterial::new_with_default_filenames(
+        //     &mut texture_cache,
+        //     "assets/pbr/gold",
+        //     "png",
+        // );
+        let pbr_material = PbrMaterial::new_with_default_filenames(
+            &mut texture_cache,
+            "assets/pbr/rusted_iron",
+            "png",
+        );
+        // let pbr_material = PbrMaterial::new_with_default_filenames(
+        //     &mut texture_cache,
+        //     "assets/castle_wall/materials",
+        //     "jpg",
+        // );
+        // let pbr_material = PbrMaterial::new_with_default_filenames(
+        //     &mut texture_cache,
+        //     "assets/pbr/stone_wall",
+        //     "jpg",
+        // );
+        // let pbr_material = PbrMaterial::new_with_default_filenames(
+        //     &mut texture_cache,
+        //     "assets/pbr/metal_bare",
+        //     "jpg",
+        // );
+
+        let ibl_raw = texture_cache.load_hdr("assets/Newport_Loft/Newport_Loft_Ref.hdr");
+        // let ibl_raw = texture_cache.load_hdr("assets/Milkyway/Milkyway_small.hdr");
         let cube_mesh = Mesh::new(&cube_vertices(), vec![tex1, tex2]);
-        // let (a, b, c, d) = Vertex::soa(&rect_vertices());
-        // let rect_mesh = Mesh::new(&a, &b, &c, &d, None, vec![]);
-        let rect = {
+        let mut rect = {
             let mut rect_vao = VertexArray::new();
             let mut rect_vbo: VertexBuffer<V3> = VertexBuffer::new();
 
@@ -194,124 +244,168 @@ impl Pipeline {
             rect_vao
         };
 
-        let final_target = RenderTarget::new(w, h);
+        let (ibl_cubemap, ibl_cubemap_convoluted, ibl_prefiltered_cubemap, brdf_lut) = {
+            let mut render_cube = |fbo: &FramebufferBinderReadDraw, program: &ProgramBinding| {
+                program.bind_texture_to("equirectangularMap", &ibl_raw, TextureSlot::One);
+                rect.bind()
+                    .draw_arrays(fbo, program, DrawMode::Points, 0, 1);
+            };
+
+            let ibl_cubemap = cubemap_from_equirectangular(
+                512,
+                &equirectangular_program.bind().bind(),
+                &mut render_cube,
+            );
+
+            let mut render_cube = |fbo: &FramebufferBinderReadDraw, program: &ProgramBinding| {
+                program.bind_texture_to(
+                    "equirectangularMap",
+                    &ibl_cubemap.texture,
+                    TextureSlot::One,
+                );
+                rect.bind()
+                    .draw_arrays(fbo, program, DrawMode::Points, 0, 1);
+            };
+            let ibl_cubemap_convoluted = convolute_cubemap(
+                32,
+                &convolute_cubemap_program.bind().bind(),
+                &mut render_cube,
+            );
+            let ibl_prefiltered_cubemap = cubemap_from_importance(
+                128,
+                &prefilter_cubemap_program.bind().bind(),
+                &mut render_cube,
+            );
+
+            let mut brdf_lut_render_target = RenderTarget::new(512, 512);
+            brdf_lut_render_target.set_viewport();
+            render_cube(
+                &brdf_lut_render_target.bind().clear(Mask::ColorDepth),
+                &brdf_lut_program.bind().bind(),
+            );
+
+            (
+                ibl_cubemap,
+                ibl_cubemap_convoluted,
+                ibl_prefiltered_cubemap,
+                brdf_lut_render_target.texture,
+            )
+        };
+
+        // let (a, b, c, d) = Vertex::soa(&rect_vertices());
+        // let rect_mesh = Mesh::new(&a, &b, &c, &d, None, vec![]);
+
+        let screen_target = RenderTarget::new(w, h);
         let window_fbo = unsafe { Framebuffer::window() };
 
         let g = GRenderPass::new(w, h);
 
-        let color_a = RenderTarget::new(w, h);
-        let color_b = RenderTarget::new(w, h);
+        let lighting_target = RenderTarget::new(w, h);
 
-        let blur_scale = 2;
-        let blur_1 = RenderTarget::new(w / blur_scale, h / blur_scale);
-        let blur_scale = 3;
-        let blur_2 = RenderTarget::new(w / blur_scale, h / blur_scale);
-        let blur_scale = 4;
-        let blur_3 = RenderTarget::new(w / blur_scale, h / blur_scale);
-        let blur_scale = 5;
-        let blur_4 = RenderTarget::new(w / blur_scale, h / blur_scale);
-        let blur_scale = 6;
-        let blur_5 = RenderTarget::new(w / blur_scale, h / blur_scale);
-        let blur_scale = 7;
-        let blur_6 = RenderTarget::new(w / blur_scale, h / blur_scale);
-
-        let blur_targets = vec![blur_1, blur_2, blur_3, blur_4, blur_5, blur_6];
+        let blur_targets = Pipeline::generate_blur_targets(w, h, 6);
 
         Pipeline {
             warmy_store,
 
-            vertex_program,
+            equirectangular_program,
+            convolute_cubemap_program,
+            prefilter_cubemap_program,
+
+            pbr_program,
             directional_shadow_program,
             point_shadow_program,
-            directional_lighting_program,
-            point_lighting_program,
 
-            lighting_program,
+            lighting_pbr_program,
 
             skybox_program,
             blur_program,
             hdr_program,
             screen_program,
 
+            pbr_material,
+            ibl_raw,
+            ibl_cubemap,
+            ibl_cubemap_convoluted,
+            ibl_prefiltered_cubemap,
+            brdf_lut,
+
             nanosuit,
             cyborg,
+            wall,
             cube: cube_mesh,
             rect: rect,
 
             nanosuit_vbo: VertexBuffer::new(),
             cyborg_vbo: VertexBuffer::new(),
             cube_vbo: VertexBuffer::new(),
+            wall_vbo: VertexBuffer::new(),
 
-            screen_width: w,
-            screen_height: h,
             hidpi_factor,
 
             g,
 
-            color_a,
-            color_b,
+            lighting_target,
 
             // blur_1,
             // blur_2,
             blur_targets,
 
-            final_target,
+            screen_target,
             window_fbo,
 
             skybox: skybox.texture,
         }
     }
+    fn generate_blur_targets(w: u32, h: u32, n: usize) -> Vec<RenderTarget> {
+        let mut blur_targets = Vec::with_capacity(n);
+
+        for i in 0..n {
+            let blur_scale = i as u32 + 2;
+            let blur = RenderTarget::new(w / blur_scale, h / blur_scale);
+            blur_targets.push(blur);
+        }
+
+        blur_targets
+    }
     pub fn resize(&mut self, w: u32, h: u32) {
-        let final_target = RenderTarget::new(w, h);
+        let screen_target = RenderTarget::new(w, h);
 
         let g = GRenderPass::new(w, h);
 
-        let color_a = RenderTarget::new(w, h);
-        let color_b = RenderTarget::new(w, h);
+        let lighting_target = RenderTarget::new(w, h);
 
-        let blur_scale = 2;
-        let blur_1 = RenderTarget::new(w / blur_scale, h / blur_scale);
-        let blur_scale = 3;
-        let blur_2 = RenderTarget::new(w / blur_scale, h / blur_scale);
-        let blur_scale = 4;
-        let blur_3 = RenderTarget::new(w / blur_scale, h / blur_scale);
-        let blur_scale = 5;
-        let blur_4 = RenderTarget::new(w / blur_scale, h / blur_scale);
-        let blur_scale = 6;
-        let blur_5 = RenderTarget::new(w / blur_scale, h / blur_scale);
-        let blur_scale = 7;
-        let blur_6 = RenderTarget::new(w / blur_scale, h / blur_scale);
+        let blur_targets = Pipeline::generate_blur_targets(w, h, 6);
 
-        let blur_targets = vec![blur_1, blur_2, blur_3, blur_4, blur_5, blur_6];
-
-        self.final_target = final_target;
+        self.screen_target = screen_target;
         self.g = g;
-        self.color_a = color_a;
-        self.color_b = color_b;
+        self.lighting_target = lighting_target;
         self.blur_targets = blur_targets;
-
-        self.screen_width = w;
-        self.screen_height = h;
     }
-    pub fn render(&mut self, update_shadows: bool, props: RenderProps) {
+    pub fn render<T>(&mut self, update_shadows: bool, props: RenderProps<T>)
+    where
+        T: Iterator<Item = Object>,
+    {
         let view = props.camera.get_view();
         let view_pos = props.camera.pos;
         let projection = props.camera.get_projection();
 
         let mut nanosuit_transforms = vec![];
         let mut cyborg_transforms = vec![];
+        let mut wall_transforms = vec![];
         let mut cube_transforms = vec![];
 
-        for obj in props.objects.iter() {
+        for obj in props.objects {
             match obj.kind {
                 ObjectKind::Cube => cube_transforms.push(obj.transform),
                 ObjectKind::Nanosuit => nanosuit_transforms.push(obj.transform),
                 ObjectKind::Cyborg => cyborg_transforms.push(obj.transform),
+                ObjectKind::Wall => wall_transforms.push(obj.transform),
             }
         }
 
         self.nanosuit_vbo.bind().buffer_data(&nanosuit_transforms);
         self.cyborg_vbo.bind().buffer_data(&cyborg_transforms);
+        self.wall_vbo.bind().buffer_data(&wall_transforms);
         self.cube_vbo.bind().buffer_data(&cube_transforms);
 
         let pi = std::f32::consts::PI;
@@ -327,10 +421,18 @@ impl Pipeline {
                     self.nanosuit
                         .$func(&$fbo, &$program, &self.nanosuit_vbo.bind());
                 }
-                {
+                if false {
                     let model = Mat4::from_angle_y(Rad(pi));
                     $program.bind_mat4("model", model);
                     self.cyborg.$func(&$fbo, &$program, &self.cyborg_vbo.bind());
+                }
+                {
+                    // let model = Mat4::from_scale(1.0 / 16.0)
+                    let model = Mat4::from_scale(4.0 / 1.0)
+                        * Mat4::from_translation(v3(0.0, 0.0, 4.0))
+                        * Mat4::from_angle_y(Rad(pi + 0.01 * props.time));
+                    $program.bind_mat4("model", model);
+                    self.wall.$func(&$fbo, &$program, &self.wall_vbo.bind());
                 }
                 {
                     let model = Mat4::from_scale(1.0);
@@ -350,15 +452,16 @@ impl Pipeline {
             };
         }
 
-        unsafe {
-            gl::Viewport(0, 0, self.screen_width as i32, self.screen_height as i32);
-        }
+        // unsafe {
+        //     gl::Viewport(0, 0, self.screen_width as i32, self.screen_height as i32);
+        // }
+        self.screen_target.set_viewport();
 
         {
             // Render geometry
             let fbo = self.g.fbo.bind();
             fbo.clear(Mask::ColorDepth);
-            let mut program_ = self.vertex_program.bind();
+            let mut program_ = self.pbr_program.bind();
             let program = program_.bind();
             program
                 .bind_mat4("projection", projection)
@@ -366,24 +469,25 @@ impl Pipeline {
                 .bind_vec3("viewPos", view_pos)
                 .bind_float("time", props.time)
                 .bind_texture("shadowMap", &self.skybox)
-                .bind_texture("skybox", &self.skybox);
+                .bind_texture("skybox", &self.skybox)
+                .bind_bool("useMaterial", false)
+                .bind_vec3("mat_albedo", v3(0.5, 0.0, 0.0))
+                .bind_vec3("mat_metallicRoughnessAo", v3(0.5, 0.5, 0.1));
+
+            self.pbr_material.bind(&program);
 
             render_scene!(fbo, program);
             // self.render_scene(block, &program, fbo, &mut nanosuit_vbo, &mut cyborg_vbo, &mut cube_vbo);
         }
 
-        // Clear backbuffer
-        self.color_b.bind().clear(Mask::ColorDepth);
         if true {
-            if update_shadows {
+            if true {
                 // Render depth map for directional lights
                 let mut p_ = self.directional_shadow_program.bind();
                 let p = p_.bind();
                 unsafe {
                     let (w, h) = ShadowMap::size();
                     gl::Viewport(0, 0, w as i32, h as i32);
-                }
-                unsafe {
                     gl::CullFace(gl::FRONT);
                 }
                 for light in props.directional_lights.iter_mut() {
@@ -394,13 +498,14 @@ impl Pipeline {
                 }
                 unsafe {
                     gl::CullFace(gl::BACK);
-                    gl::Viewport(0, 0, self.screen_width as i32, self.screen_height as i32);
+                    // gl::Viewport(0, 0, self.screen_width as i32, self.screen_height as i32);
                 }
+                self.screen_target.set_viewport();
             }
             if update_shadows {
                 // Render depth map for point lights
-                let (w, h) = PointShadowMap::size();
                 unsafe {
+                    let (w, h) = PointShadowMap::size();
                     gl::Viewport(0, 0, w as i32, h as i32);
                     gl::CullFace(gl::FRONT);
                 }
@@ -423,152 +528,124 @@ impl Pipeline {
                 }
                 unsafe {
                     gl::CullFace(gl::BACK);
-                    gl::Viewport(0, 0, self.screen_width as i32, self.screen_height as i32);
                 }
+                self.screen_target.set_viewport();
             }
         }
 
         {
             // Render lighting
-            {
-                let fbo = self.color_b.bind();
-                fbo.clear(Mask::ColorDepth);
+            let fbo = self.lighting_target.bind();
+            fbo.clear(Mask::ColorDepth);
 
-                let mut g_ = self.lighting_program.bind();
-                let g = g_.bind();
+            let mut g_ = self.lighting_pbr_program.bind();
+            let g = g_.bind();
 
-                // macro_rules! uniforms {
-                //     ($program:expr, { $($name:ident: $value:expr,)* }) => {
-                //         $( $value.bind($program, $name); )*
-                //     }
-                // }
+            // macro_rules! uniforms {
+            //     ($program:expr, { $($name:ident: $value:expr,)* }) => {
+            //         $( $value.bind($program, $name); )*
+            //     }
+            // }
 
-                // uniforms!(g, {
-                //     aPosition: &self.g.position,
-                //     aNormal: &self.g.normal,
-                //     aAlbedoSpec: &self.g.albedo_spec,
-                //     shadowMap: &self.skybox,
-                //     skybox: &self.skybox,
-                //     viewPos: view_pos,
-                // });
+            // uniforms!(g, {
+            //     aPosition: &self.g.position,
+            //     aNormal: &self.g.normal,
+            //     aAlbedoSpec: &self.g.albedo_spec,
+            //     shadowMap: &self.skybox,
+            //     skybox: &self.skybox,
+            //     viewPos: view_pos,
+            // });
 
-                g.bind_texture("aPosition", &self.g.position)
-                    .bind_texture("aNormal", &self.g.normal)
-                    .bind_texture("aAlbedoSpec", &self.g.albedo_spec)
-                    .bind_vec3("viewPos", view_pos);
+            g.bind_texture("aPosition", &self.g.position)
+                .bind_texture("aNormal", &self.g.normal)
+                .bind_texture("aAlbedo", &self.g.albedo)
+                .bind_texture("aAlbedo", &self.g.albedo)
+                .bind_texture("aMetallicRoughnessAo", &self.g.metallic_roughness_ao)
+                .bind_texture("irradianceMap", &self.ibl_cubemap_convoluted.texture)
+                .bind_texture("prefilterMap", &self.ibl_prefiltered_cubemap.texture)
+                .bind_texture("brdfLUT", &self.brdf_lut)
+                .bind_vec3("viewPos", view_pos);
 
-                let lights: &[_] = &props.directional_lights;
+            let lights: &[_] = &props.directional_lights;
 
-                DirectionalLight::bind_multiple(
-                    props.camera.pos,
-                    lights,
-                    TextureSlot::Four,
-                    "directionalLights",
-                    "nrDirLights",
-                    &g,
-                );
+            DirectionalLight::bind_multiple(
+                props.camera.pos,
+                lights,
+                "directionalLights",
+                "nrDirLights",
+                &g,
+            );
 
-                PointLight::bind_multiple(
-                    props.point_lights,
-                    TextureSlot::Five,
-                    "pointLights",
-                    "nrPointLights",
-                    &g,
-                );
+            PointLight::bind_multiple(props.point_lights, "pointLights", "nrPointLights", &g);
 
-                GlError::check().expect("Failed prior to draw directional ligts rect");
-                draw_rect!(&fbo, &g);
-                GlError::check().expect("Failed to draw directional ligts rect");
-            }
+            draw_rect!(&fbo, &g);
+            GlError::check().expect("Lighting pass failed");
         }
 
         // Skybox Pass
         {
             // Copy z-buffer over from geometry pass
-            let g_binding = self.g.fbo.read();
-            let hdr_binding = self.color_b.draw();
-            let (w, h) = (self.screen_width as i32, self.screen_height as i32);
-            hdr_binding.blit_framebuffer(
-                &g_binding,
-                (0, 0, w, h),
-                (0, 0, w, h),
-                Mask::Depth,
-                gl::NEAREST,
-            );
+            self.g
+                .blit_to(&mut self.lighting_target, Mask::Depth, gl::NEAREST)
         }
         GlError::check().unwrap();
         {
             // Render skybox
-            let fbo = self.color_b.bind();
-            {
-                unsafe {
-                    gl::DepthFunc(gl::LEQUAL);
-                    gl::Disable(gl::CULL_FACE);
-                }
-                let mut program_ = self.skybox_program.bind();
-                let program = program_.bind();
-                let mut view = view.clone();
-                view.w = V4::new(0.0, 0.0, 0.0, 0.0);
-                program
-                    .bind_mat4("projection", projection)
-                    .bind_mat4("view", view)
-                    .bind_texture("skybox", &self.skybox);
-                self.cube.bind().draw(&fbo, &program);
-                unsafe {
-                    gl::DepthFunc(gl::LESS);
-                    gl::Enable(gl::CULL_FACE);
-                }
+            let fbo = self.lighting_target.bind();
+            unsafe {
+                gl::DepthFunc(gl::LEQUAL);
+                gl::Disable(gl::CULL_FACE);
+            }
+            let mut program_ = self.skybox_program.bind();
+            let program = program_.bind();
+            let mut view = view.clone();
+            view.w = V4::new(0.0, 0.0, 0.0, 0.0);
+            program
+                .bind_mat4("projection", projection)
+                .bind_mat4("view", view)
+                .bind_texture("skybox", &self.ibl_cubemap.texture);
+            self.cube.bind().draw(&fbo, &program);
+            unsafe {
+                gl::DepthFunc(gl::LESS);
+                gl::Enable(gl::CULL_FACE);
             }
         }
 
         // Blur passes
         {
-            // let passes = vec![&mut self.blur_1, &mut self.blur_2];
             let passes = self.blur_targets.iter_mut();
-            {
-                let size = self.color_b.size.0 as f32;
-                let mut prev = &self.color_b;
+            let size = self.lighting_target.width as f32;
+            let mut prev = &self.lighting_target;
 
-                for mut next in passes {
-                    unsafe {
-                        gl::Viewport(0, 0, next.size.0 as i32, next.size.1 as i32);
-                    }
-                    let scale = size / next.size.0 as f32;
-                    {
-                        let fbo = next.bind();
-                        fbo.clear(Mask::ColorDepth);
+            for next in passes {
+                next.set_viewport();
+                let scale = size / next.width as f32;
+                {
+                    let fbo = next.bind();
+                    fbo.clear(Mask::ColorDepth);
 
-                        let mut blur_ = self.blur_program.bind();
-                        let blur = blur_.bind();
-                        blur.bind_texture("tex", &prev.texture)
-                            .bind_float("scale", scale);
-                        draw_rect!(&fbo, &blur);
-                    }
-
-                    prev = next;
+                    let mut blur_ = self.blur_program.bind();
+                    let blur = blur_.bind();
+                    blur.bind_texture("tex", &prev.texture)
+                        .bind_float("scale", scale);
+                    draw_rect!(&fbo, &blur);
                 }
+
+                prev = next;
             }
-            unsafe {
-                gl::Viewport(0, 0, self.screen_width as i32, self.screen_height as i32);
-            }
+            self.screen_target.set_viewport();
         }
 
         // HDR/Screen Pass
         {
-            let fbo = self.final_target.bind();
+            let fbo = self.screen_target.bind();
             fbo.clear(Mask::ColorDepth);
 
             let mut hdr_ = self.hdr_program.bind();
             let hdr = hdr_.bind();
-            hdr.bind_texture("hdrBuffer", &self.color_b.texture)
-                // .bind_texture("blur1", &self.blur_1.texture, TextureSlot::One)
-                // .bind_texture("blur2", &self.blur_2.texture, TextureSlot::Two)
+            hdr.bind_texture("hdrBuffer", &self.lighting_target.texture)
                 .bind_float("time", props.time);
 
-            // for (i, blur) in self.blur_targets.iter().enumerate() {
-            //     let n = i;
-            //     hdr.bind_texture(&format!("blur[{}]", n), &blur.texture);
-            // }
             hdr.bind_textures("blur", self.blur_targets.iter().map(|t| &t.texture));
 
             draw_rect!(&fbo, &hdr);
@@ -580,8 +657,8 @@ impl Pipeline {
                 gl::Viewport(
                     0,
                     0,
-                    (self.screen_width as f32 * self.hidpi_factor) as i32,
-                    (self.screen_height as f32 * self.hidpi_factor) as i32,
+                    (self.screen_target.width as f32 * self.hidpi_factor) as i32,
+                    (self.screen_target.height as f32 * self.hidpi_factor) as i32,
                 );
             }
             let fbo = self.window_fbo.bind();
@@ -589,7 +666,7 @@ impl Pipeline {
 
             let mut screen_ = self.screen_program.bind();
             let screen = screen_.bind();
-            screen.bind_texture("display", &self.final_target.texture);
+            screen.bind_texture("display", &self.screen_target.texture);
 
             draw_rect!(&fbo, &screen);
         }
