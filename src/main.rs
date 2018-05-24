@@ -57,10 +57,7 @@ impl Scene {
         let one = v3(1.0, 1.0, 1.0);
 
         let sun = DirectionalLight {
-            diffuse: v3(0.2, 0.4, 1.0) * 10.00,
-            ambient: v3(0.0, 0.0, 1.0) * 0.00,
-            specular: v3(0.2, 0.4, 1.0) * 0.2,
-
+            color: v3(0.2, 0.4, 1.0) * 1.00,
             direction: v3(0.0, 1.0, -1.5).normalize(),
 
             shadow_map: ShadowMap::new(),
@@ -134,7 +131,7 @@ impl Scene {
         let directional_lights = vec![sun];
 
         let camera = Camera::new(
-            v3(0.0, 0.0, 1.0),
+            v3(-15.0, 5.0, 0.0),
             Rad(std::f32::consts::PI / 2.0),
             (screen_width as f32) / (screen_height as f32),
         );
@@ -146,8 +143,8 @@ impl Scene {
         }
     }
     fn tick(&mut self, t: f32, _dt: f32, inputs: &Input) {
-        let lp1 = v3(9.0 * (t / 30.0).sin(), -13.0, 9.0 * (t / 40.0).sin());
-        self.point_lights[0].position = lp1;
+        // let lp1 = v3(9.0 * (t / 30.0).sin(), -13.0, 9.0 * (t / 40.0).sin());
+        // self.point_lights[0].position = lp1;
         // let i = 1;
         // self.point_lights[i].position = v3(
         //     1.5 + -10.0 * ((t + 23.0) / 14.0).sin(),
@@ -347,16 +344,16 @@ fn main() {
         // Begin rendering!
         {
             let mut objects: Vec<_> = [
-                (v3(0.0, -20.0, 0.0), v3(100.0, 0.1, 100.0)),
-                (v3(10.0, -10.0, 0.0), v3(0.1, 20.0, 20.0)),
-                (v3(-10.0, -10.0, 0.0), v3(0.1, 20.0, 20.0)),
-                (v3(0.0, -10.0, -10.0), v3(20.0, 20.0, 0.1)),
-                (v3(0.0, -10.0, 10.0), v3(20.0, 20.0, 0.1)),
+                (v3(0.0, -0.0, 0.0), v3(20.0, 0.1, 20.0)),
+                // (v3(10.0, -10.0, 0.0), v3(0.1, 20.0, 20.0)),
+                // (v3(-10.0, -10.0, 0.0), v3(0.1, 20.0, 20.0)),
+                // (v3(0.0, -10.0, -10.0), v3(20.0, 20.0, 0.1)),
+                // (v3(0.0, -10.0, 10.0), v3(20.0, 20.0, 0.1)),
             ].into_iter()
                 .map(|(p, s)| Object {
                     kind: ObjectKind::Cube,
                     transform:
-                        Mat4::from_angle_y(Rad(t / 300.0))
+                        Mat4::from_angle_y(Rad(0.0))
                         * Mat4::from_translation(*p)
                         * Mat4::from_nonuniform_scale(s.x, s.y, s.z),
                 })
