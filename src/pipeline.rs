@@ -9,18 +9,20 @@ use warmy;
 
 use render::{
     convolute_cubemap, cubemap_from_equirectangular, cubemap_from_importance, v3, Camera,
-    DirectionalLight, GRenderPass, Image, ImageKind, Mat4, Mesh, Model, Object,
-    ObjectKind, PbrMaterial, PointLight, PointShadowMap, RenderTarget, Renderable, ShadowMap,
-    TextureCache, V3, V4, Vertex,
+    DirectionalLight, GRenderPass, Image, ImageKind, Mat4, Mesh, Model, Object, ObjectKind,
+    PbrMaterial, PointLight, PointShadowMap, RenderTarget, Renderable, ShadowMap, TextureCache, V3,
+    V4, Vertex,
 };
 
-pub struct RenderProps<'a, T: Iterator<Item = Object>> {
-    pub objects: T,
+pub struct RenderProps<'a> {
     pub camera: &'a Camera,
     pub time: f32,
 
     pub directional_lights: &'a mut [DirectionalLight],
     pub point_lights: &'a mut [PointLight],
+
+    pub skybox_intensity: Option<f32>,
+    pub ambient_intensity: Option<f32>,
 }
 
 pub struct HotShader(warmy::Res<hot::MyShader>);
@@ -361,7 +363,7 @@ impl Pipeline {
         self.lighting_target = lighting_target;
         self.blur_targets = blur_targets;
     }
-    pub fn render<T>(&mut self, update_shadows: bool, props: RenderProps<T>)
+    pub fn render<T>(&mut self, update_shadows: bool, props: RenderProps, render_objects: T)
     where
         T: Iterator<Item = Object>,
     {
@@ -374,7 +376,7 @@ impl Pipeline {
         let mut wall_transforms = vec![];
         let mut cube_transforms = vec![];
 
-        for obj in props.objects {
+        for obj in render_objects {
             match obj.kind {
                 ObjectKind::Cube => cube_transforms.push(obj.transform),
                 ObjectKind::Nanosuit => nanosuit_transforms.push(obj.transform),
@@ -539,6 +541,12 @@ impl Pipeline {
                 .bind_texture("aAlbedo", &self.g.albedo)
                 .bind_texture("aAlbedo", &self.g.albedo)
                 .bind_texture("aMetallicRoughnessAo", &self.g.metallic_roughness_ao)
+                .bind_float(
+                    "ambientIntensity",
+                    props
+                        .ambient_intensity
+                        .unwrap_or_else(|| props.skybox_intensity.unwrap_or(0.0)),
+                )
                 .bind_texture("irradianceMap", &self.ibl_cubemap_convoluted.texture)
                 .bind_texture("prefilterMap", &self.ibl_prefiltered_cubemap.texture)
                 .bind_texture("brdfLUT", &self.brdf_lut)
@@ -581,6 +589,12 @@ impl Pipeline {
             program
                 .bind_mat4("projection", projection)
                 .bind_mat4("view", view)
+                .bind_float(
+                    "skyboxIntensity",
+                    props
+                        .skybox_intensity
+                        .unwrap_or_else(|| props.ambient_intensity.unwrap_or(0.0)),
+                )
                 .bind_texture("skybox", &self.ibl_cubemap.texture);
             self.cube.bind().draw(&fbo, &program);
             unsafe {

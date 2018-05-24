@@ -375,11 +375,14 @@ fn main() {
                 update_shadows,
                 RenderProps {
                     camera: &scene.camera,
-                    objects: objects.into_iter(),
                     directional_lights: &mut scene.directional_lights,
                     point_lights: &mut scene.point_lights,
                     time: t,
+
+                    ambient_intensity: Some(1.0),
+                    skybox_intensity: Some(1.0),
                 },
+                objects.into_iter(),
             );
         }
 
