@@ -9,7 +9,7 @@ use warmy;
 
 use render::{
     convolute_cubemap, cubemap_from_equirectangular, cubemap_from_importance, v3, Camera,
-    CubeMapBuilder, DirectionalLight, GRenderPass, Image, ImageKind, Mat4, Mesh, Model, Object,
+    DirectionalLight, GRenderPass, Image, ImageKind, Mat4, Mesh, Model, Object,
     ObjectKind, PbrMaterial, PointLight, PointShadowMap, RenderTarget, Renderable, ShadowMap,
     TextureCache, V3, V4, Vertex,
 };
@@ -77,8 +77,6 @@ pub struct Pipeline {
 
     pub screen_target: RenderTarget,
     pub window_fbo: Framebuffer,
-
-    pub skybox: Rc<Texture>,
 }
 
 impl Pipeline {
@@ -161,22 +159,6 @@ impl Pipeline {
             "shaders/screen.frag",
         );
 
-        // let skybox = CubeMapBuilder {
-        //     back: "assets/skybox/back.jpg",
-        //     front: "assets/skybox/front.jpg",
-        //     right: "assets/skybox/right.jpg",
-        //     bottom: "assets/skybox/bottom.jpg",
-        //     left: "assets/skybox/left.jpg",
-        //     top: "assets/skybox/top.jpg",
-        // }.build();
-        let skybox = CubeMapBuilder {
-            back: "assets/darkcity/darkcity_lf.tga",
-            front: "assets/darkcity/darkcity_rt.tga",
-            right: "assets/darkcity/darkcity_ft.tga",
-            bottom: "assets/darkcity/darkcity_dn.tga",
-            left: "assets/darkcity/darkcity_bk.tga",
-            top: "assets/darkcity/darkcity_up.tga",
-        }.build();
         let mut texture_cache = TextureCache::new();
         let nanosuit = Model::new_from_disk(
             &mut texture_cache,
@@ -352,8 +334,6 @@ impl Pipeline {
 
             screen_target,
             window_fbo,
-
-            skybox: skybox.texture,
         }
     }
     fn generate_blur_targets(w: u32, h: u32, n: usize) -> Vec<RenderTarget> {
@@ -468,8 +448,6 @@ impl Pipeline {
                 .bind_mat4("view", view)
                 .bind_vec3("viewPos", view_pos)
                 .bind_float("time", props.time)
-                .bind_texture("shadowMap", &self.skybox)
-                .bind_texture("skybox", &self.skybox)
                 .bind_bool("useMaterial", false)
                 .bind_vec3("mat_albedo", v3(0.5, 0.0, 0.0))
                 .bind_vec3("mat_metallicRoughnessAo", v3(0.5, 0.5, 0.1));
