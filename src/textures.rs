@@ -1,6 +1,6 @@
 use gl;
 use image;
-use std::{ptr, mem, os::raw::c_void};
+use std::{mem, os::raw::c_void, ptr};
 
 use types::{GlError, GlType};
 
@@ -18,6 +18,10 @@ pub enum TextureSlot {
     Eight,
     Nine,
     Ten,
+    Eleven,
+    Twelve,
+    Thirteen,
+    Fourteen,
 }
 impl Into<u32> for TextureSlot {
     fn into(self) -> u32 {
@@ -40,6 +44,10 @@ impl Into<i32> for TextureSlot {
             Eight => 8,
             Nine => 9,
             Ten => 10,
+            Eleven => 11,
+            Twelve => 12,
+            Thirteen => 13,
+            Fourteen => 14,
         }
     }
 }
@@ -58,8 +66,19 @@ impl From<usize> for TextureSlot {
             8 => Eight,
             9 => Nine,
             10 => Ten,
+            11 => Eleven,
+            12 => Twelve,
+            13 => Thirteen,
+            14 => Fourteen,
             x => unimplemented!("{:?}", x),
         }
+    }
+}
+
+impl TextureSlot {
+    pub fn next(&self) -> TextureSlot {
+        let a: i32 = (*self).into();
+        (a as usize + 1).into()
     }
 }
 
@@ -326,6 +345,25 @@ impl Into<u32> for TextureFormat {
     }
 }
 
+pub trait IntoGlType {
+    fn gl_type() -> GlType;
+}
+impl IntoGlType for u8 {
+    fn gl_type() -> GlType {
+        GlType::UnsignedByte
+    }
+}
+impl IntoGlType for f32 {
+    fn gl_type() -> GlType {
+        GlType::Float
+    }
+}
+impl<T: IntoGlType + image::Primitive> IntoGlType for image::Rgb<T> {
+    fn gl_type() -> GlType {
+        T::gl_type()
+    }
+}
+
 pub struct TextureBinder<'a>(&'a Texture);
 impl<'a> TextureBinder<'a> {
     fn new(texture: &Texture) -> TextureBinder {
@@ -345,7 +383,7 @@ impl<'a> TextureBinder<'a> {
         typ: GlType,
     ) -> &TextureBinder {
         unsafe {
-            self.image_2d(
+            self.raw_image_2d(
                 target,
                 level,
                 internal_format,
@@ -358,7 +396,7 @@ impl<'a> TextureBinder<'a> {
         }
         self
     }
-    pub unsafe fn image_2d(
+    pub unsafe fn raw_image_2d(
         &self,
         target: TextureTarget,
         level: usize,
@@ -381,6 +419,29 @@ impl<'a> TextureBinder<'a> {
             typ.into(),
             data,
         );
+    }
+    pub unsafe fn image_2d<T>(
+        &self,
+        target: TextureTarget,
+        level: usize,
+        internal_format: TextureInternalFormat,
+        width: u32,
+        height: u32,
+        format: TextureFormat,
+        data: &[T],
+    ) where
+        T: IntoGlType,
+    {
+        self.raw_image_2d(
+            target,
+            level,
+            internal_format,
+            width,
+            height,
+            format,
+            T::gl_type(),
+            data.as_ptr() as *const _,
+        )
     }
     pub fn load_image(
         &self,
@@ -414,8 +475,7 @@ impl<'a> TextureBinder<'a> {
                 w,
                 h,
                 format,
-                GlType::UnsignedByte,
-                &data[0] as *const _ as *const _,
+                &data,
             );
         }
         self
@@ -470,4 +530,3 @@ impl Into<u32> for TextureParameter {
         }
     }
 }
-

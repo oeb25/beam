@@ -67,7 +67,7 @@ impl<'a> BufferBinder<'a> {
     }
     unsafe fn buffer_raw_data(&mut self, size: usize, data: *const os::raw::c_void) {
         gl::BufferData(self.0.kind.into(), size as isize, data, gl::STATIC_DRAW);
-        GlError::check().expect("error writing BufferBinder::buffer_raw_data");
+        // GlError::check().expect("error writing BufferBinder::buffer_raw_data");
         self.0.buffer_size = Some(size);
     }
     unsafe fn buffer_raw_sub_data(
@@ -97,9 +97,8 @@ impl<'a> BufferBinder<'a> {
     pub fn buffer_data<T>(&mut self, data: &[T]) {
         let size = data.len() * mem::size_of::<T>();
         if size > 0 {
-            let data_ptr = &data[0] as *const _ as *const _;
             unsafe {
-                self.buffer_raw_data(size, data_ptr);
+                self.buffer_raw_data(size, data.as_ptr() as *const _);
             }
         }
     }

@@ -2,7 +2,7 @@ use gl;
 
 use std::mem;
 
-use textures::{Texture, TextureTarget, TextureInternalFormat};
+use textures::{Texture, TextureInternalFormat, TextureTarget};
 
 #[allow(unused)]
 #[derive(Debug, Clone, Copy)]
@@ -66,7 +66,7 @@ impl Into<u32> for BufferSlot {
 
 #[derive(Debug)]
 pub struct Framebuffer {
-    id: gl::types::GLuint,
+    pub id: gl::types::GLuint,
 }
 impl Framebuffer {
     pub unsafe fn window() -> Framebuffer {
@@ -236,14 +236,23 @@ pub trait FramebufferBinderDrawer: FramebufferBinderBase {
     fn blit_framebuffer<T: FramebufferBinderReader>(
         &self,
         _from: &T,
-        src: (i32, i32, i32, i32),
-        dst: (i32, i32, i32, i32),
+        src: (u32, u32, u32, u32),
+        dst: (u32, u32, u32, u32),
         mask: Mask,
         filter: u32,
     ) -> &Self {
         unsafe {
             gl::BlitFramebuffer(
-                src.0, src.1, src.2, src.3, dst.0, dst.1, dst.2, dst.3, mask.into(), filter,
+                src.0 as i32,
+                src.1 as i32,
+                src.2 as i32,
+                src.3 as i32,
+                dst.0 as i32,
+                dst.1 as i32,
+                dst.2 as i32,
+                dst.3 as i32,
+                mask.into(),
+                filter,
             );
         }
         self
