@@ -876,7 +876,7 @@ impl PointShadowMap {
 
 #[allow(unused)]
 #[derive(Debug, Clone, Copy)]
-pub enum ObjectKind {
+pub enum RenderObjectKind {
     Cube,
     Nanosuit,
     Cyborg,
@@ -884,8 +884,8 @@ pub enum ObjectKind {
 }
 
 #[derive(Debug, Clone)]
-pub struct Object {
-    pub kind: ObjectKind,
+pub struct RenderObject {
+    pub kind: RenderObjectKind,
     pub transform: Mat4,
 }
 

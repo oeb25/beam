@@ -9,7 +9,7 @@ use warmy;
 
 use render::{
     convolute_cubemap, cubemap_from_equirectangular, cubemap_from_importance, v3, Camera,
-    DirectionalLight, GRenderPass, Image, ImageKind, Mat4, Mesh, Model, Object, ObjectKind,
+    DirectionalLight, GRenderPass, Image, ImageKind, Mat4, Mesh, Model, RenderObject, RenderObjectKind,
     PbrMaterial, PointLight, PointShadowMap, RenderTarget, Renderable, ShadowMap, TextureCache, V3,
     V4, Vertex,
 };
@@ -365,7 +365,7 @@ impl Pipeline {
     }
     pub fn render<T>(&mut self, update_shadows: bool, props: RenderProps, render_objects: T)
     where
-        T: Iterator<Item = Object>,
+        T: Iterator<Item = RenderObject>,
     {
         let view = props.camera.get_view();
         let view_pos = props.camera.pos;
@@ -378,10 +378,10 @@ impl Pipeline {
 
         for obj in render_objects {
             match obj.kind {
-                ObjectKind::Cube => cube_transforms.push(obj.transform),
-                ObjectKind::Nanosuit => nanosuit_transforms.push(obj.transform),
-                ObjectKind::Cyborg => cyborg_transforms.push(obj.transform),
-                ObjectKind::Wall => wall_transforms.push(obj.transform),
+                RenderObjectKind::Cube => cube_transforms.push(obj.transform),
+                RenderObjectKind::Nanosuit => nanosuit_transforms.push(obj.transform),
+                RenderObjectKind::Cyborg => cyborg_transforms.push(obj.transform),
+                RenderObjectKind::Wall => wall_transforms.push(obj.transform),
             }
         }
 
