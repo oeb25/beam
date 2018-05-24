@@ -557,9 +557,7 @@ impl Model {
 #[repr(C)]
 #[derive(Debug)]
 pub struct DirectionalLight {
-    pub ambient: V3,
-    pub diffuse: V3,
-    pub specular: V3,
+    pub color: V3,
 
     pub direction: V3,
 
@@ -585,15 +583,11 @@ impl DirectionalLight {
         let ext = |e| format!("{}.{}", name, e);
         let space = self.space(camera_pos);
         let DirectionalLight {
-            ambient,
-            diffuse,
-            specular,
+            color,
             direction,
             shadow_map,
         } = self;
-        program.bind_vec3(&ext("ambient"), *ambient);
-        program.bind_vec3(&ext("diffuse"), *diffuse);
-        program.bind_vec3(&ext("specular"), *specular);
+        program.bind_vec3(&ext("diffuse"), *color);
 
         program.bind_vec3(&ext("direction"), *direction);
 
