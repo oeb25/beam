@@ -1,9 +1,8 @@
 .DS_Store
-/target
+**/target
 **/*.rs.bk
 flame-graph.html
 pack
 pack.zip
 .dat
 dat.json
-beam
