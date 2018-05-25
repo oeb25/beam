@@ -645,14 +645,7 @@ impl Pipeline {
 
         // HiDPI Pass
         {
-            unsafe {
-                gl::Viewport(
-                    0,
-                    0,
-                    (self.screen_target.width as f32 * self.hidpi_factor) as i32,
-                    (self.screen_target.height as f32 * self.hidpi_factor) as i32,
-                );
-            }
+            self.screen_target.set_viewport();
             let fbo = self.window_fbo.bind();
             fbo.clear(Mask::ColorDepth);
 

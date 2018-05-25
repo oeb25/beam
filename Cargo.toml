@@ -3,3 +3,6 @@ members = [
     "beam",
     "mg"
 ]
+
+[profile.dev]
+opt-level = 3

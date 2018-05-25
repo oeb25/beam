@@ -273,10 +273,10 @@ fn main() {
 
         events_loop.poll_events(|event| match event {
             glutin::Event::WindowEvent { event, .. } => match event {
-                glutin::WindowEvent::Closed => running = false,
+                glutin::WindowEvent::CloseRequested => running = false,
                 glutin::WindowEvent::Resized(w, h) => {
                     gl_window.resize(w, h);
-                    pipeline.resize((w as f32 / hidpi_factor) as u32, (h as f32 / hidpi_factor) as u32);
+                    pipeline.resize(w, h);
                 },
                 glutin::WindowEvent::CursorMoved { position, .. } => {
                     match last_pos {
