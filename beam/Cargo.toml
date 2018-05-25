@@ -14,7 +14,7 @@ time = "*"
 warmy = "0.7.2"
 
 [dependencies.mg]
-path = "../../mg"
+path = "../mg"
 
 [profile.dev]
 opt-level = 3

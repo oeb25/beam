@@ -1,0 +1,8 @@
+[package]
+name = "mg"
+version = "0.1.0"
+authors = ["Oliver Bøving <oliverboving@gmail.com>"]
+
+[dependencies]
+gl = "*"
+image = "*"
