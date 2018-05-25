@@ -1,4 +1,5 @@
 use cgmath::{self, InnerSpace, Rad};
+use collada;
 use genmesh;
 use gl;
 use image;
@@ -45,12 +46,17 @@ pub fn v3(x: f32, y: f32, z: f32) -> V3 {
     V3::new(x, y, z)
 }
 
+pub fn v4(x: f32, y: f32, z: f32, w: f32) -> V4 {
+    V4::new(x, y, z, w)
+}
+
 pub trait Vertexable {
     // (pos, norm, tex, trangent, bitangent)
     fn sizes() -> (usize, usize, usize, usize);
     fn offsets() -> (usize, usize, usize, usize);
 }
 
+#[derive(Debug, Clone)]
 pub struct Vertex {
     pub pos: V3,
     pub norm: V3,
@@ -453,8 +459,7 @@ impl Model {
                         let pos = position[vert].into();
                         let zero = v3(0.0, 0.0, 0.0);
                         let norm = norm.map(|i| normal[i].into()).unwrap_or(zero);
-                        let tex =
-                            tex.map(|i| texture[i].into()).unwrap_or(V2::new(0.0, 0.0));
+                        let tex = tex.map(|i| texture[i].into()).unwrap_or(V2::new(0.0, 0.0));
                         Vertex {
                             pos,
                             tex,
@@ -479,10 +484,8 @@ impl Model {
                             vertices.push(vb);
                             vertices.push(vc);
                         }
-                        genmesh::Polygon::PolyQuad(genmesh::Quad {
-                            x,y,z,w
-                        }) => {
-                            for (va,vb,vc) in [(x,y,z),(x,z,w)].into_iter() {
+                        genmesh::Polygon::PolyQuad(genmesh::Quad { x, y, z, w }) => {
+                            for (va, vb, vc) in [(x, y, z), (x, z, w)].into_iter() {
                                 let mut va = vertify(*va);
                                 let mut vb = vertify(*vb);
                                 let mut vc = vertify(*vc);
@@ -502,6 +505,64 @@ impl Model {
         });
 
         vertex_groups.collect()
+    }
+    pub fn new_vertex_data_from_disk_collada(
+        _texture_cache: &mut TextureCache,
+        path: impl AsRef<Path>,
+    ) -> Vec<(Vec<Vertex>, Vec<Image>)> {
+        let src = std::fs::read_to_string(path).expect("collada src file not found");
+        let data: collada::Collada = collada::Collada::parse(&src).expect("failed to parse collada");
+        data.visual_scenes[0].nodes.iter()
+            .map(|node| {
+                use cgmath::Matrix;
+                let transform = node.transformations.iter().fold(Mat4::from_scale(1.0), |acc, t| {
+                    let t: Mat4 = match t {
+                        collada::Transform::Matrix(a) => unsafe {
+                            std::mem::transmute::<[f32; 16], [[f32; 4]; 4]>(*a).into()
+                        },
+                        _ => unimplemented!(),
+                    };
+
+                    t * acc
+                }).transpose();
+                node.geometry.iter().map(|geom_instance| {
+                    let geom = &data.geometry[geom_instance.geometry.0];
+                    match geom {
+                        collada::Geometry::Mesh {
+                            vertices,
+                            ..
+                        }  => {
+                            let mut verts: Vec<_> = vertices.iter().map(|v|
+                                {
+                                    let pos = transform * v4(v.pos[0], v.pos[1], v.pos[2], 1.0);
+                                    Vertex {
+                                        // orient y up instead of z, which is default in blender
+                                        pos: v3(pos[0], pos[2], pos[1]),
+                                        norm: v3(v.nor[0], v.nor[2], v.nor[1]),
+                                        tex: v.tex.into(),
+                                        tangent: v3(0.0, 0.0, 0.0),
+                                        bitangent: v3(0.0, 0.0, 0.0),
+                                    }
+                                }).collect();
+
+                            for vs in verts.chunks_mut(3) {
+                                // flip vertex clockwise direction
+                                vs.swap(1, 2);
+
+                                let x: *mut _ = &mut vs[0];
+                                let y: *mut _ = &mut vs[1];
+                                let z: *mut _ = &mut vs[2];
+                                unsafe {
+                                    calculate_tangent_and_bitangent(&mut *x, &mut *y, &mut *z);
+                                }
+                            }
+
+                            (verts, vec![])
+                        }
+                        _ => unimplemented!()
+                    }
+                }).collect::<Vec<_>>()
+            }).flatten().collect()
     }
     #[allow(unused)]
     fn draw<F>(&mut self, fbo: &F, program: &ProgramBinding)
@@ -540,6 +601,20 @@ impl Model {
     }
     pub fn new_from_disk(texture_cache: &mut TextureCache, path: &'static str) -> Model {
         let vertex_groups = Model::new_vertex_data_from_disk(texture_cache, path);
+
+        let meshes = vertex_groups
+            .into_iter()
+            .map(|(vertices, materials)| {
+                let mesh = Mesh::new(&vertices, materials);
+
+                mesh
+            })
+            .collect();
+
+        Model { meshes }
+    }
+    pub fn new_from_disk_collada(texture_cache: &mut TextureCache, path: &'static str) -> Model {
+        let vertex_groups = Model::new_vertex_data_from_disk_collada(texture_cache, path);
 
         let meshes = vertex_groups
             .into_iter()

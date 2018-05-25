@@ -111,8 +111,6 @@ impl<C> warmy::Load<C> for MyShader {
         storage: &mut warmy::Storage<C>,
         ctx: &mut C,
     ) -> Result<warmy::Loaded<Self>, Self::Error> {
-        println!("loading {:?}", key);
-
         let mut deps = key.as_str().split(",");
         let vert = deps.next().unwrap();
         let frag = deps.next().unwrap();

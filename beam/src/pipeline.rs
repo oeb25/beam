@@ -1,6 +1,6 @@
 use cgmath::Rad;
 use gl;
-use std::{self, cell::RefMut, rc::Rc};
+use std::{self, cell::RefMut, path::Path, rc::Rc};
 
 use mg::*;
 
@@ -9,9 +9,9 @@ use warmy;
 
 use render::{
     convolute_cubemap, cubemap_from_equirectangular, cubemap_from_importance, v3, Camera,
-    DirectionalLight, GRenderPass, Image, ImageKind, Mat4, Mesh, Model, RenderObject, RenderObjectKind,
-    PbrMaterial, PointLight, PointShadowMap, RenderTarget, Renderable, ShadowMap, TextureCache, V3,
-    V4, Vertex,
+    DirectionalLight, GRenderPass, Image, ImageKind, Mat4, Mesh, Model, PbrMaterial, PointLight,
+    PointShadowMap, RenderObject, RenderObjectKind, RenderTarget, Renderable, ShadowMap,
+    TextureCache, V3, V4, Vertex,
 };
 
 pub struct RenderProps<'a> {
@@ -30,6 +30,33 @@ pub struct HotShader(warmy::Res<hot::MyShader>);
 impl HotShader {
     pub fn bind<'a>(&'a mut self) -> RefMut<'a, Program> {
         RefMut::map(self.0.borrow_mut(), |a| &mut a.program)
+    }
+}
+
+#[derive(Default)]
+pub struct MeshStore {
+    meshes: Vec<Mesh>,
+}
+
+pub struct MeshRef(usize);
+
+impl MeshStore {
+    pub fn load_collada(
+        &mut self,
+        texture_cache: &mut TextureCache,
+        path: impl AsRef<Path>,
+    ) -> Vec<MeshRef> {
+        let vertex_groups = Model::new_vertex_data_from_disk_collada(texture_cache, path);
+
+        vertex_groups
+            .into_iter()
+            .map(|(vertices, materials)| {
+                let mesh = Mesh::new(&vertices, materials);
+                let id = self.meshes.len();
+                self.meshes.push(mesh);
+                MeshRef(id)
+            })
+            .collect()
     }
 }
 
@@ -57,6 +84,8 @@ pub struct Pipeline {
     pub ibl_cubemap_convoluted: Image,
     pub ibl_prefiltered_cubemap: Image,
     pub brdf_lut: Texture,
+
+    pub meshes: MeshStore,
 
     pub nanosuit: Model,
     pub cyborg: Model,
@@ -173,7 +202,8 @@ impl Pipeline {
         //     &mut texture_cache,
         //     "assets/castle_wall/Aset_castle_wall_M_scDxB_LOD4.obj",
         // );
-        let wall = Model::new_from_disk(&mut texture_cache, "assets/weew/weew.obj");
+        // let wall = Model::new_from_disk(&mut texture_cache, "assets/weew/weew.obj");
+        let wall = Model::new_from_disk_collada(&mut texture_cache, "../collada/suzanne.dae");
 
         let tex1 = Image::new_from_disk(
             &mut texture_cache,
@@ -318,6 +348,8 @@ impl Pipeline {
             wall,
             cube: cube_mesh,
             rect: rect,
+
+            meshes: MeshStore::default(),
 
             nanosuit_vbo: VertexBuffer::new(),
             cyborg_vbo: VertexBuffer::new(),

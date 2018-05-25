@@ -1,7 +1,8 @@
 [workspace]
 members = [
     "beam",
-    "mg"
+    "mg",
+    "collada"
 ]
 
 [profile.dev]

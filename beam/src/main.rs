@@ -1,7 +1,8 @@
 #![feature(fs_read_write, stmt_expr_attributes, transpose_result, box_syntax, box_patterns)]
-#![feature(custom_attribute, nll)]
+#![feature(custom_attribute, nll, iterator_flatten)]
 
 extern crate cgmath;
+extern crate collada;
 extern crate genmesh;
 extern crate gl;
 extern crate glutin;
