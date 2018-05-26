@@ -60,7 +60,7 @@ impl Scene {
         let one = v3(1.0, 1.0, 1.0);
 
         let sun = DirectionalLight {
-            color: rgb(255,0,255) * 0.2,
+            color: hsv(0.1, 0.5, 1.0) * 0.2,
             direction: v3(0.0, 1.0, -1.5).normalize(),
 
             shadow_map: ShadowMap::new(),
