@@ -57,9 +57,6 @@ impl Scene {
     fn new(screen_width: u32, screen_height: u32) -> Scene {
         // let game = logic::Game::new((8,8));
 
-        let light_pos1 = v3(1.5, 1.0, 0.0);
-        let light_pos2 = v3(1.5 + -10.0 * (23.0 / 14.0 as f32).sin(), 2.0, 0.0);
-
         let one = v3(1.0, 1.0, 1.0);
 
         let sun = DirectionalLight {
@@ -71,31 +68,27 @@ impl Scene {
 
         let point_lights = vec![
             PointLight {
-                color: v3(0.7, 0.4, 0.2) * 0.0,
-
-                position: light_pos2,
-                last_shadow_map_position: light_pos2,
-
+                color: rgb(255, 25, 25) * 0.3,
+                position: v3(-10.0, 2.0, 10.0),
+                last_shadow_map_position: v3(-10.0, 2.0, 10.0),
                 shadow_map: Some(PointShadowMap::new()),
             },
             PointLight {
-                color: v3(1.0, 0.0, 0.2) * 0.0,
-
-                position: light_pos1 + light_pos2,
-                last_shadow_map_position: light_pos1 + light_pos2,
-
+                color: hex(0x0050ff) * 0.3,
+                position:  v3(10.0, 2.0, 10.0),
+                last_shadow_map_position: one,
                 shadow_map: None,
             },
             PointLight {
-                color: v3(0.2, 0.2, 0.8) * 0.0,
-
-                position: v3(
-                    light_pos1.x * light_pos2.x,
-                    1.0,
-                    light_pos1.z * light_pos2.z,
-                ),
+                color: hex(0x00ff2e) * 0.3,
+                position:  v3(10.0, 2.0, -10.0),
                 last_shadow_map_position: one,
-
+                shadow_map: None,
+            },
+            PointLight {
+                color: hex(0xffc700) * 0.3,
+                position:  v3(-10.0, 2.0, -10.0),
+                last_shadow_map_position: one,
                 shadow_map: None,
             },
         ];
