@@ -5,7 +5,7 @@ in vec2 TexCoords;
 uniform sampler2D aPosition;
 uniform sampler2D aNormal;
 uniform sampler2D aAlbedo;
-uniform sampler2D aMetallicRoughnessAo;
+uniform sampler2D aMetallicRoughnessAoOpacity;
 
 uniform float ambientIntensity = 1.0;
 uniform samplerCube irradianceMap;
@@ -110,11 +110,12 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
 void main() {
     vec3 fragPos = texture(aPosition, TexCoords).rgb;
     vec3 N = normalize(texture(aNormal, TexCoords).rgb);
-    vec3 metallicRoughnessAo = texture(aMetallicRoughnessAo, TexCoords).rgb;
+    vec4 metallicRoughnessAoOpacity = texture(aMetallicRoughnessAoOpacity, TexCoords).rgba;
     vec3 albedo = texture(aAlbedo, TexCoords).rgb;
-    float metallic = metallicRoughnessAo.r;
-    float roughness = metallicRoughnessAo.g;
-    float ao = metallicRoughnessAo.b;
+    float metallic = metallicRoughnessAoOpacity.r;
+    float roughness = metallicRoughnessAoOpacity.g;
+    float ao = metallicRoughnessAoOpacity.b;
+    float opacity = metallicRoughnessAoOpacity.a;
 
     // albedo = vec3(1.00, 0.26, 0.27);
     // metallic = 1.0;

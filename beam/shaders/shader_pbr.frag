@@ -1,7 +1,7 @@
 layout (location = 0) out vec3 aPosition;
 layout (location = 1) out vec4 aNormal;
 layout (location = 2) out vec4 aAlbedo;
-layout (location = 3) out vec4 aMetallicRoughnessAo;
+layout (location = 3) out vec4 aMetallicRoughnessAoOpacity;
 
 in VS_OUT {
     vec3 Normal;
@@ -16,6 +16,7 @@ uniform sampler2D tex_albedo;
 uniform sampler2D tex_metallic;
 uniform sampler2D tex_roughness;
 uniform sampler2D tex_ao;
+uniform sampler2D tex_opacity;
 
 uniform vec3 viewPos;
 
@@ -29,9 +30,14 @@ void main() {
     float roughness = texture(tex_roughness, fs_in.TexCoords).r;
     float metallic = texture(tex_metallic, fs_in.TexCoords).r;
     float ao = texture(tex_ao, fs_in.TexCoords).r;
+    float opacity = texture(tex_opacity, fs_in.TexCoords).r;
+
+    if (opacity < 0.1) {
+        discard;
+    }
 
     aPosition = fs_in.FragPos;
     aNormal.rgb = norm;
     aAlbedo.rgb = albedo;
-    aMetallicRoughnessAo.rgb = vec3(metallic, roughness, ao);
+    aMetallicRoughnessAoOpacity.rgba = vec4(metallic, roughness, ao, opacity);
 }

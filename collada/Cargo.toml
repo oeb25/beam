@@ -7,3 +7,4 @@ authors = ["Oliver Bøving <oliverboving@gmail.com>"]
 serde = "*"
 serde_derive = "*"
 serde-xml-rs = "*"
+failure = "0.1"

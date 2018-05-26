@@ -1,6 +1,8 @@
 use gl;
 use std::{cell::RefMut, path::Path};
 
+use failure::{Error, Fail};
+
 use mg::*;
 
 use hot;
@@ -240,8 +242,8 @@ impl Pipeline {
         self.lighting_target = lighting_target;
         self.blur_targets = blur_targets;
     }
-    pub fn load_ibl(&mut self, path: impl AsRef<Path>) -> Ibl {
-        let ibl_raw_ref = self.meshes.load_hdr(path);
+    pub fn load_ibl(&mut self, path: impl AsRef<Path>) -> Result<Ibl, Error> {
+        let ibl_raw_ref = self.meshes.load_hdr(path)?;
         let ibl_raw = self.meshes.get_texture(&ibl_raw_ref);
         // Borrow checker work around here, we could use the rect vao already define on the pipeline
         // but this works, and I don't think it is all that costly.
@@ -291,12 +293,12 @@ impl Pipeline {
             &self.brdf_lut_program.bind().bind(),
         );
 
-        Ibl {
+        Ok(Ibl {
             cubemap,
             irradiance_map,
             prefilter_map,
             brdf_lut: brdf_lut_render_target.texture,
-        }
+        })
     }
     fn render_object(
         meshes: &mut MeshStore,
@@ -381,6 +383,7 @@ impl Pipeline {
                 metallic: white3,
                 roughness: whiteish3,
                 ao: white3,
+                opacity: white3,
             };
             default_material.bind(&mut self.meshes, &program);
 
@@ -451,7 +454,7 @@ impl Pipeline {
                 .bind_texture("aNormal", &self.g.normal)
                 .bind_texture("aAlbedo", &self.g.albedo)
                 .bind_texture("aAlbedo", &self.g.albedo)
-                .bind_texture("aMetallicRoughnessAo", &self.g.metallic_roughness_ao)
+                .bind_texture("aMetallicRoughnessAoOpacity", &self.g.metallic_roughness_ao_opacity)
                 .bind_float(
                     "ambientIntensity",
                     props
