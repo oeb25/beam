@@ -1,13 +1,9 @@
 use cgmath::{self, InnerSpace, Rad};
 use collada;
-use genmesh;
 use gl;
 use image;
-use obj;
 
-use std::{
-    self, collections::HashMap, mem, path::Path, rc::{Rc, Weak},
-};
+use std::{self, collections::HashMap, mem, path::Path};
 
 use mg::*;
 
@@ -15,6 +11,7 @@ pub type V2 = cgmath::Vector2<f32>;
 pub type V3 = cgmath::Vector3<f32>;
 pub type V4 = cgmath::Vector4<f32>;
 pub type P3 = cgmath::Point3<f32>;
+pub type Mat3 = cgmath::Matrix3<f32>;
 pub type Mat4 = cgmath::Matrix4<f32>;
 
 macro_rules! offset_of {
@@ -42,6 +39,10 @@ macro_rules! size_of {
     };
 }
 
+pub fn v2(x: f32, y: f32) -> V2 {
+    V2::new(x, y)
+}
+
 pub fn v3(x: f32, y: f32, z: f32) -> V3 {
     V3::new(x, y, z)
 }
@@ -56,7 +57,7 @@ pub trait Vertexable {
     fn offsets() -> (usize, usize, usize, usize);
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Vertex {
     pub pos: V3,
     pub norm: V3,
@@ -65,193 +66,26 @@ pub struct Vertex {
     pub bitangent: V3,
 }
 
-#[allow(unused)]
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub enum ImageKind {
-    Diffuse,
-    Ambient,
-    Specular,
-    Reflection,
-    Emissive,
-    CubeMap,
-    NormalMap,
-}
-
-#[derive(Debug)]
-pub struct TextureCache {
-    pub cache: HashMap<String, Weak<Texture>>,
-}
-
-impl TextureCache {
-    pub fn new() -> TextureCache {
-        let cache = HashMap::new();
-        TextureCache { cache }
-    }
-    pub fn load_srgb(&mut self, path: impl AsRef<Path>) -> Rc<Texture> {
-        self.load(path, TextureInternalFormat::Srgb, TextureFormat::Rgb)
-    }
-    pub fn load_rgb(&mut self, path: impl AsRef<Path>) -> Rc<Texture> {
-        self.load(path, TextureInternalFormat::Rgb, TextureFormat::Rgb)
-    }
-    pub fn load_hdr(&mut self, path: impl AsRef<Path>) -> Rc<Texture> {
-        let path = path.as_ref();
-
-        self.cache_or_load(path, || {
-            use std::{fs::File, io::BufReader};
-            let decoder = image::hdr::HDRDecoder::new(BufReader::new(File::open(path)?))?;
-            let metadata = decoder.metadata();
-            let data = decoder.read_image_hdr()?;
-            let texture = Texture::new(TextureKind::Texture2d);
-            unsafe {
-                texture
-                    .bind()
-                    .parameter_int(TextureParameter::WrapS, gl::REPEAT as i32)
-                    .parameter_int(TextureParameter::WrapT, gl::REPEAT as i32)
-                    .parameter_int(TextureParameter::MinFilter, gl::LINEAR as i32)
-                    .parameter_int(TextureParameter::MagFilter, gl::LINEAR as i32)
-                    .image_2d(
-                        TextureTarget::Texture2d,
-                        0,
-                        TextureInternalFormat::Rgba16,
-                        metadata.width,
-                        metadata.height,
-                        TextureFormat::Rgb,
-                        &data,
-                    );
-            }
-            Ok(texture)
-        })
-    }
-    pub fn load(
-        &mut self,
-        path: impl AsRef<Path>,
-        internal_format: TextureInternalFormat,
-        format: TextureFormat,
-    ) -> Rc<Texture> {
-        let path = path.as_ref();
-
-        self.cache_or_load(path, move || {
-            let img = image::open(&path).expect(&format!("unable to read {:?}", path));
-            let texture = Texture::new(TextureKind::Texture2d);
-            texture
-                .bind()
-                .parameter_int(TextureParameter::WrapS, gl::REPEAT as i32)
-                .parameter_int(TextureParameter::WrapT, gl::REPEAT as i32)
-                .parameter_int(TextureParameter::MinFilter, gl::LINEAR as i32)
-                .parameter_int(TextureParameter::MagFilter, gl::LINEAR as i32)
-                .load_image(TextureTarget::Texture2d, internal_format, format, &img);
-            Ok(texture)
-        })
-    }
-    pub fn cache_or_load(
-        &mut self,
-        path: impl AsRef<Path>,
-        f: impl FnOnce() -> Result<Texture, Box<std::error::Error>>,
-    ) -> Rc<Texture> {
-        let path: &Path = path.as_ref();
-        let path_str = path.to_str().unwrap();
-
-        self.cache
-            .get(path_str)
-            .and_then(|c| c.upgrade())
-            .unwrap_or_else(|| {
-                let texture = f().unwrap();
-                let tex = Rc::new(texture);
-                self.cache.insert(path_str.to_owned(), Rc::downgrade(&tex));
-                tex
-            })
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Image {
-    pub texture: Rc<Texture>,
-    pub path: Option<String>,
-    pub kind: ImageKind,
-}
-impl Image {
-    pub fn new_from_disk<'a>(
-        texture_cache: &mut TextureCache,
-        path: impl AsRef<Path>,
-        kind: ImageKind,
-    ) -> Image {
-        let tex = match kind {
-            ImageKind::NormalMap
-            | ImageKind::Ambient
-            | ImageKind::Specular
-            | ImageKind::Reflection
-            | ImageKind::Emissive => texture_cache.load_rgb(&path),
-            ImageKind::Diffuse => texture_cache.load_srgb(&path),
-            ImageKind::CubeMap => unimplemented!(),
-        };
-
-        Image::new(tex, Some(path.as_ref().to_str().unwrap().to_owned()), kind)
-    }
-    pub fn new(texture: Rc<Texture>, path: Option<String>, kind: ImageKind) -> Image {
-        Image {
-            texture,
-            path,
-            kind,
+impl Default for Vertex {
+    fn default() -> Vertex {
+        let zero3 = v3(0.0, 0.0, 0.0);
+        Vertex {
+            pos: zero3,
+            norm: zero3,
+            tex: v2(0.0, 0.0),
+            tangent: zero3,
+            bitangent: zero3,
         }
-    }
-}
-
-#[derive(Debug)]
-pub struct PbrMaterial {
-    pub albedo_map: Rc<Texture>,
-    pub ao_map: Rc<Texture>,
-    pub metallic_map: Rc<Texture>,
-    pub roughness_map: Rc<Texture>,
-    pub normal_map: Rc<Texture>,
-}
-
-impl PbrMaterial {
-    pub fn new_with_default_filenames(
-        texture_cache: &mut TextureCache,
-        path: impl AsRef<Path>,
-        extension: &str,
-    ) -> PbrMaterial {
-        let path = path.as_ref();
-
-        let mut load_srgb = |map| {
-            let p = path.join(map).with_extension(extension);
-            let tex = texture_cache.load_srgb(p);
-            tex
-        };
-        let albedo_map = load_srgb("albedo");
-        let mut load_rgb = |map| {
-            let p = path.join(map).with_extension(extension);
-            let tex = texture_cache.load_rgb(p);
-            tex
-        };
-
-        PbrMaterial {
-            albedo_map,
-            ao_map: load_rgb("ao"),
-            metallic_map: load_rgb("metallic"),
-            roughness_map: load_rgb("roughness"),
-            normal_map: load_rgb("normal"),
-        }
-    }
-
-    pub fn bind(&self, program: &ProgramBinding) {
-        program
-            .bind_texture("tex_albedo", &self.albedo_map)
-            .bind_texture("tex_metallic", &self.metallic_map)
-            .bind_texture("tex_roughness", &self.roughness_map)
-            .bind_texture("tex_normal", &self.normal_map)
-            .bind_texture("tex_ao", &self.ao_map);
     }
 }
 
 pub struct Mesh {
     vcount: usize,
-    textures: Vec<Image>,
     vao: VertexArray,
 }
 
 impl Mesh {
-    pub fn new(vertices: &[Vertex], textures: Vec<Image>) -> Mesh {
+    pub fn new(vertices: &[Vertex]) -> Mesh {
         let mut vao = VertexArray::new();
         let mut vbo = VertexBuffer::from_data(vertices);
 
@@ -261,7 +95,14 @@ impl Mesh {
             let vbo_binder = vbo.bind();
 
             macro_rules! x {
-                ($i:expr, $e:ident) => (vao_binder.vbo_attrib(&vbo_binder, $i, size_of!(Vertex, $e) / float_size, offset_of!(Vertex, $e)))
+                ($i:expr, $e:ident) => (
+                    vao_binder.vbo_attrib(
+                        &vbo_binder,
+                        $i,
+                        size_of!(Vertex, $e) / float_size,
+                        offset_of!(Vertex, $e)
+                    )
+                )
             }
 
             x!(0, pos);
@@ -273,7 +114,6 @@ impl Mesh {
 
         Mesh {
             vcount: vertices.len(),
-            textures: textures,
             vao: vao,
         }
     }
@@ -284,53 +124,11 @@ impl Mesh {
 
 pub struct MeshBinding<'a>(&'a mut Mesh);
 impl<'a> MeshBinding<'a> {
-    fn bind_textures(&self, program: &ProgramBinding) {
-        let mut diffuse_n = 0;
-        let mut ambient_n = 0;
-        let mut specular_n = 0;
-        let mut reflection_n = 0;
-        let mut normal_n = 0;
-        let mut emissive_n = 0;
-        for tex in self.0.textures.iter() {
-            let (name, number) = match tex.kind {
-                ImageKind::Diffuse => {
-                    diffuse_n += 1;
-                    ("diffuse", diffuse_n)
-                }
-                ImageKind::Ambient => {
-                    ambient_n += 1;
-                    ("ambient", ambient_n)
-                }
-                ImageKind::Specular => {
-                    specular_n += 1;
-                    ("specular", specular_n)
-                }
-                ImageKind::Reflection => {
-                    reflection_n += 1;
-                    ("reflection", reflection_n)
-                }
-                ImageKind::NormalMap => {
-                    normal_n += 1;
-                    ("normal", normal_n)
-                }
-                ImageKind::Emissive => {
-                    emissive_n += 1;
-                    ("emissive", emissive_n)
-                }
-                ImageKind::CubeMap => unimplemented!(),
-            };
-
-            assert_eq!(number, 1);
-
-            program.bind_texture(&format!("tex_{}{}", name, number), &tex.texture);
-        }
-        program.bind_bool("useNormalMap", normal_n > 0);
-    }
     pub fn draw<F>(&mut self, fbo: &F, program: &ProgramBinding)
     where
         F: FramebufferBinderDrawer,
     {
-        self.bind_textures(program);
+        // self.bind_textures(program);
 
         self.0
             .vao
@@ -364,7 +162,7 @@ impl<'a> MeshBinding<'a> {
     ) where
         F: FramebufferBinderDrawer,
     {
-        self.bind_textures(program);
+        // self.bind_textures(program);
         self.draw_geometry_instanced(fbo, program, transforms);
     }
 }
@@ -393,240 +191,6 @@ pub fn calculate_tangent_and_bitangent(va: &mut Vertex, vb: &mut Vertex, vc: &mu
     vb.bitangent = tdir;
     vc.tangent = sdir;
     vc.bitangent = tdir;
-}
-pub struct Model {
-    meshes: Vec<Mesh>,
-    // texture_cache: HashMap<String, Rc<Image>>,
-}
-impl Model {
-    fn new_vertex_data_from_disk(
-        texture_cache: &mut TextureCache,
-        path: &'static str,
-    ) -> Vec<(Vec<Vertex>, Vec<Image>)> {
-        let path = Path::new(path.clone());
-        let mut raw_model = obj::Obj::load(path).unwrap();
-        let _ = raw_model.load_mtls().unwrap();
-        let obj::Obj {
-            position,
-            texture,
-            normal,
-            objects,
-            ..
-        } = raw_model;
-
-        let vertex_groups = objects.into_iter().map(|o| {
-            let mut vertices = vec![];
-            let mut materials = vec![];
-            macro_rules! add_tex {
-                ($name:expr, $tex_kind:expr) => {{
-                    let path = path.with_file_name($name);
-                    // let path_string = path.to_str().unwrap().to_string();
-                    // let img: Image = if texture_cache.contains_key(&path_string) {
-                    //     Image::new(texture_cache.get(&path_string).unwrap().clone(), Some(path_string), $tex_kind)
-                    // } else {
-                    //     let img = Image::new_from_disk(path.to_str().unwrap(), $tex_kind);
-                    //     texture_cache.insert(path_string, img.texture.clone());
-                    //     img
-                    // };
-                    let img = Image::new_from_disk(texture_cache, path, $tex_kind);
-                    materials.push(img);
-                }};
-            }
-            for group in o.groups {
-                if let Some(mat) = group.material {
-                    // println!("{:?}", mat);
-                    mat.map_kd
-                        .as_ref()
-                        .map(|diff| add_tex!(diff, ImageKind::Diffuse));
-                    mat.map_ks
-                        .as_ref()
-                        .map(|spec| add_tex!(spec, ImageKind::Specular));
-                    // mat.map_ka.as_ref().map(|ambient| add_tex!(ambient, ImageKind::Ambient));
-                    mat.map_ka
-                        .as_ref()
-                        .map(|refl| add_tex!(refl, ImageKind::Emissive));
-                    mat.map_refl
-                        .as_ref()
-                        .map(|_| unimplemented!("REFLECTION MAP!"));
-                    // mat.ke.as_ref().map(|_| unimplemented!("EMISSIVE MAP!"));
-                    mat.map_bump
-                        .as_ref()
-                        .map(|bump| add_tex!(bump, ImageKind::NormalMap));
-                }
-                for ps in group.polys {
-                    let vertify = |v| {
-                        let obj::IndexTuple(vert, tex, norm) = v;
-                        let pos = position[vert].into();
-                        let zero = v3(0.0, 0.0, 0.0);
-                        let norm = norm.map(|i| normal[i].into()).unwrap_or(zero);
-                        let tex = tex.map(|i| texture[i].into()).unwrap_or(V2::new(0.0, 0.0));
-                        Vertex {
-                            pos,
-                            tex,
-                            norm,
-                            tangent: zero,
-                            bitangent: zero,
-                        }
-                    };
-                    match ps {
-                        genmesh::Polygon::PolyTri(genmesh::Triangle {
-                            x: va,
-                            y: vb,
-                            z: vc,
-                        }) => {
-                            let mut va = vertify(va);
-                            let mut vb = vertify(vb);
-                            let mut vc = vertify(vc);
-
-                            calculate_tangent_and_bitangent(&mut va, &mut vb, &mut vc);
-
-                            vertices.push(va);
-                            vertices.push(vb);
-                            vertices.push(vc);
-                        }
-                        genmesh::Polygon::PolyQuad(genmesh::Quad { x, y, z, w }) => {
-                            for (va, vb, vc) in [(x, y, z), (x, z, w)].into_iter() {
-                                let mut va = vertify(*va);
-                                let mut vb = vertify(*vb);
-                                let mut vc = vertify(*vc);
-
-                                calculate_tangent_and_bitangent(&mut va, &mut vb, &mut vc);
-
-                                vertices.push(va);
-                                vertices.push(vb);
-                                vertices.push(vc);
-                            }
-                        }
-                    }
-                }
-            }
-
-            (vertices, materials)
-        });
-
-        vertex_groups.collect()
-    }
-    pub fn new_vertex_data_from_disk_collada(
-        _texture_cache: &mut TextureCache,
-        path: impl AsRef<Path>,
-    ) -> Vec<(Vec<Vertex>, Vec<Image>)> {
-        let src = std::fs::read_to_string(path).expect("collada src file not found");
-        let data: collada::Collada = collada::Collada::parse(&src).expect("failed to parse collada");
-        data.visual_scenes[0].nodes.iter()
-            .map(|node| {
-                use cgmath::Matrix;
-                let transform = node.transformations.iter().fold(Mat4::from_scale(1.0), |acc, t| {
-                    let t: Mat4 = match t {
-                        collada::Transform::Matrix(a) => unsafe {
-                            std::mem::transmute::<[f32; 16], [[f32; 4]; 4]>(*a).into()
-                        },
-                        _ => unimplemented!(),
-                    };
-
-                    t * acc
-                }).transpose();
-                node.geometry.iter().map(|geom_instance| {
-                    let geom = &data.geometry[geom_instance.geometry.0];
-                    match geom {
-                        collada::Geometry::Mesh {
-                            vertices,
-                            ..
-                        }  => {
-                            let mut verts: Vec<_> = vertices.iter().map(|v|
-                                {
-                                    let pos = transform * v4(v.pos[0], v.pos[1], v.pos[2], 1.0);
-                                    Vertex {
-                                        // orient y up instead of z, which is default in blender
-                                        pos: v3(pos[0], pos[2], pos[1]),
-                                        norm: v3(v.nor[0], v.nor[2], v.nor[1]),
-                                        tex: v.tex.into(),
-                                        tangent: v3(0.0, 0.0, 0.0),
-                                        bitangent: v3(0.0, 0.0, 0.0),
-                                    }
-                                }).collect();
-
-                            for vs in verts.chunks_mut(3) {
-                                // flip vertex clockwise direction
-                                vs.swap(1, 2);
-
-                                let x: *mut _ = &mut vs[0];
-                                let y: *mut _ = &mut vs[1];
-                                let z: *mut _ = &mut vs[2];
-                                unsafe {
-                                    calculate_tangent_and_bitangent(&mut *x, &mut *y, &mut *z);
-                                }
-                            }
-
-                            (verts, vec![])
-                        }
-                        _ => unimplemented!()
-                    }
-                }).collect::<Vec<_>>()
-            }).flatten().collect()
-    }
-    #[allow(unused)]
-    fn draw<F>(&mut self, fbo: &F, program: &ProgramBinding)
-    where
-        F: FramebufferBinderDrawer,
-    {
-        for mut mesh in self.meshes.iter_mut() {
-            mesh.bind().draw(fbo, program);
-        }
-    }
-    pub fn draw_geometry_instanced<F>(
-        &mut self,
-        fbo: &F,
-        program: &ProgramBinding,
-        offsets: &VertexBufferBinder<Mat4>,
-    ) where
-        F: FramebufferBinderDrawer,
-    {
-        for mesh in self.meshes.iter_mut() {
-            mesh.bind().draw_geometry_instanced(fbo, program, offsets);
-        }
-    }
-    pub fn draw_instanced<F>(
-        &mut self,
-        fbo: &F,
-        program: &ProgramBinding,
-        offsets: &VertexBufferBinder<Mat4>,
-    ) where
-        F: FramebufferBinderDrawer,
-    {
-        let start_slot = program.next_texture_slot();
-        for mesh in self.meshes.iter_mut() {
-            mesh.bind().draw_instanced(fbo, program, offsets);
-            program.set_next_texture_slot(start_slot);
-        }
-    }
-    pub fn new_from_disk(texture_cache: &mut TextureCache, path: &'static str) -> Model {
-        let vertex_groups = Model::new_vertex_data_from_disk(texture_cache, path);
-
-        let meshes = vertex_groups
-            .into_iter()
-            .map(|(vertices, materials)| {
-                let mesh = Mesh::new(&vertices, materials);
-
-                mesh
-            })
-            .collect();
-
-        Model { meshes }
-    }
-    pub fn new_from_disk_collada(texture_cache: &mut TextureCache, path: &'static str) -> Model {
-        let vertex_groups = Model::new_vertex_data_from_disk_collada(texture_cache, path);
-
-        let meshes = vertex_groups
-            .into_iter()
-            .map(|(vertices, materials)| {
-                let mesh = Mesh::new(&vertices, materials);
-
-                mesh
-            })
-            .collect();
-
-        Model { meshes }
-    }
 }
 
 #[repr(C)]
@@ -662,13 +226,11 @@ impl DirectionalLight {
             direction,
             shadow_map,
         } = self;
-        program.bind_vec3(&ext("diffuse"), *color);
-
-        program.bind_vec3(&ext("direction"), *direction);
-
-        program.bind_mat4(&ext("space"), space);
-
-        program.bind_texture("directionalShadowMap", &shadow_map.map);
+        program
+            .bind_vec3(&ext("color"), *color)
+            .bind_vec3(&ext("direction"), *direction)
+            .bind_mat4(&ext("space"), space)
+            .bind_texture("directionalShadowMap", &shadow_map.map);
     }
     pub fn bind_multiple(
         camera_pos: V3,
@@ -690,16 +252,10 @@ impl DirectionalLight {
 #[repr(C)]
 #[derive(Debug)]
 pub struct PointLight {
-    pub ambient: V3,
-    pub diffuse: V3,
-    pub specular: V3,
+    pub color: V3,
 
     pub position: V3,
     pub last_shadow_map_position: V3,
-
-    pub constant: f32,
-    pub linear: f32,
-    pub quadratic: f32,
 
     pub shadow_map: Option<PointShadowMap>,
 }
@@ -711,28 +267,14 @@ impl PointLight {
         };
         let PointLight {
             position,
-            ambient,
-            diffuse,
-            specular,
-            constant,
-            linear,
-            quadratic,
+            color,
             shadow_map,
             last_shadow_map_position,
         } = self;
-        program.bind_vec3(&ext("ambient"), *ambient);
-        program.bind_vec3(&ext("diffuse"), *diffuse);
-        program.bind_vec3(&ext("specular"), *specular);
-        GlError::check().expect("Failed to bind light: light properties");
+        program.bind_vec3(&ext("color"), *color);
 
         program.bind_vec3(&ext("position"), *position);
         program.bind_vec3(&ext("lastPosition"), *last_shadow_map_position);
-        GlError::check().expect("Failed to bind light: position");
-
-        program.bind_float(&ext("constant"), *constant);
-        program.bind_float(&ext("linear"), *linear);
-        program.bind_float(&ext("quadratic"), *quadratic);
-        GlError::check().expect("Failed to bind light: attenuation");
 
         match shadow_map {
             Some(shadow_map) => {
@@ -949,19 +491,481 @@ impl PointShadowMap {
     }
 }
 
-#[allow(unused)]
+
 #[derive(Debug, Clone, Copy)]
-pub enum RenderObjectKind {
-    Cube,
-    Nanosuit,
-    Cyborg,
-    Wall,
+pub struct Material {
+    pub normal: TextureRef,
+    pub albedo: TextureRef,
+    pub metallic: TextureRef,
+    pub roughness: TextureRef,
+    pub ao: TextureRef,
+}
+
+impl Material {
+    pub fn bind(&self, meshes: &mut MeshStore, program: &ProgramBinding) {
+        program
+            .bind_texture("tex_albedo", meshes.get_texture(&self.albedo))
+            .bind_texture("tex_metallic", meshes.get_texture(&self.metallic))
+            .bind_texture("tex_roughness", meshes.get_texture(&self.roughness))
+            .bind_texture("tex_normal", meshes.get_texture(&self.normal))
+            .bind_texture("tex_ao", meshes.get_texture(&self.ao));
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct TextureRef(usize);
+
+#[derive(Default)]
+pub struct MeshStore {
+    meshes: Vec<Mesh>,
+    textures: Vec<Texture>,
+
+    fs_textures: HashMap<String, TextureRef>,
+
+    rgb_textures: Vec<(V3, TextureRef)>,
+    rgba_textures: Vec<(V4, TextureRef)>,
+
+    // primitive cache
+    cube: Option<MeshRef>,
+    spheres: Vec<(f32, MeshRef)>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct MeshRef(usize);
+
+impl MeshStore {
+    pub fn load_collada(
+        &mut self,
+        path: impl AsRef<Path>,
+    ) -> RenderObject {
+        let src = std::fs::read_to_string(path).expect("collada src file not found");
+        let data: collada::Collada = collada::Collada::parse(&src).expect("failed to parse collada");
+
+        let mut mesh_ids = HashMap::new();
+
+        let mut render_objects = vec![];
+        for node in data.visual_scenes[0].nodes.iter() {
+            use cgmath::Matrix;
+            let mut transform = node.transformations.iter().fold(Mat4::from_scale(1.0), |acc, t| {
+                let t: Mat4 = match t {
+                    collada::Transform::Matrix(a) => unsafe {
+                        std::mem::transmute::<[f32; 16], [[f32; 4]; 4]>(*a).into()
+                    },
+                    _ => unimplemented!(),
+                };
+
+                t * acc
+            });
+            std::mem::swap(&mut transform.y, &mut transform.z);
+            transform = transform.transpose();
+            std::mem::swap(&mut transform.y, &mut transform.z);
+            assert_eq!(node.geometry.len(), 1);
+            for geom_instance in node.geometry.iter() {
+                let mesh_ref = if let Some(mesh_ref) = mesh_ids.get(&geom_instance.geometry.0) {
+                    *mesh_ref
+                } else {
+                    let geom = &data.geometry[geom_instance.geometry.0];
+                    let mesh = match geom {
+                        collada::Geometry::Mesh {
+                            vertices,
+                            ..
+                        }  => {
+                            let mut verts: Vec<_> = vertices.iter().map(|v|
+                                {
+                                    let pos = v4(v.pos[0], v.pos[1], v.pos[2], 1.0);
+                                    Vertex {
+                                        // orient y up instead of z, which is default in blender
+                                        pos: v3(pos[0], pos[2], pos[1]),
+                                        norm: v3(v.nor[0], v.nor[2], v.nor[1]),
+                                        tex: v.tex.into(),
+                                        tangent: v3(0.0, 0.0, 0.0),
+                                        bitangent: v3(0.0, 0.0, 0.0),
+                                    }
+                                }).collect();
+
+                            for vs in verts.chunks_mut(3) {
+                                // flip vertex clockwise direction
+                                vs.swap(1, 2);
+
+                                let x: *mut _ = &mut vs[0];
+                                let y: *mut _ = &mut vs[1];
+                                let z: *mut _ = &mut vs[2];
+                                unsafe {
+                                    calculate_tangent_and_bitangent(&mut *x, &mut *y, &mut *z);
+                                }
+                            }
+
+                            Mesh::new(&verts)
+                        }
+                        _ => unimplemented!()
+                    };
+
+                    let mesh_ref = self.insert_mesh(mesh);
+                    mesh_ids.insert(geom_instance.geometry.0, mesh_ref);
+                    mesh_ref
+                };
+                render_objects.push(RenderObject {
+                    transform,
+                    material: None,
+                    child: RenderObjectChild::Mesh(mesh_ref)
+                });
+            }
+        }
+
+        RenderObject::with_children(render_objects)
+    }
+
+    pub fn insert_mesh(&mut self, mesh: Mesh) -> MeshRef {
+        let mesh_ref = MeshRef(self.meshes.len());
+        self.meshes.push(mesh);
+        mesh_ref
+    }
+
+    pub fn get_mesh_mut(&mut self, mesh_ref: &MeshRef) -> &mut Mesh {
+        &mut self.meshes[mesh_ref.0]
+    }
+
+    pub fn insert_texture(&mut self, texture: Texture) -> TextureRef {
+        let texture_ref = TextureRef(self.textures.len());
+        self.textures.push(texture);
+        texture_ref
+    }
+
+    pub fn get_texture(&mut self, texture_ref: &TextureRef) -> &Texture {
+        &self.textures[texture_ref.0]
+    }
+
+    fn color_texture(&mut self, color: &[f32]) -> TextureRef {
+        let texture = Texture::new(TextureKind::Texture2d);
+        let is_rgb = color.len() == 3;
+        unsafe {
+            texture.bind()
+                .parameter_int(TextureParameter::WrapS, gl::REPEAT as i32)
+                .parameter_int(TextureParameter::WrapT, gl::REPEAT as i32)
+                .parameter_int(TextureParameter::MinFilter, gl::LINEAR as i32)
+                .parameter_int(TextureParameter::MagFilter, gl::LINEAR as i32)
+                .image_2d(
+                    TextureTarget::Texture2d,
+                    0,
+                    if is_rgb { TextureInternalFormat::Rgb } else { TextureInternalFormat::Rgba },
+                    1,
+                    1,
+                    if is_rgb { TextureFormat::Rgb } else { TextureFormat::Rgba },
+                    color,
+                );
+        }
+        let id = TextureRef(self.textures.len());
+        self.textures.push(texture);
+        id
+    }
+
+    pub fn rgb_texture(&mut self, color: V3) -> TextureRef {
+        self.rgb_textures.iter().find(|(value, _)| value == &color).map(|(_, id)| *id).unwrap_or_else(||{
+            let id = self.color_texture(&[color.x, color.y, color.z]);
+            self.rgb_textures.push((color, id));
+            id
+        })
+    }
+
+    pub fn rgba_texture(&mut self, color: V4) -> TextureRef {
+        self.rgba_textures.iter().find(|(value, _)| value == &color).map(|(_, id)| *id).unwrap_or_else(||{
+            let id = self.color_texture(&[color.x, color.y, color.z, color.w]);
+            self.rgba_textures.push((color, id));
+            id
+        })
+    }
+
+    pub fn get_cube(&mut self) -> MeshRef {
+        if let Some(mesh_ref) = self.cube {
+            return mesh_ref;
+        }
+
+        let verts = cube_vertices();
+        let mesh = Mesh::new(&verts);
+        let mesh_ref = self.insert_mesh(mesh);
+        self.cube = Some(mesh_ref);
+        mesh_ref
+    }
+
+    pub fn get_sphere(&mut self, radius: f32) -> MeshRef {
+        if let Some(cached) = self.spheres.iter().find(|(cache_level, _)| *cache_level == radius) {
+            return cached.1;
+        }
+
+        use std::f32::consts::PI;
+
+        let mut verts = {
+            let nb_long = 24;
+            let nb_lat = 16;
+            // let mut verts = Vec::with_capacity((nb_long + 1) * nb_lat + 2);
+            let mut verts: Vec<Vertex> = vec![Vertex::default(); (nb_long + 1) * nb_lat + 2];
+
+            let up = v3(0.0, 1.0, 0.0) * radius;
+            verts[0] = Vertex {
+                pos: up,
+                norm: up,
+                tex: v2(0.0, 0.0),
+                tangent: v3(0.0, 0.0, 0.0),
+                bitangent: v3(0.0, 0.0, 0.0),
+            };
+            for lat in 0..nb_lat {
+                let a1 = PI * (lat as f32 + 1.0) / (nb_lat as f32 + 1.0);
+                let (sin1, cos1) = a1.sin_cos();
+
+                for lon in 0..=nb_long {
+                    let a2 = PI * 2.0 * (if lon == nb_long { 0.0 } else { lon as f32 }) / nb_long as f32;
+                    let (sin2, cos2) = a2.sin_cos();
+
+                    let pos = v3(
+                        sin1 * cos2,
+                        cos1,
+                        sin1 * sin2,
+                    );
+                    let norm = pos;
+                    let tex = v2(
+                        lon as f32 / nb_long as f32,
+                        1.0 - (lat as f32 + 1.0) / (nb_lat as f32 + 1.0)
+                    );
+
+                    verts[lon + lat * (nb_long + 1) + 1] = Vertex {
+                        pos: pos * radius,
+                        norm,
+                        tex,
+                        tangent: v3(0.0, 0.0, 0.0),
+                        bitangent: v3(0.0, 0.0, 0.0),
+                    };
+                }
+            }
+            let len = verts.len();
+            verts[len - 1] = Vertex {
+                pos: -up,
+                norm: -up,
+                tex: v2(0.0, 0.0),
+                tangent: v3(0.0, 0.0, 0.0),
+                bitangent: v3(0.0, 0.0, 0.0),
+            };
+
+            let nb_faces = verts.len();
+            let nb_triangles = nb_faces * 2;
+            let nb_indices = nb_triangles * 3;
+
+            let mut new_verts: Vec<Vertex> = Vec::with_capacity(nb_indices);
+
+            let mut v = |i: usize| new_verts.push(verts[i].clone());
+
+            println!("top faces");
+            for lon in 0..nb_long {
+                v(lon + 2);
+                v(lon + 1);
+                v(0);
+            }
+
+            println!("middle faces");
+            for lat in 0..(nb_lat - 1) {
+                for lon in 0..nb_long {
+                    let current = lon + lat * (nb_long + 1) + 1;
+                    let next = current + nb_long + 1;
+
+                    v(current);
+                    v(current + 1);
+                    v(next + 1);
+
+                    v(current);
+                    v(next + 1);
+                    v(next);
+                }
+            }
+
+            println!("bottom faces");
+            for lon in 0..nb_long {
+                v(len - 1);
+                v(len - (lon + 2) - 1);
+                v(len - (lon + 1) - 1);
+            }
+
+            new_verts
+        };
+        for vs in verts.chunks_mut(3) {
+            if vs.len() < 3 {
+                continue;
+            }
+            // flip vertex clockwise direction
+            // vs.swap(1, 2);
+
+            let x: *mut _ = &mut vs[0];
+            let y: *mut _ = &mut vs[1];
+            let z: *mut _ = &mut vs[2];
+            unsafe {
+                calculate_tangent_and_bitangent(&mut *x, &mut *y, &mut *z);
+            }
+        }
+        let mesh = Mesh::new(&verts);
+        let mesh_ref = self.insert_mesh(mesh);
+        self.spheres.push((radius, mesh_ref));
+        mesh_ref
+    }
+
+    pub fn load_srgb(&mut self, path: impl AsRef<Path>) -> TextureRef {
+        self.load(path, TextureInternalFormat::Srgb, TextureFormat::Rgb)
+    }
+    pub fn load_rgb(&mut self, path: impl AsRef<Path>) -> TextureRef {
+        self.load(path, TextureInternalFormat::Rgb, TextureFormat::Rgb)
+    }
+    pub fn load_hdr(&mut self, path: impl AsRef<Path>) -> TextureRef {
+        let path = path.as_ref();
+
+        self.cache_or_load(path, || {
+            use std::{fs::File, io::BufReader};
+            let decoder = image::hdr::HDRDecoder::new(BufReader::new(File::open(path)?))?;
+            let metadata = decoder.metadata();
+            let data = decoder.read_image_hdr()?;
+            let texture = Texture::new(TextureKind::Texture2d);
+            unsafe {
+                texture
+                    .bind()
+                    .parameter_int(TextureParameter::WrapS, gl::REPEAT as i32)
+                    .parameter_int(TextureParameter::WrapT, gl::REPEAT as i32)
+                    .parameter_int(TextureParameter::MinFilter, gl::LINEAR as i32)
+                    .parameter_int(TextureParameter::MagFilter, gl::LINEAR as i32)
+                    .image_2d(
+                        TextureTarget::Texture2d,
+                        0,
+                        TextureInternalFormat::Rgba16,
+                        metadata.width,
+                        metadata.height,
+                        TextureFormat::Rgb,
+                        &data,
+                    );
+            }
+            Ok(texture)
+        })
+    }
+    pub fn load(
+        &mut self,
+        path: impl AsRef<Path>,
+        internal_format: TextureInternalFormat,
+        format: TextureFormat,
+    ) -> TextureRef {
+        let path = path.as_ref();
+
+        self.cache_or_load(path, move || {
+            let img = image::open(&path).expect(&format!("unable to read {:?}", path));
+            let texture = Texture::new(TextureKind::Texture2d);
+            texture
+                .bind()
+                .parameter_int(TextureParameter::WrapS, gl::REPEAT as i32)
+                .parameter_int(TextureParameter::WrapT, gl::REPEAT as i32)
+                .parameter_int(TextureParameter::MinFilter, gl::LINEAR as i32)
+                .parameter_int(TextureParameter::MagFilter, gl::LINEAR as i32)
+                .load_image(TextureTarget::Texture2d, internal_format, format, &img);
+            Ok(texture)
+        })
+    }
+    fn cache_or_load(
+        &mut self,
+        path: impl AsRef<Path>,
+        f: impl FnOnce() -> Result<Texture, Box<std::error::Error>>,
+    ) -> TextureRef {
+        let path: &Path = path.as_ref();
+        let path_str = path.to_str().unwrap();
+
+        self.fs_textures
+            .get(path_str)
+            .map(|t| *t)
+            .unwrap_or_else(|| {
+                let texture = f().unwrap();
+                let texture_ref = self.insert_texture(texture);
+                self.fs_textures.insert(path_str.to_owned(), texture_ref);
+                texture_ref
+            })
+    }
+
+    pub fn load_pbr_with_default_filenames(&mut self, path: impl AsRef<Path>, extension: &str) -> Material {
+        let path = path.as_ref();
+
+        let mut load_srgb = |map| {
+            let p = path.join(map).with_extension(extension);
+            let tex = self.load_srgb(p);
+            tex
+        };
+        let albedo = load_srgb("albedo");
+        let mut load_rgb = |map| {
+            let p = path.join(map).with_extension(extension);
+            let tex = self.load_rgb(p);
+            tex
+        };
+
+        Material {
+            albedo,
+            ao: load_rgb("ao"),
+            metallic: load_rgb("metallic"),
+            roughness: load_rgb("roughness"),
+            normal: load_rgb("normal"),
+        }
+    }
+}
+
+#[allow(unused)]
+#[derive(Debug, Clone)]
+pub enum RenderObjectChild {
+    Mesh(MeshRef),
+    RenderObjects(Vec<RenderObject>),
 }
 
 #[derive(Debug, Clone)]
 pub struct RenderObject {
-    pub kind: RenderObjectKind,
     pub transform: Mat4,
+    pub material: Option<Material>,
+    pub child: RenderObjectChild,
+}
+
+impl RenderObject {
+    pub fn mesh(mesh_ref: MeshRef) -> RenderObject {
+        RenderObject {
+            transform: Mat4::from_scale(1.0),
+            material: None,
+            child: RenderObjectChild::Mesh(mesh_ref),
+        }
+    }
+    pub fn with_children(children: Vec<RenderObject>) -> RenderObject {
+        RenderObject {
+            transform: Mat4::from_scale(1.0),
+            material: None,
+            child: RenderObjectChild::RenderObjects(children),
+        }
+    }
+
+    pub fn transform(&self, transform: Mat4) -> RenderObject {
+        let mut new = self.clone();
+
+        new.transform = transform * new.transform;
+
+        new
+    }
+
+    pub fn translate(&self, v: V3) -> RenderObject {
+        self.transform(Mat4::from_translation(v))
+    }
+
+    pub fn scale(&self, s: f32) -> RenderObject {
+        self.transform(Mat4::from_scale(s))
+    }
+
+    pub fn with_transform(&self, transform: Mat4) -> RenderObject {
+        let mut new = self.clone();
+
+        new.transform = transform;
+
+        new
+    }
+
+    pub fn with_material(&self, material: Material) -> RenderObject {
+        let mut new = self.clone();
+
+        new.material = Some(material);
+
+        new
+    }
 }
 
 pub struct GRenderPass {
@@ -1176,7 +1180,7 @@ pub struct CubeMapBuilder<T> {
 }
 
 impl<'a> CubeMapBuilder<&'a str> {
-    pub fn build(self) -> Image {
+    pub fn build(self) -> Texture {
         let texture = Texture::new(TextureKind::CubeMap);
         let mut sum_path = String::new();
         {
@@ -1213,7 +1217,7 @@ impl<'a> CubeMapBuilder<&'a str> {
                 .parameter_int(TextureParameter::WrapR, gl::CLAMP_TO_EDGE as i32);
         }
 
-        Image::new(Rc::new(texture), Some(sum_path.into()), ImageKind::CubeMap)
+        texture
     }
 }
 
@@ -1222,7 +1226,7 @@ pub fn map_cubemap(
     mip_levels: usize,
     program: &ProgramBinding,
     mut render_cube: impl FnMut(&FramebufferBinderReadDraw, &ProgramBinding),
-) -> Image {
+) -> Texture {
     // Prepare
     let mut fbo = Framebuffer::new();
     let mut rbo = Renderbuffer::new();
@@ -1328,27 +1332,27 @@ pub fn map_cubemap(
 
     GlError::check().expect("falied to make cubemap from equirectangular");
 
-    Image::new(Rc::new(map), None, ImageKind::CubeMap)
+    map
 }
 pub fn cubemap_from_equirectangular(
     size: u32,
     program: &ProgramBinding,
     render_cube: impl FnMut(&FramebufferBinderReadDraw, &ProgramBinding),
-) -> Image {
+) -> Texture {
     map_cubemap(size, 1, program, render_cube)
 }
 pub fn cubemap_from_importance(
     size: u32,
     program: &ProgramBinding,
     render_cube: impl FnMut(&FramebufferBinderReadDraw, &ProgramBinding),
-) -> Image {
+) -> Texture {
     map_cubemap(size, 5, program, render_cube)
 }
 pub fn convolute_cubemap(
     size: u32,
     program: &ProgramBinding,
     render_cube: impl FnMut(&FramebufferBinderReadDraw, &ProgramBinding),
-) -> Image {
+) -> Texture {
     map_cubemap(size, 1, program, render_cube)
 }
 
@@ -1405,4 +1409,245 @@ impl Camera {
             far: 100.0,
         }.into()
     }
+}
+
+macro_rules! v {
+    ($pos:expr, $norm:expr, $tex:expr, $tangent:expr) => {{
+        let tangent = $tangent.into();
+        let norm = $norm.into();
+        Vertex {
+            pos: $pos.into(),
+            tex: $tex.into(),
+            norm: norm,
+            tangent: tangent,
+            bitangent: tangent.cross(norm),
+        }
+    }};
+}
+
+fn cube_vertices() -> Vec<Vertex> {
+    vec![
+        // Back face
+        v!(
+            [-0.5, -0.5, -0.5],
+            [0.0, 0.0, -1.0],
+            [0.0, 0.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [0.5, 0.5, -0.5],
+            [0.0, 0.0, -1.0],
+            [1.0, 1.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [0.5, -0.5, -0.5],
+            [0.0, 0.0, -1.0],
+            [1.0, 0.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [0.5, 0.5, -0.5],
+            [0.0, 0.0, -1.0],
+            [1.0, 1.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [-0.5, -0.5, -0.5],
+            [0.0, 0.0, -1.0],
+            [0.0, 0.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [-0.5, 0.5, -0.5],
+            [0.0, 0.0, -1.0],
+            [0.0, 1.0],
+            [0.0, 1.0, 0.0]
+        ),
+        // Front face
+        v!(
+            [-0.5, -0.5, 0.5],
+            [0.0, 0.0, 1.0],
+            [0.0, 0.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [0.5, -0.5, 0.5],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [0.5, 0.5, 0.5],
+            [0.0, 0.0, 1.0],
+            [1.0, 1.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [0.5, 0.5, 0.5],
+            [0.0, 0.0, 1.0],
+            [1.0, 1.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [-0.5, 0.5, 0.5],
+            [0.0, 0.0, 1.0],
+            [0.0, 1.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [-0.5, -0.5, 0.5],
+            [0.0, 0.0, 1.0],
+            [0.0, 0.0],
+            [0.0, 1.0, 0.0]
+        ),
+        // Left face
+        v!(
+            [-0.5, 0.5, 0.5],
+            [-1.0, 0.0, 0.0],
+            [1.0, 0.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [-0.5, 0.5, -0.5],
+            [-1.0, 0.0, 0.0],
+            [1.0, 1.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [-0.5, -0.5, -0.5],
+            [-1.0, 0.0, 0.0],
+            [0.0, 1.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [-0.5, -0.5, -0.5],
+            [-1.0, 0.0, 0.0],
+            [0.0, 1.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [-0.5, -0.5, 0.5],
+            [-1.0, 0.0, 0.0],
+            [0.0, 0.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [-0.5, 0.5, 0.5],
+            [-1.0, 0.0, 0.0],
+            [1.0, 0.0],
+            [0.0, 1.0, 0.0]
+        ),
+        // Right face
+        v!(
+            [0.5, 0.5, 0.5],
+            [1.0, 0.0, 0.0],
+            [1.0, 0.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [0.5, -0.5, -0.5],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [0.5, 0.5, -0.5],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [0.5, -0.5, -0.5],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [0.5, 0.5, 0.5],
+            [1.0, 0.0, 0.0],
+            [1.0, 0.0],
+            [0.0, 1.0, 0.0]
+        ),
+        v!(
+            [0.5, -0.5, 0.5],
+            [1.0, 0.0, 0.0],
+            [0.0, 0.0],
+            [0.0, 1.0, 0.0]
+        ),
+        // Bottom face
+        v!(
+            [-0.5, -0.5, -0.5],
+            [0.0, -1.0, 0.0],
+            [0.0, 1.0],
+            [1.0, 0.0, 0.0]
+        ),
+        v!(
+            [0.5, -0.5, -0.5],
+            [0.0, -1.0, 0.0],
+            [1.0, 1.0],
+            [1.0, 0.0, 0.0]
+        ),
+        v!(
+            [0.5, -0.5, 0.5],
+            [0.0, -1.0, 0.0],
+            [1.0, 0.0],
+            [1.0, 0.0, 0.0]
+        ),
+        v!(
+            [0.5, -0.5, 0.5],
+            [0.0, -1.0, 0.0],
+            [1.0, 0.0],
+            [1.0, 0.0, 0.0]
+        ),
+        v!(
+            [-0.5, -0.5, 0.5],
+            [0.0, -1.0, 0.0],
+            [0.0, 0.0],
+            [1.0, 0.0, 0.0]
+        ),
+        v!(
+            [-0.5, -0.5, -0.5],
+            [0.0, -1.0, 0.0],
+            [0.0, 1.0],
+            [1.0, 0.0, 0.0]
+        ),
+        // Top face
+        v!(
+            [-0.5, 0.5, -0.5],
+            [0.0, 1.0, 0.0],
+            [0.0, 1.0],
+            [1.0, 0.0, 0.0]
+        ),
+        v!(
+            [0.5, 0.5, 0.5],
+            [0.0, 1.0, 0.0],
+            [1.0, 0.0],
+            [1.0, 0.0, 0.0]
+        ),
+        v!(
+            [0.5, 0.5, -0.5],
+            [0.0, 1.0, 0.0],
+            [1.0, 1.0],
+            [1.0, 0.0, 0.0]
+        ),
+        v!(
+            [0.5, 0.5, 0.5],
+            [0.0, 1.0, 0.0],
+            [1.0, 0.0],
+            [1.0, 0.0, 0.0]
+        ),
+        v!(
+            [-0.5, 0.5, -0.5],
+            [0.0, 1.0, 0.0],
+            [0.0, 1.0],
+            [1.0, 0.0, 0.0]
+        ),
+        v!(
+            [-0.5, 0.5, 0.5],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0],
+            [1.0, 0.0, 0.0]
+        ),
+    ]
 }

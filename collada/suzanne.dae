@@ -165,7 +165,8 @@
             1 0 0 -0.03663068
             0 1.545906 0 0.05377147
             0 0 0.1563794 0.6693912
-            0 0 0 1</matrix>
+            0 0 0 1
+        </matrix>
         <instance_geometry url="#Suzanne_001-mesh" name="Suzanne_001">
           <bind_material>
             <technique_common>
