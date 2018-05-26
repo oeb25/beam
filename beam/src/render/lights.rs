@@ -2,8 +2,8 @@ use cgmath::{self, Rad};
 use gl;
 use mg::{
     Attachment, BufferSlot, Framebuffer, FramebufferBinderBase, FramebufferBinderDrawer,
-    FramebufferBinderReadDraw, GlError, GlType, ProgramBinding, Texture, TextureFormat,
-    TextureInternalFormat, TextureKind, TextureParameter, TextureTarget,
+    FramebufferBinderReadDraw, GlError, GlType, ProgramBind, ProgramBinding, Texture,
+    TextureFormat, TextureInternalFormat, TextureKind, TextureParameter, TextureTarget,
 };
 use misc::{v3, Mat4, P3, V3};
 use std::f32::consts::PI;
@@ -33,7 +33,10 @@ impl DirectionalLight {
         let view = Mat4::look_at(o, o - self.direction, v3(0.0, 1.0, 0.0));
         projection * view
     }
-    fn bind(&self, camera_pos: V3, name: &str, program: &ProgramBinding) {
+    fn bind<P>(&self, camera_pos: V3, name: &str, program: &P)
+    where
+        P: ProgramBind,
+    {
         let ext = |e| format!("{}.{}", name, e);
         let space = self.space(camera_pos);
         let DirectionalLight {
@@ -47,13 +50,15 @@ impl DirectionalLight {
             .bind_mat4(&ext("space"), space)
             .bind_texture("directionalShadowMap", &shadow_map.map);
     }
-    pub fn bind_multiple(
+    pub fn bind_multiple<P>(
         camera_pos: V3,
         lights: &[DirectionalLight],
         name_uniform: &str,
         amt_uniform: &str,
-        program: &ProgramBinding,
-    ) {
+        program: &P,
+    ) where
+        P: ProgramBind,
+    {
         program.bind_int(amt_uniform, lights.len() as i32);
         for (i, light) in lights.iter().enumerate() {
             light.bind(camera_pos, &format!("{}[{}]", name_uniform, i), program);
@@ -75,7 +80,10 @@ pub struct PointLight {
     pub shadow_map: Option<PointShadowMap>,
 }
 impl PointLight {
-    fn bind(&self, name: &str, program: &ProgramBinding) {
+    fn bind<P>(&self, name: &str, program: &P)
+    where
+        P: ProgramBind,
+    {
         let ext = |e| {
             let res = format!("{}.{}", name, e);
             res
@@ -104,12 +112,14 @@ impl PointLight {
         }
         GlError::check().expect(&format!("Failed to bind light: {:?}", self));
     }
-    pub fn bind_multiple(
+    pub fn bind_multiple<P>(
         lights: &[PointLight],
         name_uniform: &str,
         amt_uniform: &str,
-        program: &ProgramBinding,
-    ) {
+        program: &P,
+    ) where
+        P: ProgramBind,
+    {
         program.bind_int(amt_uniform, lights.len() as i32);
         GlError::check().expect("Failed to bind number of lights");
         for (i, light) in lights.iter().enumerate() {

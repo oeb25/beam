@@ -3,7 +3,7 @@ use std::{mem, os, ptr};
 
 use buffers::{ElementBufferBinder, ElementKind, VertexBufferBinder};
 use framebuffers::FramebufferBinderDrawer;
-use shaders::ProgramBinding;
+use shaders::ProgramBind;
 use types::{GlError, GlType};
 
 pub struct VertexArray(gl::types::GLuint);
@@ -56,16 +56,17 @@ impl<'a> VertexArrayBinder<'a> {
         }
         VertexArrayBinder(vao)
     }
-    pub fn draw_arrays<T>(
+    pub fn draw_arrays<T, S>(
         &mut self,
         _fbo: &T,
-        _program: &ProgramBinding,
+        _program: &S,
         mode: DrawMode,
         first: usize,
         count: usize,
     ) -> &VertexArrayBinder
     where
         T: FramebufferBinderDrawer,
+        S: ProgramBind
     {
         unsafe {
             gl::DrawArrays(mode.into(), first as i32, count as i32);

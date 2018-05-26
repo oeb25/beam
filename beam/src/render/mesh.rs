@@ -1,7 +1,7 @@
 use std::mem;
 
 use mg::{
-    DrawMode, FramebufferBinderDrawer, ProgramBinding, VertexArray, VertexBuffer,
+    DrawMode, FramebufferBinderDrawer, ProgramBind, VertexArray, VertexBuffer,
     VertexBufferBinder,
 };
 use misc::{Mat4, Vertex};
@@ -69,9 +69,10 @@ impl Mesh {
 
 pub struct MeshBinding<'a>(&'a mut Mesh);
 impl<'a> MeshBinding<'a> {
-    pub fn draw<F>(&mut self, fbo: &F, program: &ProgramBinding)
+    pub fn draw<F, P>(&mut self, fbo: &F, program: &P)
     where
         F: FramebufferBinderDrawer,
+        P: ProgramBind
     {
         // self.bind_textures(program);
 
@@ -80,13 +81,14 @@ impl<'a> MeshBinding<'a> {
             .bind()
             .draw_arrays(fbo, program, DrawMode::Triangles, 0, self.0.vcount);
     }
-    pub fn draw_geometry_instanced<F>(
+    pub fn draw_geometry_instanced<F, P>(
         &mut self,
         fbo: &F,
-        _program: &ProgramBinding,
+        _program: &P,
         transforms: &VertexBufferBinder<Mat4>,
     ) where
         F: FramebufferBinderDrawer,
+        P: ProgramBind
     {
         let mut vao = self.0.vao.bind();
         let offset = 5;
@@ -99,13 +101,14 @@ impl<'a> MeshBinding<'a> {
 
         vao.draw_arrays_instanced(fbo, DrawMode::Triangles, 0, self.0.vcount, transforms.len());
     }
-    pub fn draw_instanced<F>(
+    pub fn draw_instanced<F, P>(
         &mut self,
         fbo: &F,
-        program: &ProgramBinding,
+        program: &P,
         transforms: &VertexBufferBinder<Mat4>,
     ) where
         F: FramebufferBinderDrawer,
+        P: ProgramBind
     {
         // self.bind_textures(program);
         self.draw_geometry_instanced(fbo, program, transforms);

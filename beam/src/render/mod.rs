@@ -13,7 +13,7 @@ use std::{self, collections::HashMap, path::Path};
 
 use mg::{
     Attachment, Framebuffer, FramebufferBinderBase, FramebufferBinderDraw, FramebufferBinderDrawer,
-    FramebufferBinderRead, FramebufferBinderReadDraw, GlError, GlType, Mask, ProgramBinding,
+    FramebufferBinderRead, FramebufferBinderReadDraw, GlError, GlType, Mask, ProgramBind,
     Renderbuffer, Texture, TextureFormat, TextureInternalFormat, TextureKind, TextureParameter,
     TextureTarget,
 };
@@ -32,7 +32,10 @@ pub struct Material {
 }
 
 impl Material {
-    pub fn bind(&self, meshes: &MeshStore, program: &ProgramBinding) {
+    pub fn bind<P>(&self, meshes: &MeshStore, program: &P)
+    where
+        P: ProgramBind,
+    {
         program
             .bind_texture("tex_albedo", meshes.get_texture(&self.albedo))
             .bind_texture("tex_metallic", meshes.get_texture(&self.metallic))
@@ -67,7 +70,10 @@ pub struct MaterialBorrowed<'a> {
 
 impl<'a> MaterialBorrowed<'a> {
     #[allow(unused)]
-    pub fn bind(&self, program: &ProgramBinding) {
+    pub fn bind<P>(&self, program: &P)
+    where
+        P: ProgramBind,
+    {
         program
             .bind_texture("tex_albedo", &self.albedo)
             .bind_texture("tex_metallic", &self.metallic)
@@ -825,12 +831,15 @@ impl<'a> CubeMapBuilder<&'a str> {
     }
 }
 
-pub fn map_cubemap(
+pub fn map_cubemap<P>(
     size: u32,
     mip_levels: usize,
-    program: &ProgramBinding,
-    mut render_cube: impl FnMut(&FramebufferBinderReadDraw, &ProgramBinding),
-) -> Texture {
+    program: &P,
+    mut render_cube: impl FnMut(&FramebufferBinderReadDraw, &P),
+) -> Texture
+where
+    P: ProgramBind,
+{
     // Prepare
     let mut fbo = Framebuffer::new();
     let mut rbo = Renderbuffer::new();
@@ -938,25 +947,25 @@ pub fn map_cubemap(
 
     map
 }
-pub fn cubemap_from_equirectangular(
-    size: u32,
-    program: &ProgramBinding,
-    render_cube: impl FnMut(&FramebufferBinderReadDraw, &ProgramBinding),
-) -> Texture {
+pub fn cubemap_from_equirectangular<F, P>(size: u32, program: &P, render_cube: F) -> Texture
+where
+    F: FnMut(&FramebufferBinderReadDraw, &P),
+    P: ProgramBind,
+{
     map_cubemap(size, 1, program, render_cube)
 }
-pub fn cubemap_from_importance(
-    size: u32,
-    program: &ProgramBinding,
-    render_cube: impl FnMut(&FramebufferBinderReadDraw, &ProgramBinding),
-) -> Texture {
+pub fn cubemap_from_importance<F, P>(size: u32, program: &P, render_cube: F) -> Texture
+where
+    F: FnMut(&FramebufferBinderReadDraw, &P),
+    P: ProgramBind,
+{
     map_cubemap(size, 5, program, render_cube)
 }
-pub fn convolute_cubemap(
-    size: u32,
-    program: &ProgramBinding,
-    render_cube: impl FnMut(&FramebufferBinderReadDraw, &ProgramBinding),
-) -> Texture {
+pub fn convolute_cubemap<F, P>(size: u32, program: &P, render_cube: F) -> Texture
+where
+    F: FnMut(&FramebufferBinderReadDraw, &P),
+    P: ProgramBind,
+{
     map_cubemap(size, 1, program, render_cube)
 }
 

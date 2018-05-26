@@ -5,7 +5,7 @@ use failure::Error;
 
 use mg::{
     DrawMode, Framebuffer, FramebufferBinderDrawer, FramebufferBinderReadDraw, GlError, Mask,
-    Program, ProgramBinding, Texture, TextureSlot, VertexArray, VertexBuffer,
+    ProgramBind, Texture, TextureSlot, VertexArray, VertexBuffer, ProgramBindingRefMut
 };
 
 use hot;
@@ -35,8 +35,8 @@ pub struct RenderProps<'a> {
 pub struct HotShader(warmy::Res<hot::MyShader>);
 
 impl HotShader {
-    pub fn bind<'a>(&'a mut self) -> RefMut<'a, Program> {
-        RefMut::map(self.0.borrow_mut(), |a| &mut a.program)
+    pub fn bind(&mut self) -> ProgramBindingRefMut {
+        ProgramBindingRefMut::new(RefMut::map(self.0.borrow_mut(), |a| &mut a.program))
     }
 }
 
@@ -258,7 +258,7 @@ impl Pipeline {
             rect_vao
         };
 
-        let mut render_cube = |fbo: &FramebufferBinderReadDraw, program: &ProgramBinding| {
+        let mut render_cube = |fbo: &FramebufferBinderReadDraw, program: &ProgramBindingRefMut| {
             program.bind_texture_to("equirectangularMap", &ibl_raw, TextureSlot::One);
             rect.bind()
                 .draw_arrays(fbo, program, DrawMode::Points, 0, 1);
@@ -266,23 +266,23 @@ impl Pipeline {
 
         let cubemap = cubemap_from_equirectangular(
             512,
-            &self.equirectangular_program.bind().bind(),
+            &self.equirectangular_program.bind(),
             &mut render_cube,
         );
 
-        let mut render_cube = |fbo: &FramebufferBinderReadDraw, program: &ProgramBinding| {
+        let mut render_cube = |fbo: &FramebufferBinderReadDraw, program: &ProgramBindingRefMut| {
             program.bind_texture_to("equirectangularMap", &cubemap, TextureSlot::One);
             rect.bind()
                 .draw_arrays(fbo, program, DrawMode::Points, 0, 1);
         };
         let irradiance_map = convolute_cubemap(
             32,
-            &self.convolute_cubemap_program.bind().bind(),
+            &self.convolute_cubemap_program.bind(),
             &mut render_cube,
         );
         let prefilter_map = cubemap_from_importance(
             128,
-            &self.prefilter_cubemap_program.bind().bind(),
+            &self.prefilter_cubemap_program.bind(),
             &mut render_cube,
         );
 
@@ -290,7 +290,7 @@ impl Pipeline {
         brdf_lut_render_target.set_viewport();
         render_cube(
             &brdf_lut_render_target.bind().clear(Mask::ColorDepth),
-            &self.brdf_lut_program.bind().bind(),
+            &self.brdf_lut_program.bind(),
         );
 
         Ok(Ibl {
@@ -377,8 +377,7 @@ impl Pipeline {
             // Render geometry
             let fbo = self.g.fbo.bind();
             fbo.clear(Mask::ColorDepth);
-            let mut program_ = self.pbr_program.bind();
-            let program = program_.bind();
+            let program = self.pbr_program.bind();
             program
                 .bind_mat4("projection", projection)
                 .bind_mat4("view", view)
@@ -406,8 +405,7 @@ impl Pipeline {
         {
             {
                 // Render depth map for directional lights
-                let mut p_ = self.directional_shadow_program.bind();
-                let p = p_.bind();
+                let p = self.directional_shadow_program.bind();
                 unsafe {
                     let (w, h) = ShadowMap::size();
                     gl::Viewport(0, 0, w as i32, h as i32);
@@ -431,8 +429,7 @@ impl Pipeline {
                     gl::Viewport(0, 0, w as i32, h as i32);
                     gl::CullFace(gl::FRONT);
                 }
-                let mut p_ = self.point_shadow_program.bind();
-                let p = p_.bind();
+                let p = self.point_shadow_program.bind();
                 for light in props.point_lights.iter_mut() {
                     let far = if let Some(ref shadow_map) = light.shadow_map {
                         shadow_map.far
@@ -460,8 +457,7 @@ impl Pipeline {
             let fbo = self.lighting_target.bind();
             fbo.clear(Mask::ColorDepth);
 
-            let mut g_ = self.lighting_pbr_program.bind();
-            let g = g_.bind();
+            let g = self.lighting_pbr_program.bind();
 
             g.bind_texture("aPosition", &self.g.position)
                 .bind_texture("aNormal", &self.g.normal)
@@ -512,8 +508,7 @@ impl Pipeline {
                 gl::DepthFunc(gl::LEQUAL);
                 gl::Disable(gl::CULL_FACE);
             }
-            let mut program_ = self.skybox_program.bind();
-            let program = program_.bind();
+            let program = self.skybox_program.bind();
             let mut view = view.clone();
             view.w = V4::new(0.0, 0.0, 0.0, 0.0);
             program
@@ -550,8 +545,7 @@ impl Pipeline {
                     let fbo = next.bind();
                     fbo.clear(Mask::ColorDepth);
 
-                    let mut blur_ = self.blur_program.bind();
-                    let blur = blur_.bind();
+                    let blur = self.blur_program.bind();
                     blur.bind_texture("tex", &prev.texture)
                         .bind_float("scale", scale);
                     draw_rect!(&fbo, &blur);
@@ -567,8 +561,7 @@ impl Pipeline {
             let fbo = self.screen_target.bind();
             fbo.clear(Mask::ColorDepth);
 
-            let mut hdr_ = self.hdr_program.bind();
-            let hdr = hdr_.bind();
+            let hdr = self.hdr_program.bind();
             hdr.bind_texture("hdrBuffer", &self.lighting_target.texture)
                 .bind_float("time", props.time);
 
@@ -583,8 +576,7 @@ impl Pipeline {
             let fbo = self.window_fbo.bind();
             fbo.clear(Mask::ColorDepth);
 
-            let mut screen_ = self.screen_program.bind();
-            let screen = screen_.bind();
+            let screen = self.screen_program.bind();
             screen.bind_texture("display", &self.screen_target.texture);
 
             draw_rect!(&fbo, &screen);
