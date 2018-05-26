@@ -1,20 +1,9 @@
-[package]
-name = "beam"
-version = "0.1.0"
-authors = ["oeb"]
-
-[dependencies]
-gl = "*"
-glutin = "*"
-cgmath = "*"
-image = "*"
-obj = { version = "0.8", features = ["genmesh"] }
-genmesh = "0.5"
-time = "*"
-warmy = "0.7.2"
-
-[dependencies.mg]
-path = "../mg"
+[workspace]
+members = [
+    "beam",
+    "mg",
+    "collada"
+]
 
 [profile.dev]
 opt-level = 3

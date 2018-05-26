@@ -1,5 +1,3 @@
-#pragma optionNV (unroll all)
-
 out vec4 FragColor;
 
 in vec2 TexCoords;
@@ -9,38 +7,31 @@ uniform sampler2D aNormal;
 uniform sampler2D aAlbedo;
 uniform sampler2D aMetallicRoughnessAo;
 
+uniform float ambientIntensity = 1.0;
 uniform samplerCube irradianceMap;
 uniform samplerCube prefilterMap;
 uniform sampler2D brdfLUT;
 
 uniform vec3 viewPos;
 
-// There can only be one shadow map for point lights
+// There can only be one shadow map for point and directional lights
 uniform samplerCube pointShadowMap;
 uniform sampler2D directionalShadowMap;
 
 struct PointLight {
-    vec3 ambient;    // 3
-    vec3 diffuse;    // 6
-    vec3 specular;   // 9
+    vec3 color;
 
-    vec3 position;   // 12
-    vec3 lastPosition;   // 12
-
-    float constant;  // 13
-    float linear;    // 14
-    float quadratic; // 15
+    vec3 position;
+    vec3 lastPosition;
 
     bool useShadowMap;
     float farPlane;
 };
 
 struct DirectionalLight {
-    vec3 ambient;   // 3
-    vec3 diffuse;   // 6
-    vec3 specular;  // 9
+    vec3 color;
 
-    vec3 direction; // 12
+    vec3 direction;
     mat4 space;
 };
 
@@ -126,7 +117,7 @@ void main() {
     float ao = metallicRoughnessAo.b;
 
     // albedo = vec3(1.00, 0.26, 0.27);
-    // metallic = 0.9;
+    // metallic = 1.0;
     // roughness = 0.0;
 
     vec3 V = normalize(viewPos - fragPos);
@@ -146,7 +137,7 @@ void main() {
 
         float distance = length(light.position - fragPos);
         float attenuation = 1.0 / (distance * distance);
-        vec3 radiance = light.diffuse * 100.0 * attenuation;
+        vec3 radiance = light.color * 100.0 * attenuation;
 
         float NDF = DistributonGGX(N, H, roughness);
         float G = GeometrySmith(N, V, L, roughness);
@@ -183,7 +174,7 @@ void main() {
         vec3 L = normalize(light.direction);
         vec3 H = normalize(V + L);
 
-        vec3 radiance = light.diffuse * 20.0;
+        vec3 radiance = light.color * 20.0;
 
         vec3 F = fresnelSchlick(max(dot(N, V), 0.0), F0);
 
@@ -201,7 +192,8 @@ void main() {
 
         float NdotL = max(dot(N, L), 0.0);
         float bias = max(0.05 * (1.0 - NdotL), 0.0002);
-        float shadow = 1.0 - directionalShadowCalculation(0.0, directionalShadowMap, light.space * vec4(fragPos, 1.0));
+        float shadow =
+            1.0 - directionalShadowCalculation(0.0, directionalShadowMap, light.space * vec4(fragPos, 1.0));
 
         Lo += (kD * albedo / PI + specular) * radiance * NdotL * shadow;
     }
@@ -213,17 +205,20 @@ void main() {
 
     kD *= 1.0 - metallic;
 
-    vec3 irradiance = texture(irradianceMap, N).rgb;
+    vec3 irradiance = texture(irradianceMap, N).rgb * ambientIntensity;
     vec3 diffuse = irradiance * albedo;
 
     const float MAX_REFLECTION_LOD = 4.0;
-    vec3 prefilteredColor = textureLod(prefilterMap, R, roughness * MAX_REFLECTION_LOD).rgb;
+    vec3 prefilteredColor =
+        textureLod(prefilterMap, R, roughness * MAX_REFLECTION_LOD).rgb * ambientIntensity;
     vec2 envBRDF = texture(brdfLUT, vec2(max(dot(N, V), 0.0), roughness)).rg;
     vec3 specular = prefilteredColor * (F * envBRDF.x + envBRDF.y);
 
     vec3 ambient = (kD * diffuse + specular) * ao;
 
     color = ambient + Lo;
+    // color = vec3(N);
+    // color = vec3(albedo);
 
     FragColor = vec4(color, length(fragPos - viewPos));
 }

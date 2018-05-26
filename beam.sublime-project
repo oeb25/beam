@@ -2,10 +2,11 @@
 	"folders":
 	[
 		{
+			"folder_exclude_patterns":
+			[
+				"target"
+			],
 			"path": "."
-		},
-		{
-			"path": "../mg"
 		}
 	]
 }

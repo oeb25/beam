@@ -1,7 +1,8 @@
 #![feature(fs_read_write, stmt_expr_attributes, transpose_result, box_syntax, box_patterns)]
-#![feature(custom_attribute, nll)]
+#![feature(custom_attribute, nll, iterator_flatten)]
 
 extern crate cgmath;
+extern crate collada;
 extern crate genmesh;
 extern crate gl;
 extern crate glutin;
@@ -66,54 +67,24 @@ impl Scene {
         };
 
         let point_lights = vec![
-            // PointLight {
-            //     diffuse: v3(0.0, 0.3, 0.7),
-            //     ambient: one * 0.0,
-            //     specular: one * 0.2,
-
-            //     position: light_pos1,
-            //     last_shadow_map_position: light_pos1,
-
-            //     constant: 1.0,
-            //     linear: 0.07,
-            //     quadratic: 0.017,
-
-            //     shadow_map: Some(PointShadowMap::new()),
-            // },
             PointLight {
-                // diffuse: v3(0.7, 0.4, 0.2),
-                diffuse: v3(0.7, 0.4, 0.2) * 10.0,
-                ambient: v3(0.7, 0.4, 0.2) * 0.1,
-                specular: v3(0.7, 0.4, 0.2) * 0.7,
+                color: v3(0.7, 0.4, 0.2) * 10.0,
 
                 position: light_pos2,
                 last_shadow_map_position: light_pos2,
 
-                constant: 1.0,
-                linear: 0.07,
-                quadratic: 0.007,
-
-                // shadow_map: None,
                 shadow_map: Some(PointShadowMap::new()),
             },
             PointLight {
-                diffuse: v3(1.0, 0.0, 0.2),
-                ambient: one * 0.0,
-                specular: one * 0.2,
+                color: v3(1.0, 0.0, 0.2),
 
                 position: light_pos1 + light_pos2,
                 last_shadow_map_position: light_pos1 + light_pos2,
 
-                constant: 1.0,
-                linear: 0.07,
-                quadratic: 0.007,
-
                 shadow_map: None,
             },
             PointLight {
-                diffuse: v3(0.2, 0.2, 0.8),
-                ambient: one * 0.0,
-                specular: one * 0.2,
+                color: v3(0.2, 0.2, 0.8),
 
                 position: v3(
                     light_pos1.x * light_pos2.x,
@@ -121,10 +92,6 @@ impl Scene {
                     light_pos1.z * light_pos2.z,
                 ),
                 last_shadow_map_position: one,
-
-                constant: 1.0,
-                linear: 0.07,
-                quadratic: 0.007,
 
                 shadow_map: None,
             },
@@ -144,22 +111,7 @@ impl Scene {
             directional_lights,
         }
     }
-    fn tick(&mut self, t: f32, _dt: f32, inputs: &Input) {
-        // let lp1 = v3(9.0 * (t / 30.0).sin(), -13.0, 9.0 * (t / 40.0).sin());
-        // self.point_lights[0].position = lp1;
-        // let i = 1;
-        // self.point_lights[i].position = v3(
-        //     1.5 + -10.0 * ((t + 23.0) / 14.0).sin(),
-        //     2.0,
-        //     -10.0 * (t / 90.0).sin(),
-        // );
-        // self.point_lights[i + 1].position = lp1 + self.point_lights[i].position;
-        // self.point_lights[i + 2].position = v3(
-        //     lp1.x * self.point_lights[i].position.x,
-        //     lp1.y * self.point_lights[i].position.y,
-        //     lp1.z * self.point_lights[i].position.z,
-        // );
-
+    fn tick(&mut self, _t: f32, _dt: f32, inputs: &Input) {
         let pi = std::f32::consts::PI;
 
         let up = self.camera.up();
@@ -214,31 +166,50 @@ fn main() {
 
     let mut running = true;
     let mut last_pos = None;
+
+    let mut pipeline = Pipeline::new(w, h, hidpi_factor);
+
+    let room_ibl = pipeline.load_ibl("assets/Newport_Loft/Newport_Loft_Ref.hdr");
+    let rust_material = pipeline.meshes.load_pbr_with_default_filenames(
+        "assets/pbr/rusted_iron",
+        "png",
+    );
+
+    let white4 = pipeline.meshes.rgba_texture(v4(1.0, 1.0, 1.0, 1.0));
+    let white3 = pipeline.meshes.rgb_texture(v3(1.0, 1.0, 1.0));
+    let gray3 = pipeline.meshes.rgb_texture(v3(0.5, 0.5, 0.5));
+    let blueish4 = pipeline.meshes.rgba_texture(v4(0.2, 0.5, 1.0, 1.0));
+    let black3 = pipeline.meshes.rgb_texture(v3(0.0, 0.0, 0.0));
+    let normal3 = pipeline.meshes.rgb_texture(v3(0.5, 0.5, 1.0));
+
+    let suzanne = pipeline.meshes
+        .load_collada("../collada/suzanne.dae")
+        .scale(1.0 / 2.0)
+        .translate(v3(0.0, 15.0, 0.0))
+        .with_material(Material {
+            normal: normal3,
+            albedo: blueish4,
+            metallic: black3,
+            roughness: black3,
+            ao: white4,
+        }).with_material(rust_material);
+
     let mut is = vec![];
-    for i in 1..2 {
+
+    for i in 1..5 {
         for n in 0..i {
             let x = i as f32 / 2.0;
             let v = v3(i as f32 / 2.0, -i as f32 - 5.0, n as f32 - x) * 2.0;
             let v = Mat4::from_translation(v) * Mat4::from_angle_y(Rad(i as f32 - 1.0));
-            if true {
-                let obj = Object {
-                    kind: ObjectKind::Wall,
-                    transform: v,
-                };
-                is.push(obj);
-            }
-            if true {
-                let obj = Object {
-                    kind: ObjectKind::Cyborg,
-                    transform: v,
-                };
-                is.push(obj);
-            }
+            let obj = suzanne.transform(v);
+            is.push(obj);
         }
     }
 
-    let mut pipeline = Pipeline::new(w, h, hidpi_factor);
     println!("drawing {} nanosuits", is.len());
+
+    let cube_mesh = RenderObject::mesh(pipeline.meshes.get_cube());
+    let sphere_mesh = RenderObject::mesh(pipeline.meshes.get_sphere(0.5));
 
     let mut fps_last_time = PreciseTime::now();
     let fps_step = Duration::seconds(1);
@@ -275,10 +246,10 @@ fn main() {
 
         events_loop.poll_events(|event| match event {
             glutin::Event::WindowEvent { event, .. } => match event {
-                glutin::WindowEvent::Closed => running = false,
+                glutin::WindowEvent::CloseRequested => running = false,
                 glutin::WindowEvent::Resized(w, h) => {
                     gl_window.resize(w, h);
-                    pipeline.resize((w as f32 / hidpi_factor) as u32, (h as f32 / hidpi_factor) as u32);
+                    pipeline.resize(w, h);
                 },
                 glutin::WindowEvent::CursorMoved { position, .. } => {
                     match last_pos {
@@ -352,20 +323,28 @@ fn main() {
                 // (v3(0.0, -10.0, -10.0), v3(20.0, 20.0, 0.1)),
                 // (v3(0.0, -10.0, 10.0), v3(20.0, 20.0, 0.1)),
             ].into_iter()
-                .map(|(p, s)| Object {
-                    kind: ObjectKind::Cube,
-                    transform:
-                        Mat4::from_angle_y(Rad(0.0))
-                        * Mat4::from_translation(*p)
-                        * Mat4::from_nonuniform_scale(s.x, s.y, s.z),
-                })
+                .map(|(p, s)|
+                    cube_mesh.transform(
+                        Mat4::from_translation(*p)
+                        * Mat4::from_nonuniform_scale(s.x, s.y, s.z)
+                    )
+                )
                 .collect();
 
             for light in scene.point_lights.iter() {
-                objects.push(Object {
-                    kind: ObjectKind::Cube,
-                    transform: Mat4::from_translation(light.position.clone()),
-                });
+                let mesh = sphere_mesh
+                    .transform(
+                        Mat4::from_translation(light.position.clone()) *
+                        Mat4::from_scale(0.8)
+                    )
+                    .with_material(Material {
+                        albedo: pipeline.meshes.rgb_texture(light.color),
+                        normal: normal3,
+                        metallic: black3,
+                        roughness: white3,
+                        ao: white3,
+                    });
+                objects.push(mesh);
             }
 
             objects.append(&mut is.clone());
@@ -374,11 +353,16 @@ fn main() {
                 update_shadows,
                 RenderProps {
                     camera: &scene.camera,
-                    objects: objects.into_iter(),
                     directional_lights: &mut scene.directional_lights,
                     point_lights: &mut scene.point_lights,
                     time: t,
+
+                    ibl: &room_ibl,
+
+                    ambient_intensity: Some(1.0),
+                    skybox_intensity: Some(1.0),
                 },
+                &objects,
             );
         }
 
