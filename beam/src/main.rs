@@ -181,16 +181,9 @@ fn main() {
     let normal3 = pipeline.meshes.rgb_texture(v3(0.5, 0.5, 1.0));
 
     let suzanne = pipeline.meshes
-        .load_collada("../collada/suzanne.dae")
+        .load_collada("assets/suzanne/suzanne.dae")
         .scale(1.0 / 2.0)
-        .translate(v3(0.0, 15.0, 0.0))
-        .with_material(Material {
-            normal: normal3,
-            albedo: blueish4,
-            metallic: black3,
-            roughness: black3,
-            ao: white4,
-        }).with_material(rust_material);
+        .translate(v3(0.0, 15.0, 0.0));
 
     let mut is = vec![];
 

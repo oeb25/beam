@@ -9,11 +9,11 @@ mod raw;
 
 #[derive(Debug)]
 pub struct Image {
-    source: String,
+    pub source: String,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct ImageRef(usize);
+pub struct ImageRef(pub usize);
 
 #[derive(Debug)]
 pub enum PhongProperty {
@@ -25,17 +25,17 @@ pub enum PhongProperty {
 #[derive(Debug)]
 pub enum Effect {
     Phong {
-        emission: PhongProperty,
-        ambient: PhongProperty,
-        diffuse: PhongProperty,
-        specular: PhongProperty,
-        shininess: PhongProperty,
-        index_of_refraction: PhongProperty,
+        emission: Option<PhongProperty>,
+        ambient: Option<PhongProperty>,
+        diffuse: Option<PhongProperty>,
+        specular: Option<PhongProperty>,
+        shininess: Option<PhongProperty>,
+        index_of_refraction: Option<PhongProperty>,
     },
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct EffectRef(usize);
+pub struct EffectRef(pub usize);
 
 #[derive(Debug)]
 pub enum Material {
@@ -51,7 +51,7 @@ pub struct Vertex {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct MaterialRef(usize);
+pub struct MaterialRef(pub usize);
 
 #[derive(Debug)]
 pub enum Geometry {
@@ -201,13 +201,14 @@ impl From<raw::ColladaRaw> for Collada {
                     specular,
                     shininess,
                     index_of_refraction,
+                    ..
                 } => Effect::Phong {
-                    emission: convert(emission),
-                    ambient: convert(ambient),
-                    diffuse: convert(diffuse),
-                    specular: convert(specular),
-                    shininess: convert(shininess),
-                    index_of_refraction: convert(index_of_refraction),
+                    emission: emission.as_ref().map(convert),
+                    ambient: ambient.as_ref().map(convert),
+                    diffuse: diffuse.as_ref().map(convert),
+                    specular: specular.as_ref().map(convert),
+                    shininess: shininess.as_ref().map(convert),
+                    index_of_refraction: index_of_refraction.as_ref().map(convert),
                 },
             };
 

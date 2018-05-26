@@ -7,7 +7,7 @@ use hot;
 use warmy;
 
 use render::{
-    convolute_cubemap, cubemap_from_equirectangular, cubemap_from_importance, v3, Camera,
+    convolute_cubemap, cubemap_from_equirectangular, cubemap_from_importance, v3, v4, Camera,
     DirectionalLight, GRenderPass, Mat4, PointLight,
     PointShadowMap, RenderObject, RenderObjectChild, RenderTarget, Renderable, ShadowMap,
     V3, V4, MeshStore, Material,
@@ -60,8 +60,6 @@ pub struct Pipeline {
     pub blur_program: HotShader,
     pub hdr_program: HotShader,
     pub screen_program: HotShader,
-
-    pub pbr_material: Material,
 
     pub meshes: MeshStore,
 
@@ -159,39 +157,14 @@ impl Pipeline {
             "shaders/screen.frag",
         );
 
-        let mut meshes = MeshStore::default();
-        // let pbr_material = PbrMaterial::new_with_default_filenames(
-        //     &mut texture_cache,
-        //     "assets/pbr/gold",
-        //     "png",
-        // );
-        let pbr_material = meshes.load_pbr_with_default_filenames(
-            "assets/pbr/rusted_iron",
-            "png",
-        );
-        // let pbr_material = PbrMaterial::new_with_default_filenames(
-        //     &mut texture_cache,
-        //     "assets/castle_wall/materials",
-        //     "jpg",
-        // );
-        // let pbr_material = PbrMaterial::new_with_default_filenames(
-        //     &mut texture_cache,
-        //     "assets/pbr/stone_wall",
-        //     "jpg",
-        // );
-        // let pbr_material = PbrMaterial::new_with_default_filenames(
-        //     &mut texture_cache,
-        //     "assets/pbr/metal_bare",
-        //     "jpg",
-        // );
+        let meshes = MeshStore::default();
 
         let rect = {
             let mut rect_vao = VertexArray::new();
-            let mut rect_vbo: VertexBuffer<V3> = VertexBuffer::new();
+            let mut rect_vbo: VertexBuffer<V3> = VertexBuffer::from_data(&[v3(0.0, 0.0, 0.0)]);
 
             {
                 let mut vbo = rect_vbo.bind();
-                vbo.buffer_data(&[v3(0.0, 0.0, 0.0)]);
                 rect_vao.bind().vbo_attrib(&vbo, 0, 3, 0);
             }
 
@@ -225,8 +198,6 @@ impl Pipeline {
             blur_program,
             hdr_program,
             screen_program,
-
-            pbr_material,
 
             rect: rect,
 
@@ -397,7 +368,21 @@ impl Pipeline {
                 .bind_vec3("viewPos", view_pos)
                 .bind_float("time", props.time);
 
-            // self.pbr_material.bind(&mut self.meshes, &program);
+            let white4 = self.meshes.rgba_texture(v4(1.0, 1.0, 1.0, 1.0));
+            let white3 = self.meshes.rgb_texture(v3(1.0, 1.0, 1.0));
+            let whiteish3 = self.meshes.rgb_texture(v3(0.2, 0.2, 0.2));
+            let blueish4 = self.meshes.rgba_texture(v4(0.2, 0.5, 1.0, 1.0));
+            let black3 = self.meshes.rgb_texture(v3(0.0, 0.0, 0.0));
+            let normal3 = self.meshes.rgb_texture(v3(0.5, 0.5, 1.0));
+
+            let default_material = Material {
+                normal: normal3,
+                albedo: white4,
+                metallic: white3,
+                roughness: whiteish3,
+                ao: white3,
+            };
+            default_material.bind(&mut self.meshes, &program);
 
             render_scene!(fbo, program);
         }

@@ -77,12 +77,16 @@ pub(crate) enum TechniqueValue {
 pub(crate) enum Technique {
 	#[serde(rename = "phong")]
 	Phong {
-		emission: TechniqueValue,
-		ambient: TechniqueValue,
-		diffuse: TechniqueValue,
-		specular: TechniqueValue,
-		shininess: TechniqueValue,
-		index_of_refraction: TechniqueValue,
+		emission: Option<TechniqueValue>,
+		ambient: Option<TechniqueValue>,
+		diffuse: Option<TechniqueValue>,
+		specular: Option<TechniqueValue>,
+        shininess: Option<TechniqueValue>,
+		reflective: Option<TechniqueValue>,
+        reflectivity: Option<TechniqueValue>,
+        transparent: Option<TechniqueValue>,
+        transparency: Option<TechniqueValue>,
+		index_of_refraction: Option<TechniqueValue>,
 	}
 }
 
