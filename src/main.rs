@@ -17,10 +17,10 @@ use glutin::GlContext;
 
 use time::{Duration, PreciseTime};
 
-// mod mg;
 mod hot;
 mod pipeline;
 mod render;
+mod logic;
 
 use pipeline::*;
 use render::*;
@@ -51,6 +51,8 @@ struct Scene {
 
 impl Scene {
     fn new(screen_width: u32, screen_height: u32) -> Scene {
+        let game = logic::Game::new((8,8)); 
+
         let light_pos1 = v3(1.5, 1.0, 0.0);
         let light_pos2 = v3(1.5 + -10.0 * (23.0 / 14.0 as f32).sin(), 2.0, 0.0);
 
