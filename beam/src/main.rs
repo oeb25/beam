@@ -21,6 +21,7 @@ use glutin::GlContext;
 
 use time::{Duration, PreciseTime};
 
+mod misc;
 mod hot;
 mod pipeline;
 mod render;
@@ -142,7 +143,7 @@ fn main() -> Result<(), Error> {
         .with_gl_profile(glutin::GlProfile::Core)
         .with_srgb(true);
     let gl_window = glutin::GlWindow::new(window, context, &events_loop).unwrap();
-    // gl_window.window().set_cursor_state(glutin::CursorState::Grab).unwrap();
+    gl_window.window().set_cursor_state(glutin::CursorState::Grab).unwrap();
 
     let hidpi_factor = gl_window.window().hidpi_factor();
 
@@ -366,7 +367,7 @@ fn main() -> Result<(), Error> {
                     ambient_intensity: Some(0.1),
                     skybox_intensity: Some(0.1),
                 },
-                &objects,
+                objects.into_iter(),
             );
         }
 

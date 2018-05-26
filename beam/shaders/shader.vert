@@ -2,7 +2,6 @@ layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec3 aNormal;
 layout (location = 2) in vec2 aTexCoords;
 layout (location = 3) in vec3 aTangent;
-layout (location = 4) in vec3 aBitangent;
 layout (location = 5) in mat4 aModel;
 
 out VS_OUT {
@@ -26,7 +25,6 @@ void main() {
     vs_out.Normal = normalMatrix * aNormal;
     vs_out.TexCoords = vec2(aTexCoords.x, vec2(1.0) - aTexCoords.y);
 
-#if 1
     vec3 T = normalize(normalMatrix * aTangent);
     vec3 N = normalize(normalMatrix * aNormal);
 
@@ -35,13 +33,6 @@ void main() {
     vec3 B = cross(N, T);
 
     vs_out.TBN = mat3(T, B, N);;
-#else
-    vec3 T = normalize(normalMatrix * aTangent);
-    vec3 N = normalize(normalMatrix * aNormal);
-    vec3 B = normalize(normalMatrix * aBitangent);
-
-    vs_out.TBN = mat3(T, B, N);
-#endif
 
     gl_Position = projection * view * pos;
 }

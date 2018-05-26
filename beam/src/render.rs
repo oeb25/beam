@@ -9,6 +9,8 @@ use std::{self, collections::HashMap, mem, path::Path};
 
 use mg::*;
 
+use misc::Cacher;
+
 pub type V2 = cgmath::Vector2<f32>;
 pub type V3 = cgmath::Vector3<f32>;
 pub type V4 = cgmath::Vector4<f32>;
@@ -65,7 +67,7 @@ pub struct Vertex {
     pub norm: V3,
     pub tex: V2,
     pub tangent: V3,
-    pub bitangent: V3,
+    // pub bitangent: V3,
 }
 
 impl Default for Vertex {
@@ -76,7 +78,7 @@ impl Default for Vertex {
             norm: zero3,
             tex: v2(0.0, 0.0),
             tangent: zero3,
-            bitangent: zero3,
+            // bitangent: zero3,
         }
     }
 }
@@ -111,7 +113,7 @@ impl Mesh {
             x!(1, norm);
             x!(2, tex);
             x!(3, tangent);
-            x!(4, bitangent);
+            // x!(4, bitangent);
         }
 
         Mesh {
@@ -188,11 +190,11 @@ pub fn calculate_tangent_and_bitangent(va: &mut Vertex, vb: &mut Vertex, vc: &mu
     let tdir = r * (t1.x * d2 - t2.x * d1);
 
     va.tangent = sdir;
-    va.bitangent = tdir;
+    // va.bitangent = tdir;
     vb.tangent = sdir;
-    vb.bitangent = tdir;
+    // vb.bitangent = tdir;
     vc.tangent = sdir;
-    vc.bitangent = tdir;
+    // vc.bitangent = tdir;
 }
 
 #[repr(C)]
@@ -559,12 +561,12 @@ pub struct MeshStore {
 
     fs_textures: HashMap<String, TextureRef>,
 
-    rgb_textures: Vec<(V3, TextureRef)>,
-    rgba_textures: Vec<(V4, TextureRef)>,
+    rgb_textures: Cacher<V3, TextureRef>,
+    rgba_textures: Cacher<V4, TextureRef>,
 
     // primitive cache
     cube: Option<MeshRef>,
-    spheres: Vec<(f32, MeshRef)>,
+    spheres: Cacher<f32, MeshRef>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -672,7 +674,7 @@ impl MeshStore {
                                             norm: v3(v.nor[0], v.nor[2], v.nor[1]),
                                             tex: v.tex.into(),
                                             tangent: v3(0.0, 0.0, 0.0),
-                                            bitangent: v3(0.0, 0.0, 0.0),
+                                            // bitangent: v3(0.0, 0.0, 0.0),
                                         }
                                     }).collect();
 
@@ -812,19 +814,21 @@ impl MeshStore {
     }
 
     pub fn rgb_texture(&mut self, color: V3) -> TextureRef {
-        self.rgb_textures.iter().find(|(value, _)| value == &color).map(|(_, id)| *id).unwrap_or_else(||{
+        if let Some(texture_ref) = self.rgb_textures.get(&color) {
+            *texture_ref
+        } else {
             let id = self.color_texture(&[color.x, color.y, color.z]);
-            self.rgb_textures.push((color, id));
-            id
-        })
+            *self.rgb_textures.insert(color, id)
+        }
     }
 
     pub fn rgba_texture(&mut self, color: V4) -> TextureRef {
-        self.rgba_textures.iter().find(|(value, _)| value == &color).map(|(_, id)| *id).unwrap_or_else(||{
+        if let Some(texture_ref) = self.rgba_textures.get(&color) {
+            *texture_ref
+        } else {
             let id = self.color_texture(&[color.x, color.y, color.z, color.w]);
-            self.rgba_textures.push((color, id));
-            id
-        })
+            *self.rgba_textures.insert(color, id)
+        }
     }
 
     pub fn get_cube(&mut self) -> MeshRef {
@@ -847,7 +851,7 @@ impl MeshStore {
         let verts = sphere_verticies(radius, 24, 16);
         let mesh = Mesh::new(&verts);
         let mesh_ref = self.insert_mesh(mesh);
-        self.spheres.push((radius, mesh_ref));
+        self.spheres.insert(radius, mesh_ref);
         mesh_ref
     }
 
@@ -1468,7 +1472,7 @@ macro_rules! v {
             tex: $tex.into(),
             norm: norm,
             tangent: tangent,
-            bitangent: tangent.cross(norm),
+            // bitangent: tangent.cross(norm),
         }
     }};
 }
@@ -1710,7 +1714,7 @@ fn sphere_verticies(radius: f32, nb_long: usize, nb_lat: usize) -> Vec<Vertex> {
         norm: up,
         tex: v2(0.0, 0.0),
         tangent: v3(0.0, 0.0, 0.0),
-        bitangent: v3(0.0, 0.0, 0.0),
+        // bitangent: v3(0.0, 0.0, 0.0),
     };
     for lat in 0..nb_lat {
         let a1 = PI * (lat as f32 + 1.0) / (nb_lat as f32 + 1.0);
@@ -1736,7 +1740,7 @@ fn sphere_verticies(radius: f32, nb_long: usize, nb_lat: usize) -> Vec<Vertex> {
                 norm,
                 tex,
                 tangent: v3(0.0, 0.0, 0.0),
-                bitangent: v3(0.0, 0.0, 0.0),
+                // bitangent: v3(0.0, 0.0, 0.0),
             };
         }
     }
@@ -1746,7 +1750,7 @@ fn sphere_verticies(radius: f32, nb_long: usize, nb_lat: usize) -> Vec<Vertex> {
         norm: -up,
         tex: v2(0.0, 0.0),
         tangent: v3(0.0, 0.0, 0.0),
-        bitangent: v3(0.0, 0.0, 0.0),
+        // bitangent: v3(0.0, 0.0, 0.0),
     };
 
     let nb_faces = verts.len();
