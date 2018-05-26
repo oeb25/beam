@@ -5,7 +5,7 @@ use failure::Error;
 
 use mg::{
     DrawMode, Framebuffer, FramebufferBinderDrawer, FramebufferBinderReadDraw, GlError, Mask,
-    ProgramBind, Texture, TextureSlot, VertexArray, VertexBuffer, ProgramBindingRefMut
+    ProgramBind, ProgramBindingRefMut, Texture, TextureSlot, VertexArray, VertexBuffer,
 };
 
 use hot;
@@ -14,7 +14,7 @@ use warmy;
 use misc::{v3, v4, Cacher, Mat4, V3, V4};
 
 use render::{
-    convolute_cubemap, cubemap_from_equirectangular, cubemap_from_importance,
+    create_irradiance_map, create_prefiler_map, cubemap_from_equirectangular,
     lights::{DirectionalLight, PointLight, PointShadowMap, ShadowMap}, Camera, GRenderPass,
     Material, MeshRef, MeshStore, RenderObject, RenderObjectChild, RenderTarget, Renderable,
 };
@@ -250,7 +250,8 @@ impl Pipeline {
         let ibl_raw_ref = self.meshes.load_hdr(path)?;
         let ibl_raw = self.meshes.get_texture(&ibl_raw_ref);
         // Borrow checker work around here, we could use the rect vao already define on the pipeline
-        // but this works, and I don't think it is all that costly.
+        // if it were not for the overship issues, but this works, and I don't think it is all that
+        // costly.
         let mut rect = {
             let mut rect_vao = VertexArray::new();
             let mut rect_vbo = VertexBuffer::from_data(&[v3(0.0, 0.0, 0.0)]);
@@ -275,12 +276,9 @@ impl Pipeline {
             rect.bind()
                 .draw_arrays(fbo, program, DrawMode::Points, 0, 1);
         };
-        let irradiance_map = convolute_cubemap(
-            32,
-            &self.convolute_cubemap_program.bind(),
-            &mut render_cube,
-        );
-        let prefilter_map = cubemap_from_importance(
+        let irradiance_map =
+            create_irradiance_map(32, &self.convolute_cubemap_program.bind(), &mut render_cube);
+        let prefilter_map = create_prefiler_map(
             128,
             &self.prefilter_cubemap_program.bind(),
             &mut render_cube,
@@ -563,9 +561,8 @@ impl Pipeline {
 
             let hdr = self.hdr_program.bind();
             hdr.bind_texture("hdrBuffer", &self.lighting_target.texture)
-                .bind_float("time", props.time);
-
-            hdr.bind_textures("blur", self.blur_targets.iter().map(|t| &t.texture));
+                .bind_float("time", props.time)
+                .bind_textures("blur", self.blur_targets.iter().map(|t| &t.texture));
 
             draw_rect!(&fbo, &hdr);
         }

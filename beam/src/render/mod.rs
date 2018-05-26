@@ -954,14 +954,14 @@ where
 {
     map_cubemap(size, 1, program, render_cube)
 }
-pub fn cubemap_from_importance<F, P>(size: u32, program: &P, render_cube: F) -> Texture
+pub fn create_prefiler_map<F, P>(size: u32, program: &P, render_cube: F) -> Texture
 where
     F: FnMut(&FramebufferBinderReadDraw, &P),
     P: ProgramBind,
 {
     map_cubemap(size, 5, program, render_cube)
 }
-pub fn convolute_cubemap<F, P>(size: u32, program: &P, render_cube: F) -> Texture
+pub fn create_irradiance_map<F, P>(size: u32, program: &P, render_cube: F) -> Texture
 where
     F: FnMut(&FramebufferBinderReadDraw, &P),
     P: ProgramBind,
@@ -1062,9 +1062,5 @@ pub fn hsv(h: f32, s: f32, v: f32) -> V3 {
 }
 
 pub fn hex(v: u32) -> V3 {
-    rgb(
-        (v >> 16 & 0xff) as u8,
-        (v >> 8 & 0xff) as u8,
-        (v & 0xff) as u8,
-    )
+    rgb((v >> 16) as u8, (v >> 8) as u8, v as u8)
 }
