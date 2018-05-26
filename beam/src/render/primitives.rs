@@ -1,4 +1,4 @@
-use misc::{v2, v3, V3, Vertex};
+use misc::{v2, v3, Vertex};
 use render::mesh::calculate_tangent_and_bitangent;
 
 macro_rules! v {

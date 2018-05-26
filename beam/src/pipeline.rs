@@ -1,7 +1,7 @@
 use gl;
 use std::{cell::RefMut, path::Path};
 
-use failure::{Error, Fail};
+use failure::Error;
 
 use mg::*;
 
@@ -167,7 +167,7 @@ impl Pipeline {
             let mut rect_vbo: VertexBuffer<V3> = VertexBuffer::from_data(&[v3(0.0, 0.0, 0.0)]);
 
             {
-                let mut vbo = rect_vbo.bind();
+                let vbo = rect_vbo.bind();
                 rect_vao.bind().vbo_attrib(&vbo, 0, 3, 0);
             }
 
@@ -385,8 +385,6 @@ impl Pipeline {
             let white4 = self.meshes.rgba_texture(v4(1.0, 1.0, 1.0, 1.0));
             let white3 = self.meshes.rgb_texture(v3(1.0, 1.0, 1.0));
             let whiteish3 = self.meshes.rgb_texture(v3(0.2, 0.2, 0.2));
-            let blueish4 = self.meshes.rgba_texture(v4(0.2, 0.5, 1.0, 1.0));
-            let black3 = self.meshes.rgb_texture(v3(0.0, 0.0, 0.0));
             let normal3 = self.meshes.rgb_texture(v3(0.5, 0.5, 1.0));
 
             let default_material = Material {

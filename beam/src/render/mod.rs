@@ -7,14 +7,14 @@ use collada;
 use gl;
 use image;
 
-use failure::{Error, Fail, ResultExt};
+use failure::{Error, ResultExt};
 
-use std::{self, collections::HashMap, mem, path::Path};
+use std::{self, collections::HashMap, path::Path};
 
 use mg::*;
 
 use mesh::{calculate_tangent_and_bitangent, Mesh};
-use misc::{v2, v3, v4, Cacher, Mat4, P3, V3, V4, Vertex};
+use misc::{v3, v4, Cacher, Mat4, P3, V3, V4, Vertex};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Material {
@@ -37,6 +37,7 @@ impl Material {
             .bind_texture("tex_opacity", meshes.get_texture(&self.opacity));
     }
 
+    #[allow(unused)]
     pub fn into_borrowed<'a>(&self, meshes: &'a MeshStore) -> MaterialBorrowed<'a> {
         MaterialBorrowed {
             normal: meshes.get_texture(&self.normal),
@@ -60,7 +61,8 @@ pub struct MaterialBorrowed<'a> {
 }
 
 impl<'a> MaterialBorrowed<'a> {
-    pub fn bind(&self, meshes: &MeshStore, program: &ProgramBinding) {
+    #[allow(unused)]
+    pub fn bind(&self, program: &ProgramBinding) {
         program
             .bind_texture("tex_albedo", &self.albedo)
             .bind_texture("tex_metallic", &self.metallic)
@@ -254,17 +256,17 @@ impl MeshStore {
     ) -> Result<Material, Error> {
         let collada::Material::Effect(effect_ref) = data.materials[material_ref.0];
         let collada::Effect::Phong {
-            emission,
-            ambient,
+            emission: _,
+            ambient: _,
             diffuse,
-            specular,
-            shininess,
-            index_of_refraction,
+            specular: _,
+            shininess: _,
+            index_of_refraction: _,
         } = &data.effects[effect_ref.0];
 
         let white = self.rgb_texture(v3(1.0, 1.0, 1.0));
 
-        let mut convert = |c: &collada::PhongProperty| {
+        let convert = |c: &collada::PhongProperty| {
             use collada::PhongProperty::*;
             match c {
                 Color(color) => Ok(self.rgba_texture((*color).into())),
@@ -299,6 +301,7 @@ impl MeshStore {
         mesh_ref
     }
 
+    #[allow(unused)]
     pub fn get_mesh(&self, mesh_ref: &MeshRef) -> &Mesh {
         &self.meshes[mesh_ref.0]
     }
@@ -544,6 +547,7 @@ impl RenderObject {
         self.transform(Mat4::from_scale(s))
     }
 
+    #[allow(unused)]
     pub fn with_transform(&self, transform: Mat4) -> RenderObject {
         let mut new = self.clone();
 
@@ -763,6 +767,7 @@ impl Renderable for RenderTarget {
     }
 }
 
+#[allow(unused)]
 pub struct CubeMapBuilder<T> {
     pub back: T,
     pub front: T,
@@ -772,6 +777,7 @@ pub struct CubeMapBuilder<T> {
     pub top: T,
 }
 
+#[allow(unused)]
 impl<'a> CubeMapBuilder<&'a str> {
     pub fn build(self) -> Texture {
         let texture = Texture::new(TextureKind::CubeMap);

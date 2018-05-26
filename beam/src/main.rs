@@ -1,6 +1,7 @@
 #![feature(fs_read_write, stmt_expr_attributes, transpose_result, box_syntax, box_patterns)]
 #![feature(custom_attribute, nll, iterator_flatten)]
 
+#[allow(unused_imports)]
 #[macro_use]
 extern crate failure;
 extern crate cgmath;
@@ -14,7 +15,7 @@ extern crate obj;
 extern crate time;
 extern crate warmy;
 
-use failure::{Error, Fail};
+use failure::{Error};
 
 use cgmath::{InnerSpace, Rad};
 
@@ -175,20 +176,17 @@ fn main() -> Result<(), Error> {
     let mut pipeline = Pipeline::new(w, h, hidpi_factor);
 
     let room_ibl = pipeline.load_ibl("assets/Newport_Loft/Newport_Loft_Ref.hdr")?;
-    let rust_material = pipeline
+    let _rust_material = pipeline
         .meshes
         .load_pbr_with_default_filenames("assets/pbr/rusted_iron", "png")?;
-    let plastic_material = pipeline
+    let _plastic_material = pipeline
         .meshes
         .load_pbr_with_default_filenames("assets/pbr/plastic", "png")?;
-    let gold_material = pipeline
+    let _gold_material = pipeline
         .meshes
         .load_pbr_with_default_filenames("assets/pbr/gold", "png")?;
 
-    let white4 = pipeline.meshes.rgba_texture(v4(1.0, 1.0, 1.0, 1.0));
     let white3 = pipeline.meshes.rgb_texture(v3(1.0, 1.0, 1.0));
-    let gray3 = pipeline.meshes.rgb_texture(v3(0.5, 0.5, 0.5));
-    let blueish4 = pipeline.meshes.rgba_texture(v4(0.2, 0.5, 1.0, 1.0));
     let black3 = pipeline.meshes.rgb_texture(v3(0.0, 0.0, 0.0));
     let normal3 = pipeline.meshes.rgb_texture(v3(0.5, 0.5, 1.0));
 
@@ -200,10 +198,6 @@ fn main() -> Result<(), Error> {
 
     let mut is = vec![];
 
-    let mut m = 0;
-
-    let pbr_materials = vec![rust_material, plastic_material, gold_material];
-    let nr_pbr_materials = pbr_materials.len();
 
     for i in 1..5 {
         for n in 0..i {
@@ -211,7 +205,6 @@ fn main() -> Result<(), Error> {
             let v = v3(i as f32 / 2.0, -i as f32 - 5.0, n as f32 - x) * 2.0;
             let v = Mat4::from_translation(v) * Mat4::from_angle_y(Rad(i as f32 - 1.0));
             let obj = suzanne.transform(v); // .with_material(pbr_materials[m % nr_pbr_materials]);
-            m += 1;
             is.push(obj);
         }
     }

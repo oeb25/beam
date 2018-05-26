@@ -1,4 +1,4 @@
-use std::{self, collections::HashMap, mem, path::Path};
+use std::mem;
 
 use mg::{
     DrawMode, FramebufferBinderDrawer, ProgramBinding, VertexArray, VertexBuffer,
@@ -135,7 +135,7 @@ pub fn calculate_tangent_and_bitangent(va: &mut Vertex, vb: &mut Vertex, vc: &mu
 
     let r = 1.0 / (t1.x * t2.y - t2.x * t1.y);
     let sdir = r * (t2.y * d1 - t1.y * d2);
-    let tdir = r * (t1.x * d2 - t2.x * d1);
+    // let tdir = r * (t1.x * d2 - t2.x * d1);
 
     va.tangent = sdir;
     // va.bitangent = tdir;

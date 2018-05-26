@@ -4,6 +4,7 @@ pub type V2 = cgmath::Vector2<f32>;
 pub type V3 = cgmath::Vector3<f32>;
 pub type V4 = cgmath::Vector4<f32>;
 pub type P3 = cgmath::Point3<f32>;
+#[allow(unused)]
 pub type Mat3 = cgmath::Matrix3<f32>;
 pub type Mat4 = cgmath::Matrix4<f32>;
 
