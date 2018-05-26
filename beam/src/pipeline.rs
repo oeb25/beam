@@ -3,7 +3,10 @@ use std::{cell::RefMut, path::Path};
 
 use failure::Error;
 
-use mg::*;
+use mg::{
+    DrawMode, Framebuffer, FramebufferBinderDrawer, FramebufferBinderReadDraw, GlError, Mask,
+    Program, ProgramBinding, Texture, TextureSlot, VertexArray, VertexBuffer,
+};
 
 use hot;
 use warmy;
