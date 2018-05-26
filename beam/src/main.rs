@@ -1,6 +1,7 @@
 #![feature(fs_read_write, stmt_expr_attributes, transpose_result, box_syntax, box_patterns)]
 #![feature(custom_attribute, nll, iterator_flatten)]
 
+#[macro_use] extern crate failure;
 extern crate cgmath;
 extern crate collada;
 extern crate genmesh;
@@ -11,6 +12,8 @@ extern crate obj;
 extern crate time;
 extern crate mg;
 extern crate warmy;
+
+use failure::{Error, Fail};
 
 use cgmath::{InnerSpace, Rad};
 
@@ -135,7 +138,7 @@ impl Scene {
     }
 }
 
-fn main() {
+fn main() -> Result<(), Error> {
     let (screen_width, screen_height) = (1024, 768);
     let mut events_loop = glutin::EventsLoop::new();
     let window = glutin::WindowBuilder::new()
@@ -169,19 +172,19 @@ fn main() {
 
     let mut pipeline = Pipeline::new(w, h, hidpi_factor);
 
-    let room_ibl = pipeline.load_ibl("assets/Newport_Loft/Newport_Loft_Ref.hdr");
+    let room_ibl = pipeline.load_ibl("assets/Newport_Loft/Newport_Loft_Ref.hdr")?;
     let rust_material = pipeline.meshes.load_pbr_with_default_filenames(
         "assets/pbr/rusted_iron",
         "png",
-    );
+    )?;
     let plastic_material = pipeline.meshes.load_pbr_with_default_filenames(
         "assets/pbr/plastic",
         "png",
-    );
+    )?;
     let gold_material = pipeline.meshes.load_pbr_with_default_filenames(
         "assets/pbr/gold",
         "png",
-    );
+    )?;
 
     let white4 = pipeline.meshes.rgba_texture(v4(1.0, 1.0, 1.0, 1.0));
     let white3 = pipeline.meshes.rgb_texture(v3(1.0, 1.0, 1.0));
@@ -191,7 +194,7 @@ fn main() {
     let normal3 = pipeline.meshes.rgb_texture(v3(0.5, 0.5, 1.0));
 
     let suzanne = pipeline.meshes
-        .load_collada("assets/suzanne/suzanne.dae")
+        .load_collada("assets/suzanne/suzanne.dae")?
         .scale(1.0 / 2.0)
         .translate(v3(0.0, 20.0, 0.0));
 
@@ -384,4 +387,6 @@ fn main() {
     }
 
     // flame::dump_html(&mut std::fs::File::create("flame-graph.html").unwrap()).unwrap();
+
+    Ok(())
 }

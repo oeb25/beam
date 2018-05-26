@@ -3,6 +3,8 @@ use collada;
 use gl;
 use image;
 
+use failure::{Error, Fail, ResultExt};
+
 use std::{self, collections::HashMap, mem, path::Path};
 
 use mg::*;
@@ -537,11 +539,11 @@ impl MeshStore {
     pub fn load_collada(
         &mut self,
         path: impl AsRef<Path>,
-    ) -> RenderObject {
+    ) -> Result<RenderObject, Error> {
         let path = path.as_ref();
 
-        let src = std::fs::read_to_string(path).expect("collada src file not found");
-        let data: collada::Collada = collada::Collada::parse(&src).expect("failed to parse collada");
+        let src = std::fs::read_to_string(path).context("collada src file not found")?;
+        let data: collada::Collada = collada::Collada::parse(&src).context("failed to parse collada")?;
 
         let mut normal_src = None;
         let mut albedo_src = None;
@@ -561,12 +563,26 @@ impl MeshStore {
         }
 
         let custom_material = Material {
-            normal: self.load_rgb(normal_src.expect("normal map not found :(")),
-            albedo: self.load_rgb(albedo_src.expect("albedo map not found :(")),
-            metallic: self.load_rgb(metallic_src.expect("metallic map not found :(")),
-            roughness: self.load_rgb(roughness_src.expect("roughness map not found :(")),
-            ao: self.rgb_texture(v3(1.0, 1.0, 1.0)),
-            // ao: self.load_rgb(ao_src.expect("ao map not found :(")),
+            normal: normal_src
+                .map(|x| self.load_rgb(x))
+                .transpose()?
+                .unwrap_or_else(|| self.rgb_texture(v3(0.5, 0.5, 1.0))),
+            albedo: albedo_src
+                .map(|x| self.load_srgb(x))
+                .transpose()?
+                .unwrap_or_else(|| self.rgb_texture(v3(1.0, 1.0, 1.0))),
+            metallic: metallic_src
+                .map(|x| self.load_rgb(x))
+                .transpose()?
+                .unwrap_or_else(|| self.rgb_texture(v3(1.0, 1.0, 1.0))),
+            roughness: roughness_src
+                .map(|x| self.load_rgb(x))
+                .transpose()?
+                .unwrap_or_else(|| self.rgb_texture(v3(1.0, 1.0, 1.0))),
+            ao: ao_src
+                .map(|x| self.load_rgb(x))
+                .transpose()?
+                .unwrap_or_else(|| self.rgb_texture(v3(1.0, 1.0, 1.0))),
         };
 
         let mut mesh_ids: HashMap<usize, Vec<(MeshRef, Material)>> = HashMap::new();
@@ -628,7 +644,7 @@ impl MeshStore {
                                     }
                                 }
 
-                                let material = self.convert_collada_material(&path, &data, material);
+                                let material = self.convert_collada_material(&path, &data, material)?;
                                 let mesh = Mesh::new(&verts);
                                 let mesh_ref = self.insert_mesh(mesh);
 
@@ -657,7 +673,7 @@ impl MeshStore {
             }
         }
 
-        RenderObject::with_children(render_objects)
+        Ok(RenderObject::with_children(render_objects))
     }
 
     fn convert_collada_material(
@@ -665,7 +681,7 @@ impl MeshStore {
         path: &Path,
         data: &collada::Collada,
         material_ref: &collada::MaterialRef,
-    ) -> Material {
+    ) -> Result<Material, Error> {
         let collada::Material::Effect(effect_ref) = data.materials[material_ref.0];
         let collada::Effect::Phong {
             emission,
@@ -681,8 +697,8 @@ impl MeshStore {
         let mut  convert = |c: &collada::PhongProperty| {
             use collada::PhongProperty::*;
             match c {
-                Color(color) => self.rgba_texture((*color).into()),
-                Float(f) => self.rgb_texture(v3(*f, *f, *f)),
+                Color(color) => Ok(self.rgba_texture((*color).into())),
+                Float(f) => Ok(self.rgb_texture(v3(*f, *f, *f))),
                 Texture(image_ref) => {
                     let img = &data.images[image_ref.0];
                     // TODO: How do we determin what kind of file it is?
@@ -691,15 +707,15 @@ impl MeshStore {
             }
         };
 
-        let albedo = diffuse.as_ref().map(convert).unwrap_or_else(|| white);
+        let albedo = diffuse.as_ref().map(convert).transpose()?.unwrap_or_else(|| white);
 
-        Material {
+        Ok(Material {
             normal: self.rgb_texture(v3(0.5, 0.5, 1.0)),
             albedo,
             metallic: white,
             roughness: self.rgb_texture(v3(0.5, 0.5, 0.5)),
             ao: white,
-        }
+        })
     }
 
     pub fn insert_mesh(&mut self, mesh: Mesh) -> MeshRef {
@@ -786,13 +802,13 @@ impl MeshStore {
         mesh_ref
     }
 
-    pub fn load_srgb(&mut self, path: impl AsRef<Path>) -> TextureRef {
+    pub fn load_srgb(&mut self, path: impl AsRef<Path>) -> Result<TextureRef, Error> {
         self.load(path, TextureInternalFormat::Srgb, TextureFormat::Rgb)
     }
-    pub fn load_rgb(&mut self, path: impl AsRef<Path>) -> TextureRef {
+    pub fn load_rgb(&mut self, path: impl AsRef<Path>) -> Result<TextureRef, Error> {
         self.load(path, TextureInternalFormat::Rgb, TextureFormat::Rgb)
     }
-    pub fn load_hdr(&mut self, path: impl AsRef<Path>) -> TextureRef {
+    pub fn load_hdr(&mut self, path: impl AsRef<Path>) -> Result<TextureRef, Error> {
         let path = path.as_ref();
 
         self.cache_or_load(path, || {
@@ -826,7 +842,7 @@ impl MeshStore {
         path: impl AsRef<Path>,
         internal_format: TextureInternalFormat,
         format: TextureFormat,
-    ) -> TextureRef {
+    ) -> Result<TextureRef, Error> {
         let path = path.as_ref();
 
         self.cache_or_load(path, move || {
@@ -846,43 +862,44 @@ impl MeshStore {
         &mut self,
         path: impl AsRef<Path>,
         f: impl FnOnce() -> Result<Texture, Box<std::error::Error>>,
-    ) -> TextureRef {
+    ) -> Result<TextureRef, Error> {
         let path: &Path = path.as_ref();
         let path_str = path.to_str().unwrap();
 
-        self.fs_textures
-            .get(path_str)
-            .map(|t| *t)
-            .unwrap_or_else(|| {
-                let texture = f().unwrap();
-                let texture_ref = self.insert_texture(texture);
-                self.fs_textures.insert(path_str.to_owned(), texture_ref);
-                texture_ref
-            })
+        if let Some(t) = self.fs_textures.get(path_str) {
+            Ok(*t)
+        } else {
+            let texture = f().expect("ehh");
+            let texture_ref = self.insert_texture(texture);
+            self.fs_textures.insert(path_str.to_owned(), texture_ref);
+            Ok(texture_ref)
+        }
     }
 
-    pub fn load_pbr_with_default_filenames(&mut self, path: impl AsRef<Path>, extension: &str) -> Material {
+    pub fn load_pbr_with_default_filenames(
+        &mut self,
+        path: impl AsRef<Path>,
+        extension: &str
+    ) -> Result<Material, Error> {
         let path = path.as_ref();
 
         let mut load_srgb = |map| {
             let p = path.join(map).with_extension(extension);
-            let tex = self.load_srgb(p);
-            tex
+            self.load_srgb(p)
         };
-        let albedo = load_srgb("albedo");
+        let albedo = load_srgb("albedo").context("failed to load pbr albedo")?;
         let mut load_rgb = |map| {
             let p = path.join(map).with_extension(extension);
-            let tex = self.load_rgb(p);
-            tex
+            self.load_rgb(p)
         };
 
-        Material {
+        Ok(Material {
             albedo,
-            ao: load_rgb("ao"),
-            metallic: load_rgb("metallic"),
-            roughness: load_rgb("roughness"),
-            normal: load_rgb("normal"),
-        }
+            ao: load_rgb("ao").context("failed to load pbr ao")?,
+            metallic: load_rgb("metallic").context("failed to load pbr metallic")?,
+            roughness: load_rgb("roughness").context("failed to load pbr roughness")?,
+            normal: load_rgb("normal").context("failed to load pbr normal")?,
+        })
     }
 }
 

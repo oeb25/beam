@@ -1,11 +1,15 @@
-#![feature(nll, custom_attribute)]
+#![feature(nll, attr_literals, transpose_result)]
 
+#[macro_use]
+extern crate failure;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_xml_rs;
 
 mod raw;
+
+use failure::{Error, Fail};
 
 #[derive(Debug)]
 pub struct Image {
@@ -127,16 +131,33 @@ pub struct Collada {
     pub scene: Scene,
 }
 
+#[derive(Debug, Fail)]
+enum ColladaError {
+    #[fail(display = "Technique should be the last element in effect")]
+    LibrayTechniqueNotLast,
+    #[fail(display = "No technique was found in effect")]
+    LibrayTechniqueNotFound,
+    #[fail(display = "Texture {:?} was not found", 0)]
+    TextureNotFound(String),
+    #[fail(display = "Sampler2D {:?} was not found", 0)]
+    Sampler2DNotFound(String),
+    #[fail(display = "Surface {:?} was not found", 0)]
+    SurfaceNotFound(String),
+    #[fail(display = "Visual scene {:?} was not found", 0)]
+    VisualSceneNotFound(String),
+}
+use ColladaError::*;
+
 impl Collada {
-    pub fn parse(src: &str) -> Result<Collada, serde_xml_rs::Error> {
+    pub fn parse(src: &str) -> Result<Collada, Error> {
         let data: raw::ColladaRaw = serde_xml_rs::deserialize(src.as_bytes())?;
-        Ok(data.into())
+        data.into()
     }
 }
 
-impl From<raw::ColladaRaw> for Collada {
+impl From<raw::ColladaRaw> for Result<Collada, Error> {
     #[allow(unused)]
-    fn from(data: raw::ColladaRaw) -> Collada {
+    fn from(data: raw::ColladaRaw) -> Result<Collada, Error> {
         let raw::ColladaRaw {
             asset,
             library_images,
@@ -168,7 +189,7 @@ impl From<raw::ColladaRaw> for Collada {
                 match element {
                     raw::LibraryEffectProfileCommonElement::NewParam(newparam) => {
                         if technique.is_some() {
-                            unimplemented!("technique should be the last element in effect");
+                            return Err(LibrayTechniqueNotLast)?;
                         }
                         newparams.push(newparam);
                     }
@@ -177,45 +198,47 @@ impl From<raw::ColladaRaw> for Collada {
                     }
                 }
             }
-            let technique = if let Some(technique) = technique {
-                technique
-            } else {
-                unimplemented!("library effect profile common is mission technique")
-            };
+            // let technique = if let Some(technique) = technique {
+            //     technique
+            // } else {
+            //     Err(LibrayTechniqueNotFound)?
+            // };
+            let technique = technique.ok_or(LibrayTechniqueNotFound)?;
             let convert = |x: &raw::TechniqueValue| match x {
                 raw::TechniqueValue::Color { value, .. } => {
                     let mut result = [0.0; 4];
                     for (i, n) in value.split_whitespace().map(|x| x.parse().unwrap()).enumerate() {
                         result[i] = n;
                     }
-                    PhongProperty::Color(result)
+                    Ok(PhongProperty::Color(result))
                 }
                 raw::TechniqueValue::Texture { texture } => {
                     let id = newparams
                         .iter()
                         .find(|x| &x.sid == texture)
-                        .expect("first indirection");
+                        .ok_or(TextureNotFound(texture.clone()))?;
                     let id = match &id.kind {
                         raw::NewParamKind::Sampler2D { source } => newparams
                             .iter()
                             .find(|x| &x.sid == source)
-                            .expect("second indirection"),
-                        _ => unimplemented!("non sampler on second indrect"),
+                            .ok_or_else(|| Sampler2DNotFound(source.clone()).context("second indirection"))?,
+                        _ => unimplemented!("non sampler on second indirect"),
                     };
                     let id = match &id.kind {
                         raw::NewParamKind::Surface { init_from, .. } => {
                             image_ids
                                 .iter()
                                 .find(|x| &x.0 == init_from)
-                                .expect("texture not found")
+                                .ok_or(SurfaceNotFound(init_from.clone()).context("third indirection"))?
                                 .1
                         }
-                        _ => unimplemented!("non surface on third indrect"),
+                        _ => unimplemented!("non surface on third indirect"),
                     };
-                    PhongProperty::Texture(id)
+                    Ok(PhongProperty::Texture(id))
                 }
                 raw::TechniqueValue::Float { value, .. } => {
-                    PhongProperty::Float(value.parse().unwrap())
+                    let res: Result<_, Error> = Ok(PhongProperty::Float(value.parse()?));
+                    res
                 }
             };
             let new_effect = match &technique {
@@ -228,12 +251,12 @@ impl From<raw::ColladaRaw> for Collada {
                     index_of_refraction,
                     ..
                 } => Effect::Phong {
-                    emission: emission.as_ref().map(convert),
-                    ambient: ambient.as_ref().map(convert),
-                    diffuse: diffuse.as_ref().map(convert),
-                    specular: specular.as_ref().map(convert),
-                    shininess: shininess.as_ref().map(convert),
-                    index_of_refraction: index_of_refraction.as_ref().map(convert),
+                    emission: emission.as_ref().map(convert).transpose()?,
+                    ambient: ambient.as_ref().map(convert).transpose()?,
+                    diffuse: diffuse.as_ref().map(convert).transpose()?,
+                    specular: specular.as_ref().map(convert).transpose()?,
+                    shininess: shininess.as_ref().map(convert).transpose()?,
+                    index_of_refraction: index_of_refraction.as_ref().map(convert).transpose()?,
                 },
             };
 
@@ -398,17 +421,14 @@ impl From<raw::ColladaRaw> for Collada {
                 visual_scene_ids
                     .iter()
                     .find(|x| x.0 == &scene.instance_visual_scene.url[1..])
-                    .expect("unable to find visual scene from scene")
+                    .ok_or_else(||
+                        VisualSceneNotFound(scene.instance_visual_scene.url.clone())
+                            .context("from main scene")
+                    )?
                     .1,
             ),
         };
 
-        println!("{:?}", images);
-        println!("{:?}", effects);
-        println!("{:?}", materials);
-        // println!("{:?}", geometry);
-        println!("{:?}", visual_scenes);
-        println!("{:?}", scene);
         let out = Collada {
             images,
             effects,
@@ -419,7 +439,7 @@ impl From<raw::ColladaRaw> for Collada {
             scene,
         };
 
-        out
+        Ok(out)
     }
 }
 
@@ -428,10 +448,10 @@ mod tests {
     use super::*;
     use std;
 
-    fn it_works_run() -> Result<(), Box<std::error::Error>> {
+    fn it_works_run() -> Result<(), Error> {
         let src = std::fs::read_to_string("./suzanne.dae")?;
         let data: raw::ColladaRaw = serde_xml_rs::deserialize(src.as_bytes())?;
-        let dae: Collada = data.into();
+        let dae: Result<Collada, _> = data.into();
         // println!("{:?}", dae);
         // let data = Collada::parse(&src)?;
 
