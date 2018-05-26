@@ -82,7 +82,7 @@ impl TextureSlot {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextureKind {
     Texture2d,
     CubeMap,
@@ -96,7 +96,7 @@ impl Into<u32> for TextureKind {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Texture {
     pub id: gl::types::GLuint,
     pub kind: TextureKind,

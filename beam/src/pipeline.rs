@@ -12,7 +12,7 @@ use render::{
     convolute_cubemap, cubemap_from_equirectangular, cubemap_from_importance, v3, v4, Camera,
     DirectionalLight, GRenderPass, Mat4, PointLight,
     PointShadowMap, RenderObject, RenderObjectChild, RenderTarget, Renderable, ShadowMap,
-    V3, V4, MeshStore, Material,
+    V3, V4, MeshStore, Material, MeshRef,
 };
 
 pub struct RenderProps<'a> {
@@ -301,32 +301,22 @@ impl Pipeline {
         })
     }
     fn render_object(
-        meshes: &mut MeshStore,
-        program: &ProgramBinding,
-        fbo: &FramebufferBinderReadDraw,
         render_object: &RenderObject,
         transform: &Mat4,
         material: Option<Material>,
-    ) {
+    ) -> Vec<(MeshRef, Option<Material>, Mat4)> {
         let transform = transform * render_object.transform;
         // if a material is passed as a prop, use that over the one bound to the mesh
         let material = material.or(render_object.material);
 
         match &render_object.child {
             RenderObjectChild::Mesh(mesh_ref) => {
-                let start_slot = program.next_texture_slot();
-                program.bind_mat4("model", Mat4::from_scale(1.0));
-                if let Some(material) = material {
-                    material.bind(meshes, program);
-                }
-                let mesh = meshes.get_mesh_mut(mesh_ref);
-                mesh.bind().draw_instanced(fbo, program, &VertexBuffer::from_data(&[transform]).bind());
-                program.set_next_texture_slot(start_slot);
+                vec![(*mesh_ref, material, transform)]
             }
             RenderObjectChild::RenderObjects(render_objects) => {
-                for render_object in render_objects.iter() {
-                    Pipeline::render_object(meshes, program, fbo, render_object, &transform, material);
-                }
+                render_objects.iter().flat_map(|obj| {
+                    Pipeline::render_object(obj, &transform, material)
+                }).collect()
             }
         }
 
@@ -337,13 +327,44 @@ impl Pipeline {
         let view_pos = props.camera.pos;
         let projection = props.camera.get_projection();
 
+
+        let mut scene_draw_calls_meshes: Vec<_> = {
+            let draw_calls = render_objects.iter().flat_map(|obj| {
+                Pipeline::render_object(&obj, &Mat4::from_scale(1.0), None)
+            });
+
+            let mut grouped_draw_calls: Vec<((MeshRef, Option<Material>), Vec<Mat4>)> = vec![];
+
+            for (mesh_ref, material, transform) in draw_calls {
+                let me = (mesh_ref, material);
+                if let Some((_, transforms)) = grouped_draw_calls.iter_mut().find(|(i, _)| i == &me) {
+                    transforms.push(transform);
+                } else {
+                    grouped_draw_calls.push((me, vec![transform]));
+                }
+            }
+
+            grouped_draw_calls.into_iter()
+                .map(|((mesh_ref, material), transforms)| {
+                    (mesh_ref, material, VertexBuffer::from_data(&transforms))
+                })
+                .collect()
+        };
+
         macro_rules! render_scene {
             ($fbo:expr, $program:expr) => {
                 render_scene!($fbo, $program, draw_instanced)
             };
             ($fbo:expr, $program:expr, $func:ident) => {{
-                for obj in render_objects.iter() {
-                    Pipeline::render_object(&mut self.meshes, &$program, &$fbo, &obj, &Mat4::from_scale(1.0), None);
+                for (mesh_ref, material, transforms) in scene_draw_calls_meshes.iter_mut() {
+                    let start_slot = $program.next_texture_slot();
+                    $program.bind_mat4("model", Mat4::from_scale(1.0));
+                    if let Some(material) = material {
+                        material.bind(&mut self.meshes, &$program);
+                    }
+                    let mesh = self.meshes.get_mesh_mut(&mesh_ref);
+                    mesh.bind().draw_instanced(&$fbo, &$program, &transforms.bind());
+                    &$program.set_next_texture_slot(start_slot);
                 }
             }};
         };

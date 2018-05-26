@@ -494,7 +494,7 @@ impl PointShadowMap {
 }
 
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Material {
     pub normal: TextureRef,
     pub albedo: TextureRef,
@@ -505,7 +505,7 @@ pub struct Material {
 }
 
 impl Material {
-    pub fn bind(&self, meshes: &mut MeshStore, program: &ProgramBinding) {
+    pub fn bind(&self, meshes: &MeshStore, program: &ProgramBinding) {
         program
             .bind_texture("tex_albedo", meshes.get_texture(&self.albedo))
             .bind_texture("tex_metallic", meshes.get_texture(&self.metallic))
@@ -514,9 +514,42 @@ impl Material {
             .bind_texture("tex_ao", meshes.get_texture(&self.ao))
             .bind_texture("tex_opacity", meshes.get_texture(&self.opacity));
     }
+
+    pub fn into_borrowed<'a>(&self, meshes: &'a MeshStore) -> MaterialBorrowed<'a> {
+        MaterialBorrowed {
+            normal: meshes.get_texture(&self.normal),
+            albedo: meshes.get_texture(&self.albedo),
+            metallic: meshes.get_texture(&self.metallic),
+            roughness: meshes.get_texture(&self.roughness),
+            ao: meshes.get_texture(&self.ao),
+            opacity: meshes.get_texture(&self.opacity),
+        }
+    }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, PartialEq)]
+pub struct MaterialBorrowed<'a> {
+    pub normal: &'a Texture,
+    pub albedo: &'a Texture,
+    pub metallic: &'a Texture,
+    pub roughness: &'a Texture,
+    pub ao: &'a Texture,
+    pub opacity: &'a Texture,
+}
+
+impl<'a> MaterialBorrowed<'a> {
+    pub fn bind(&self, meshes: &MeshStore, program: &ProgramBinding) {
+        program
+            .bind_texture("tex_albedo", &self.albedo)
+            .bind_texture("tex_metallic", &self.metallic)
+            .bind_texture("tex_roughness", &self.roughness)
+            .bind_texture("tex_normal", &self.normal)
+            .bind_texture("tex_ao", &self.ao)
+            .bind_texture("tex_opacity", &self.opacity);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TextureRef(usize);
 
 #[derive(Default)]
@@ -534,7 +567,7 @@ pub struct MeshStore {
     spheres: Vec<(f32, MeshRef)>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MeshRef(usize);
 
 impl MeshStore {
@@ -736,6 +769,10 @@ impl MeshStore {
         mesh_ref
     }
 
+    pub fn get_mesh(&self, mesh_ref: &MeshRef) -> &Mesh {
+        &self.meshes[mesh_ref.0]
+    }
+
     pub fn get_mesh_mut(&mut self, mesh_ref: &MeshRef) -> &mut Mesh {
         &mut self.meshes[mesh_ref.0]
     }
@@ -746,7 +783,7 @@ impl MeshStore {
         texture_ref
     }
 
-    pub fn get_texture(&mut self, texture_ref: &TextureRef) -> &Texture {
+    pub fn get_texture(&self, texture_ref: &TextureRef) -> &Texture {
         &self.textures[texture_ref.0]
     }
 
@@ -858,7 +895,7 @@ impl MeshStore {
         let path = path.as_ref();
 
         self.cache_or_load(path, move || {
-            let img = image::open(&path).expect(&format!("unable to read {:?}", path));
+            let img = image::open(&path).context(format!("could not load image at {:?}", path))?;
             let texture = Texture::new(TextureKind::Texture2d);
             texture
                 .bind()
@@ -873,7 +910,7 @@ impl MeshStore {
     fn cache_or_load(
         &mut self,
         path: impl AsRef<Path>,
-        f: impl FnOnce() -> Result<Texture, Box<std::error::Error>>,
+        f: impl FnOnce() -> Result<Texture, Error>,
     ) -> Result<TextureRef, Error> {
         let path: &Path = path.as_ref();
         let path_str = path.to_str().unwrap();
@@ -881,7 +918,7 @@ impl MeshStore {
         if let Some(t) = self.fs_textures.get(path_str) {
             Ok(*t)
         } else {
-            let texture = f().expect("ehh");
+            let texture = f()?;
             let texture_ref = self.insert_texture(texture);
             self.fs_textures.insert(path_str.to_owned(), texture_ref);
             Ok(texture_ref)
@@ -1764,8 +1801,8 @@ fn sphere_verticies(radius: f32, nb_long: usize, nb_lat: usize) -> Vec<Vertex> {
 
 
 pub fn rgb(r: u8, g: u8, b: u8) -> V3 {
-    v3( r as f32 / 255.0, 
-        g as f32 / 255.0, 
+    v3( r as f32 / 255.0,
+        g as f32 / 255.0,
         b as f32 / 255.0
     )
  }
@@ -1782,27 +1819,27 @@ pub fn rgb(r: u8, g: u8, b: u8) -> V3 {
 }
 
  pub fn hsv(h: f32, s: f32, v: f32) -> V3 {
-    
-    let r: f32 = 
+
+    let r: f32 =
         if (h % 1.0) < 0.5 {
             (clamp(-6.0 * (h % 1.0)  + 2.0, 0.0, 1.0) * s + 1.0 - s)  * v
-        } 
+        }
         else {
             (clamp(6.0 * (h % 1.0)  - 4.0, 0.0, 1.0) * s + 1.0 - s)  * v
     };
 
-    let g: f32 = 
+    let g: f32 =
         if (h % 1.0) < 1.0 / 3.0 {
             (clamp(6.0 * (h % 1.0), 0.0, 1.0) * s + 1.0 - s)  * v
-        } 
+        }
         else {
             (clamp(-6.0 * (h % 1.0) + 4.0, 0.0, 1.0) * s + 1.0 - s)  * v
     };
 
-    let b: f32 = 
+    let b: f32 =
         if (h % 1.0) < 2.0 / 0.3 {
             (clamp(6.0 * (h % 1.0)  - 2.0, 0.0, 1.0) * s + 1.0 - s)  * v
-        } 
+        }
         else {
             (clamp(-6.0 * (h % 1.0)  + 6.0, 0.0, 1.0) * s + 1.0 - s)  * v
     };

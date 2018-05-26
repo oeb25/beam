@@ -28,8 +28,6 @@ impl<C> warmy::Load<C> for FromFS {
         storage: &mut warmy::Storage<C>,
         ctx: &mut C,
     ) -> Result<warmy::Loaded<Self>, Self::Error> {
-        println!("loading {:?}", key);
-
         let path = key.as_path();
 
         let mut deps = vec![];
@@ -45,7 +43,8 @@ impl<C> warmy::Load<C> for FromFS {
 
                     let path = path.strip_prefix(storage.root()).unwrap();
 
-                    let req = path.parent().unwrap().to_str().unwrap().to_owned() + "/" + req;
+                    // let req = path.parent().unwrap().to_str().unwrap().to_owned() + "/" + req;
+                    let req = path.with_file_name(req);
                     let key = warmy::FSKey::new(req);
                     let res = storage.get(&key, ctx).map_err(rip)?;
                     deps.push(key.into());
