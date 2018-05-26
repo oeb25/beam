@@ -543,7 +543,33 @@ impl MeshStore {
         let src = std::fs::read_to_string(path).expect("collada src file not found");
         let data: collada::Collada = collada::Collada::parse(&src).expect("failed to parse collada");
 
-        let mut mesh_ids = HashMap::new();
+        let mut normal_src = None;
+        let mut albedo_src = None;
+        let mut metallic_src = None;
+        let mut roughness_src = None;
+        let mut ao_src = None;
+
+        for image in data.images.iter() {
+            match image.name.as_str() {
+                "DIFF" => albedo_src = Some(path.with_file_name(&image.source)),
+                "ROUGH" => roughness_src = Some(path.with_file_name(&image.source)),
+                "MET" => metallic_src = Some(path.with_file_name(&image.source)),
+                "NRM" => normal_src = Some(path.with_file_name(&image.source)),
+                "AO" => ao_src = Some(path.with_file_name(&image.source)),
+                _ => {},
+            }
+        }
+
+        let custom_material = Material {
+            normal: self.load_rgb(normal_src.expect("normal map not found :(")),
+            albedo: self.load_rgb(albedo_src.expect("albedo map not found :(")),
+            metallic: self.load_rgb(metallic_src.expect("metallic map not found :(")),
+            roughness: self.load_rgb(roughness_src.expect("roughness map not found :(")),
+            ao: self.rgb_texture(v3(1.0, 1.0, 1.0)),
+            // ao: self.load_rgb(ao_src.expect("ao map not found :(")),
+        };
+
+        let mut mesh_ids: HashMap<usize, Vec<(MeshRef, Material)>> = HashMap::new();
 
         let mut render_objects = vec![];
         for node in data.visual_scenes[0].nodes.iter() {
@@ -563,96 +589,117 @@ impl MeshStore {
             std::mem::swap(&mut transform.y, &mut transform.z);
             assert_eq!(node.geometry.len(), 1);
             for geom_instance in node.geometry.iter() {
-                let mesh_ref = if let Some(mesh_ref) = mesh_ids.get(&geom_instance.geometry.0) {
-                    *mesh_ref
+                let mesh_refs = if let Some(mesh_cache) = mesh_ids.get(&geom_instance.geometry.0) {
+                    mesh_cache.clone()
                 } else {
                     let geom = &data.geometry[geom_instance.geometry.0];
-                    let mesh = match geom {
-                        collada::Geometry::Mesh {
-                            vertices,
-                            ..
-                        }  => {
-                            let mut verts: Vec<_> = vertices.iter().map(|v|
-                                {
-                                    let pos = v4(v.pos[0], v.pos[1], v.pos[2], 1.0);
-                                    Vertex {
-                                        // orient y up instead of z, which is default in blender
-                                        pos: v3(pos[0], pos[2], pos[1]),
-                                        norm: v3(v.nor[0], v.nor[2], v.nor[1]),
-                                        tex: v.tex.into(),
-                                        tangent: v3(0.0, 0.0, 0.0),
-                                        bitangent: v3(0.0, 0.0, 0.0),
+                    let meshes = match geom {
+                        collada::Geometry::Mesh { triangles }  => {
+                            let mut meshes = vec![];
+
+                            for triangles in triangles.iter() {
+                                let collada::MeshTriangles {
+                                    vertices,
+                                    material,
+                                } = triangles;
+
+                                let mut verts: Vec<_> = vertices.iter().map(|v|
+                                    {
+                                        let pos = v4(v.pos[0], v.pos[1], v.pos[2], 1.0);
+                                        Vertex {
+                                            // orient y up instead of z, which is default in blender
+                                            pos: v3(pos[0], pos[2], pos[1]),
+                                            norm: v3(v.nor[0], v.nor[2], v.nor[1]),
+                                            tex: v.tex.into(),
+                                            tangent: v3(0.0, 0.0, 0.0),
+                                            bitangent: v3(0.0, 0.0, 0.0),
+                                        }
+                                    }).collect();
+
+                                for vs in verts.chunks_mut(3) {
+                                    // flip vertex clockwise direction
+                                    vs.swap(1, 2);
+
+                                    let x: *mut _ = &mut vs[0];
+                                    let y: *mut _ = &mut vs[1];
+                                    let z: *mut _ = &mut vs[2];
+                                    unsafe {
+                                        calculate_tangent_and_bitangent(&mut *x, &mut *y, &mut *z);
                                     }
-                                }).collect();
-
-                            for vs in verts.chunks_mut(3) {
-                                // flip vertex clockwise direction
-                                vs.swap(1, 2);
-
-                                let x: *mut _ = &mut vs[0];
-                                let y: *mut _ = &mut vs[1];
-                                let z: *mut _ = &mut vs[2];
-                                unsafe {
-                                    calculate_tangent_and_bitangent(&mut *x, &mut *y, &mut *z);
                                 }
-                            }
 
-                            Mesh::new(&verts)
+                                let material = self.convert_collada_material(&path, &data, material);
+                                let mesh = Mesh::new(&verts);
+                                let mesh_ref = self.insert_mesh(mesh);
+
+                                meshes.push((mesh_ref, material));
+                            }
+                            mesh_ids.insert(geom_instance.geometry.0, meshes.clone());
+                            meshes
                         }
                         _ => unimplemented!()
                     };
-
-                    let mesh_ref = self.insert_mesh(mesh);
-                    mesh_ids.insert(geom_instance.geometry.0, mesh_ref);
-                    mesh_ref
+                    meshes
                 };
 
-                let material = geom_instance.material.map(|material_ref| {
-                    let collada::Material::Effect(effect_ref) = data.materials[material_ref.0];
-                    let collada::Effect::Phong {
-                        emission,
-                        ambient,
-                        diffuse,
-                        specular,
-                        shininess,
-                        index_of_refraction,
-                    } = &data.effects[effect_ref.0];
+                // let material = geom_instance.material
+                //     .map(|material_ref| self.convert_collada_material(&path, &data, material_ref));
 
-                    let white = self.rgb_texture(v3(1.0, 1.0, 1.0));
-
-                    let mut  convert = |c: &collada::PhongProperty| {
-                        use collada::PhongProperty::*;
-                        match c {
-                            Color(color) => self.rgba_texture((*color).into()),
-                            Float(f) => self.rgb_texture(v3(*f, *f, *f)),
-                            Texture(image_ref) => {
-                                let img = &data.images[image_ref.0];
-                                // TODO: How do we determin what kind of file it is?
-                                self.load_srgb(path.with_file_name(&img.source))
-                            },
-                        }
-                    };
-
-                    let albedo = diffuse.as_ref().map(convert).unwrap_or_else(|| white);
-
-                    Material {
-                        normal: self.rgb_texture(v3(0.5, 0.5, 1.0)),
-                        albedo,
-                        metallic: white,
-                        roughness: self.rgb_texture(v3(0.5, 0.5, 0.5)),
-                        ao: white,
-                    }
-                });
+                let children = mesh_refs.into_iter().map(|(mesh_ref, _material)| {
+                    RenderObject::mesh(mesh_ref).with_material(custom_material)
+                }).collect();
 
                 render_objects.push(RenderObject {
                     transform,
-                    material,
-                    child: RenderObjectChild::Mesh(mesh_ref)
+                    material: None,
+                    child: RenderObjectChild::RenderObjects(children)
                 });
             }
         }
 
         RenderObject::with_children(render_objects)
+    }
+
+    fn convert_collada_material(
+        &mut self,
+        path: &Path,
+        data: &collada::Collada,
+        material_ref: &collada::MaterialRef,
+    ) -> Material {
+        let collada::Material::Effect(effect_ref) = data.materials[material_ref.0];
+        let collada::Effect::Phong {
+            emission,
+            ambient,
+            diffuse,
+            specular,
+            shininess,
+            index_of_refraction,
+        } = &data.effects[effect_ref.0];
+
+        let white = self.rgb_texture(v3(1.0, 1.0, 1.0));
+
+        let mut  convert = |c: &collada::PhongProperty| {
+            use collada::PhongProperty::*;
+            match c {
+                Color(color) => self.rgba_texture((*color).into()),
+                Float(f) => self.rgb_texture(v3(*f, *f, *f)),
+                Texture(image_ref) => {
+                    let img = &data.images[image_ref.0];
+                    // TODO: How do we determin what kind of file it is?
+                    self.load_srgb(path.with_file_name(&img.source))
+                },
+            }
+        };
+
+        let albedo = diffuse.as_ref().map(convert).unwrap_or_else(|| white);
+
+        Material {
+            normal: self.rgb_texture(v3(0.5, 0.5, 1.0)),
+            albedo,
+            metallic: white,
+            roughness: self.rgb_texture(v3(0.5, 0.5, 0.5)),
+            ao: white,
+        }
     }
 
     pub fn insert_mesh(&mut self, mesh: Mesh) -> MeshRef {

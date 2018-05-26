@@ -174,6 +174,14 @@ fn main() {
         "assets/pbr/rusted_iron",
         "png",
     );
+    let plastic_material = pipeline.meshes.load_pbr_with_default_filenames(
+        "assets/pbr/plastic",
+        "png",
+    );
+    let gold_material = pipeline.meshes.load_pbr_with_default_filenames(
+        "assets/pbr/gold",
+        "png",
+    );
 
     let white4 = pipeline.meshes.rgba_texture(v4(1.0, 1.0, 1.0, 1.0));
     let white3 = pipeline.meshes.rgb_texture(v3(1.0, 1.0, 1.0));
@@ -185,16 +193,22 @@ fn main() {
     let suzanne = pipeline.meshes
         .load_collada("assets/suzanne/suzanne.dae")
         .scale(1.0 / 2.0)
-        .translate(v3(0.0, 15.0, 0.0));
+        .translate(v3(0.0, 20.0, 0.0));
 
     let mut is = vec![];
+
+    let mut m = 0;
+
+    let pbr_materials = vec![rust_material, plastic_material, gold_material];
+    let nr_pbr_materials = pbr_materials.len();
 
     for i in 1..5 {
         for n in 0..i {
             let x = i as f32 / 2.0;
             let v = v3(i as f32 / 2.0, -i as f32 - 5.0, n as f32 - x) * 2.0;
             let v = Mat4::from_translation(v) * Mat4::from_angle_y(Rad(i as f32 - 1.0));
-            let obj = suzanne.transform(v);
+            let obj = suzanne.transform(v);// .with_material(pbr_materials[m % nr_pbr_materials]);
+            m += 1;
             is.push(obj);
         }
     }

@@ -91,9 +91,17 @@ pub(crate) enum Technique {
 }
 
 #[derive(Debug, Deserialize)]
+pub(crate) enum LibraryEffectProfileCommonElement {
+    #[serde(rename = "newparam")]
+    NewParam(NewParam),
+    #[serde(rename = "technique")]
+    Technique(Technique),
+}
+
+#[derive(Debug, Deserialize)]
 pub(crate) struct LibraryEffectProfileCommon {
-	pub newparam: Vec<NewParam>,
-	pub technique: Technique
+    #[serde(rename = "$value")]
+    pub elements: Vec<LibraryEffectProfileCommonElement>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -200,7 +208,7 @@ pub(crate) struct Accessor {
 }
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct TechniqueCommon {
+pub(crate) struct MeshSourceTechinqueCommon {
 	pub accessor: Accessor,
 }
 
@@ -208,7 +216,7 @@ pub(crate) struct TechniqueCommon {
 pub(crate) struct MeshSource {
 	pub id: String,
 	pub float_array: FloatArray,
-	pub technique_common: TechniqueCommon,
+	pub technique_common: MeshSourceTechinqueCommon,
 }
 
 #[derive(Debug, Deserialize)]
@@ -245,7 +253,7 @@ pub(crate) struct Triangles {
 pub(crate) struct Mesh {
 	pub source: Vec<MeshSource>,
 	pub vertices: Verticies,
-	pub triangles: Triangles,
+	pub triangles: Vec<Triangles>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -277,8 +285,14 @@ pub(crate) enum BindTechniqueCommon {
 }
 
 #[derive(Debug, Deserialize)]
+pub(crate) struct BindMaterialTechniqueCommon {
+    #[serde(rename = "$value")]
+    pub materials: Vec<BindTechniqueCommon>,
+}
+
+#[derive(Debug, Deserialize)]
 pub(crate) struct BindMaterial {
-	pub technique_common: BindTechniqueCommon,
+	pub technique_common: BindMaterialTechniqueCommon,
 }
 
 #[derive(Debug, Deserialize)]
