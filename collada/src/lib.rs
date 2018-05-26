@@ -9,11 +9,12 @@ mod raw;
 
 #[derive(Debug)]
 pub struct Image {
-    source: String,
+    pub name: String,
+    pub source: String,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct ImageRef(usize);
+pub struct ImageRef(pub usize);
 
 #[derive(Debug)]
 pub enum PhongProperty {
@@ -25,17 +26,17 @@ pub enum PhongProperty {
 #[derive(Debug)]
 pub enum Effect {
     Phong {
-        emission: PhongProperty,
-        ambient: PhongProperty,
-        diffuse: PhongProperty,
-        specular: PhongProperty,
-        shininess: PhongProperty,
-        index_of_refraction: PhongProperty,
+        emission: Option<PhongProperty>,
+        ambient: Option<PhongProperty>,
+        diffuse: Option<PhongProperty>,
+        specular: Option<PhongProperty>,
+        shininess: Option<PhongProperty>,
+        index_of_refraction: Option<PhongProperty>,
     },
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct EffectRef(usize);
+pub struct EffectRef(pub usize);
 
 #[derive(Debug)]
 pub enum Material {
@@ -51,14 +52,19 @@ pub struct Vertex {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct MaterialRef(usize);
+pub struct MaterialRef(pub usize);
+
+#[derive(Debug)]
+pub struct MeshTriangles {
+    pub vertices: Vec<Vertex>,
+    pub material: MaterialRef,
+}
 
 #[derive(Debug)]
 pub enum Geometry {
     ConvexMesh,
     Mesh {
-        vertices: Vec<Vertex>,
-        material: MaterialRef,
+        triangles: Vec<MeshTriangles>
     },
     Spline,
 }
@@ -82,7 +88,7 @@ pub enum Transform {
 #[derive(Debug)]
 pub struct InstanceGeometry {
     pub geometry: GeometryRef,
-    pub material: Option<MaterialRef>,
+    pub material: Option<Vec<MaterialRef>>,
 }
 
 #[derive(Debug)]
@@ -145,6 +151,7 @@ impl From<raw::ColladaRaw> for Collada {
         let mut image_ids = vec![];
         for (i, image) in library_images.image.into_iter().enumerate() {
             let img = Image {
+                name: image.name.clone(),
                 source: image.init_from,
             };
             images.push(img);
@@ -155,6 +162,26 @@ impl From<raw::ColladaRaw> for Collada {
         for (i, effect) in library_effects.effect.into_iter().enumerate() {
             let id = effect.id;
             let effect = effect.profile_common;
+            let mut technique = None;
+            let mut newparams = vec![];
+            for element in effect.elements.into_iter() {
+                match element {
+                    raw::LibraryEffectProfileCommonElement::NewParam(newparam) => {
+                        if technique.is_some() {
+                            unimplemented!("technique should be the last element in effect");
+                        }
+                        newparams.push(newparam);
+                    }
+                    raw::LibraryEffectProfileCommonElement::Technique(new_technique) => {
+                        technique = Some(new_technique);
+                    }
+                }
+            }
+            let technique = if let Some(technique) = technique {
+                technique
+            } else {
+                unimplemented!("library effect profile common is mission technique")
+            };
             let convert = |x: &raw::TechniqueValue| match x {
                 raw::TechniqueValue::Color { value, .. } => {
                     let mut result = [0.0; 4];
@@ -164,14 +191,12 @@ impl From<raw::ColladaRaw> for Collada {
                     PhongProperty::Color(result)
                 }
                 raw::TechniqueValue::Texture { texture } => {
-                    let id = effect
-                        .newparam
+                    let id = newparams
                         .iter()
                         .find(|x| &x.sid == texture)
                         .expect("first indirection");
                     let id = match &id.kind {
-                        raw::NewParamKind::Sampler2D { source } => effect
-                            .newparam
+                        raw::NewParamKind::Sampler2D { source } => newparams
                             .iter()
                             .find(|x| &x.sid == source)
                             .expect("second indirection"),
@@ -193,7 +218,7 @@ impl From<raw::ColladaRaw> for Collada {
                     PhongProperty::Float(value.parse().unwrap())
                 }
             };
-            let new_effect = match &effect.technique {
+            let new_effect = match &technique {
                 raw::Technique::Phong {
                     emission,
                     ambient,
@@ -201,13 +226,14 @@ impl From<raw::ColladaRaw> for Collada {
                     specular,
                     shininess,
                     index_of_refraction,
+                    ..
                 } => Effect::Phong {
-                    emission: convert(emission),
-                    ambient: convert(ambient),
-                    diffuse: convert(diffuse),
-                    specular: convert(specular),
-                    shininess: convert(shininess),
-                    index_of_refraction: convert(index_of_refraction),
+                    emission: emission.as_ref().map(convert),
+                    ambient: ambient.as_ref().map(convert),
+                    diffuse: diffuse.as_ref().map(convert),
+                    specular: specular.as_ref().map(convert),
+                    shininess: shininess.as_ref().map(convert),
+                    index_of_refraction: index_of_refraction.as_ref().map(convert),
                 },
             };
 
@@ -232,44 +258,48 @@ impl From<raw::ColladaRaw> for Collada {
         let mut geometry_ids = vec![];
         for (i, geom) in library_geometries.geometry.into_iter().enumerate() {
             let mesh = geom.mesh;
-            let input = &mesh.triangles.input;
-            let v_input_id = &mesh.vertices.input;
-            let n_input_id = &input[1];
-            let t_input_id = &input[2];
-            let find = |s: &str| {
-                &mesh
-                    .source
+            let triangles = mesh.triangles.iter().map(|triangles| {
+                let input = &triangles.input;
+                let v_input_id = &mesh.vertices.input;
+                let n_input_id = &input[1];
+                let t_input_id = &input[2];
+                let find = |s: &str| {
+                    &mesh
+                        .source
+                        .iter()
+                        .find(|x| x.id == s[1..])
+                        .unwrap()
+                        .float_array
+                        .data
+                };
+                let vd = find(&v_input_id.source);
+                let nd = find(&n_input_id.source);
+                let td = find(&t_input_id.source);
+                let vertices = triangles
+                    .p
+                    .chunks(3)
+                    .map(|x| (x[0] * 3, x[1] * 3, x[2] * 2))
+                    .map(|(v, n, t)| {
+                        (
+                            [vd[v], vd[v + 1], vd[v + 2]],
+                            [nd[n], nd[n + 1], nd[n + 2]],
+                            [td[t], td[t + 1]],
+                        )
+                    })
+                    .map(|(pos, nor, tex)| Vertex { pos, nor, tex })
+                    .collect();
+
+                let material = material_ids
                     .iter()
-                    .find(|x| x.id == s[1..])
-                    .unwrap()
-                    .float_array
-                    .data
-            };
-            let vd = find(&v_input_id.source);
-            let nd = find(&n_input_id.source);
-            let td = find(&t_input_id.source);
-            let vertices = mesh
-                .triangles
-                .p
-                .chunks(3)
-                .map(|x| (x[0] * 3, x[1] * 3, x[2] * 2))
-                .map(|(v, n, t)| {
-                    (
-                        [vd[v], vd[v + 1], vd[v + 2]],
-                        [nd[n], nd[n + 1], nd[n + 2]],
-                        [td[t], td[t + 1]],
-                    )
-                })
-                .map(|(pos, nor, tex)| Vertex { pos, nor, tex })
-                .collect();
+                    .find(|x| x.0 == triangles.material)
+                    .expect("could not find material for mesh")
+                    .1;
 
-            let material = material_ids
-                .iter()
-                .find(|x| x.0 == mesh.triangles.material)
-                .expect("could not find material for mesh")
-                .1;
+                MeshTriangles { vertices, material }
+            }).collect();
 
-            let new_geometry = Geometry::Mesh { vertices, material };
+            let new_geometry = Geometry::Mesh { triangles };
+
             geometry.push(new_geometry);
             geometry_ids.push((geom.id, GeometryRef(i)));
         }
@@ -332,18 +362,20 @@ impl From<raw::ColladaRaw> for Collada {
                                     .expect("could not find geometry for node")
                                     .1,
                                 material: geom.bind_material.map(|mat| {
-                                    match mat.technique_common {
-                                        raw::BindTechniqueCommon::InstanceMaterial {
-                                            target,
-                                            ..
-                                        } => {
-                                            material_ids
-                                                .iter()
-                                                .find(|x| x.0 == &target[1..])
-                                                .expect("could not find material for node")
-                                                .1
+                                    mat.technique_common.materials.into_iter().map(|t| {
+                                        match t {
+                                            raw::BindTechniqueCommon::InstanceMaterial {
+                                                target,
+                                                ..
+                                            } => {
+                                                material_ids
+                                                    .iter()
+                                                    .find(|x| x.0 == &target[1..])
+                                                    .expect("could not find material for node")
+                                                    .1
+                                            }
                                         }
-                                    }
+                                    }).collect()
                                 }),
                             })
                             .collect(),

@@ -538,10 +538,38 @@ impl MeshStore {
         &mut self,
         path: impl AsRef<Path>,
     ) -> RenderObject {
+        let path = path.as_ref();
+
         let src = std::fs::read_to_string(path).expect("collada src file not found");
         let data: collada::Collada = collada::Collada::parse(&src).expect("failed to parse collada");
 
-        let mut mesh_ids = HashMap::new();
+        let mut normal_src = None;
+        let mut albedo_src = None;
+        let mut metallic_src = None;
+        let mut roughness_src = None;
+        let mut ao_src = None;
+
+        for image in data.images.iter() {
+            match image.name.as_str() {
+                "DIFF" => albedo_src = Some(path.with_file_name(&image.source)),
+                "ROUGH" => roughness_src = Some(path.with_file_name(&image.source)),
+                "MET" => metallic_src = Some(path.with_file_name(&image.source)),
+                "NRM" => normal_src = Some(path.with_file_name(&image.source)),
+                "AO" => ao_src = Some(path.with_file_name(&image.source)),
+                _ => {},
+            }
+        }
+
+        let custom_material = Material {
+            normal: self.load_rgb(normal_src.expect("normal map not found :(")),
+            albedo: self.load_rgb(albedo_src.expect("albedo map not found :(")),
+            metallic: self.load_rgb(metallic_src.expect("metallic map not found :(")),
+            roughness: self.load_rgb(roughness_src.expect("roughness map not found :(")),
+            ao: self.rgb_texture(v3(1.0, 1.0, 1.0)),
+            // ao: self.load_rgb(ao_src.expect("ao map not found :(")),
+        };
+
+        let mut mesh_ids: HashMap<usize, Vec<(MeshRef, Material)>> = HashMap::new();
 
         let mut render_objects = vec![];
         for node in data.visual_scenes[0].nodes.iter() {
@@ -561,58 +589,117 @@ impl MeshStore {
             std::mem::swap(&mut transform.y, &mut transform.z);
             assert_eq!(node.geometry.len(), 1);
             for geom_instance in node.geometry.iter() {
-                let mesh_ref = if let Some(mesh_ref) = mesh_ids.get(&geom_instance.geometry.0) {
-                    *mesh_ref
+                let mesh_refs = if let Some(mesh_cache) = mesh_ids.get(&geom_instance.geometry.0) {
+                    mesh_cache.clone()
                 } else {
                     let geom = &data.geometry[geom_instance.geometry.0];
-                    let mesh = match geom {
-                        collada::Geometry::Mesh {
-                            vertices,
-                            ..
-                        }  => {
-                            let mut verts: Vec<_> = vertices.iter().map(|v|
-                                {
-                                    let pos = v4(v.pos[0], v.pos[1], v.pos[2], 1.0);
-                                    Vertex {
-                                        // orient y up instead of z, which is default in blender
-                                        pos: v3(pos[0], pos[2], pos[1]),
-                                        norm: v3(v.nor[0], v.nor[2], v.nor[1]),
-                                        tex: v.tex.into(),
-                                        tangent: v3(0.0, 0.0, 0.0),
-                                        bitangent: v3(0.0, 0.0, 0.0),
+                    let meshes = match geom {
+                        collada::Geometry::Mesh { triangles }  => {
+                            let mut meshes = vec![];
+
+                            for triangles in triangles.iter() {
+                                let collada::MeshTriangles {
+                                    vertices,
+                                    material,
+                                } = triangles;
+
+                                let mut verts: Vec<_> = vertices.iter().map(|v|
+                                    {
+                                        let pos = v4(v.pos[0], v.pos[1], v.pos[2], 1.0);
+                                        Vertex {
+                                            // orient y up instead of z, which is default in blender
+                                            pos: v3(pos[0], pos[2], pos[1]),
+                                            norm: v3(v.nor[0], v.nor[2], v.nor[1]),
+                                            tex: v.tex.into(),
+                                            tangent: v3(0.0, 0.0, 0.0),
+                                            bitangent: v3(0.0, 0.0, 0.0),
+                                        }
+                                    }).collect();
+
+                                for vs in verts.chunks_mut(3) {
+                                    // flip vertex clockwise direction
+                                    vs.swap(1, 2);
+
+                                    let x: *mut _ = &mut vs[0];
+                                    let y: *mut _ = &mut vs[1];
+                                    let z: *mut _ = &mut vs[2];
+                                    unsafe {
+                                        calculate_tangent_and_bitangent(&mut *x, &mut *y, &mut *z);
                                     }
-                                }).collect();
-
-                            for vs in verts.chunks_mut(3) {
-                                // flip vertex clockwise direction
-                                vs.swap(1, 2);
-
-                                let x: *mut _ = &mut vs[0];
-                                let y: *mut _ = &mut vs[1];
-                                let z: *mut _ = &mut vs[2];
-                                unsafe {
-                                    calculate_tangent_and_bitangent(&mut *x, &mut *y, &mut *z);
                                 }
-                            }
 
-                            Mesh::new(&verts)
+                                let material = self.convert_collada_material(&path, &data, material);
+                                let mesh = Mesh::new(&verts);
+                                let mesh_ref = self.insert_mesh(mesh);
+
+                                meshes.push((mesh_ref, material));
+                            }
+                            mesh_ids.insert(geom_instance.geometry.0, meshes.clone());
+                            meshes
                         }
                         _ => unimplemented!()
                     };
-
-                    let mesh_ref = self.insert_mesh(mesh);
-                    mesh_ids.insert(geom_instance.geometry.0, mesh_ref);
-                    mesh_ref
+                    meshes
                 };
+
+                // let material = geom_instance.material
+                //     .map(|material_ref| self.convert_collada_material(&path, &data, material_ref));
+
+                let children = mesh_refs.into_iter().map(|(mesh_ref, _material)| {
+                    RenderObject::mesh(mesh_ref).with_material(custom_material)
+                }).collect();
+
                 render_objects.push(RenderObject {
                     transform,
                     material: None,
-                    child: RenderObjectChild::Mesh(mesh_ref)
+                    child: RenderObjectChild::RenderObjects(children)
                 });
             }
         }
 
         RenderObject::with_children(render_objects)
+    }
+
+    fn convert_collada_material(
+        &mut self,
+        path: &Path,
+        data: &collada::Collada,
+        material_ref: &collada::MaterialRef,
+    ) -> Material {
+        let collada::Material::Effect(effect_ref) = data.materials[material_ref.0];
+        let collada::Effect::Phong {
+            emission,
+            ambient,
+            diffuse,
+            specular,
+            shininess,
+            index_of_refraction,
+        } = &data.effects[effect_ref.0];
+
+        let white = self.rgb_texture(v3(1.0, 1.0, 1.0));
+
+        let mut  convert = |c: &collada::PhongProperty| {
+            use collada::PhongProperty::*;
+            match c {
+                Color(color) => self.rgba_texture((*color).into()),
+                Float(f) => self.rgb_texture(v3(*f, *f, *f)),
+                Texture(image_ref) => {
+                    let img = &data.images[image_ref.0];
+                    // TODO: How do we determin what kind of file it is?
+                    self.load_srgb(path.with_file_name(&img.source))
+                },
+            }
+        };
+
+        let albedo = diffuse.as_ref().map(convert).unwrap_or_else(|| white);
+
+        Material {
+            normal: self.rgb_texture(v3(0.5, 0.5, 1.0)),
+            albedo,
+            metallic: white,
+            roughness: self.rgb_texture(v3(0.5, 0.5, 0.5)),
+            ao: white,
+        }
     }
 
     pub fn insert_mesh(&mut self, mesh: Mesh) -> MeshRef {
@@ -692,113 +779,7 @@ impl MeshStore {
             return cached.1;
         }
 
-        use std::f32::consts::PI;
-
-        let mut verts = {
-            let nb_long = 24;
-            let nb_lat = 16;
-            // let mut verts = Vec::with_capacity((nb_long + 1) * nb_lat + 2);
-            let mut verts: Vec<Vertex> = vec![Vertex::default(); (nb_long + 1) * nb_lat + 2];
-
-            let up = v3(0.0, 1.0, 0.0) * radius;
-            verts[0] = Vertex {
-                pos: up,
-                norm: up,
-                tex: v2(0.0, 0.0),
-                tangent: v3(0.0, 0.0, 0.0),
-                bitangent: v3(0.0, 0.0, 0.0),
-            };
-            for lat in 0..nb_lat {
-                let a1 = PI * (lat as f32 + 1.0) / (nb_lat as f32 + 1.0);
-                let (sin1, cos1) = a1.sin_cos();
-
-                for lon in 0..=nb_long {
-                    let a2 = PI * 2.0 * (if lon == nb_long { 0.0 } else { lon as f32 }) / nb_long as f32;
-                    let (sin2, cos2) = a2.sin_cos();
-
-                    let pos = v3(
-                        sin1 * cos2,
-                        cos1,
-                        sin1 * sin2,
-                    );
-                    let norm = pos;
-                    let tex = v2(
-                        lon as f32 / nb_long as f32,
-                        1.0 - (lat as f32 + 1.0) / (nb_lat as f32 + 1.0)
-                    );
-
-                    verts[lon + lat * (nb_long + 1) + 1] = Vertex {
-                        pos: pos * radius,
-                        norm,
-                        tex,
-                        tangent: v3(0.0, 0.0, 0.0),
-                        bitangent: v3(0.0, 0.0, 0.0),
-                    };
-                }
-            }
-            let len = verts.len();
-            verts[len - 1] = Vertex {
-                pos: -up,
-                norm: -up,
-                tex: v2(0.0, 0.0),
-                tangent: v3(0.0, 0.0, 0.0),
-                bitangent: v3(0.0, 0.0, 0.0),
-            };
-
-            let nb_faces = verts.len();
-            let nb_triangles = nb_faces * 2;
-            let nb_indices = nb_triangles * 3;
-
-            let mut new_verts: Vec<Vertex> = Vec::with_capacity(nb_indices);
-
-            let mut v = |i: usize| new_verts.push(verts[i].clone());
-
-            println!("top faces");
-            for lon in 0..nb_long {
-                v(lon + 2);
-                v(lon + 1);
-                v(0);
-            }
-
-            println!("middle faces");
-            for lat in 0..(nb_lat - 1) {
-                for lon in 0..nb_long {
-                    let current = lon + lat * (nb_long + 1) + 1;
-                    let next = current + nb_long + 1;
-
-                    v(current);
-                    v(current + 1);
-                    v(next + 1);
-
-                    v(current);
-                    v(next + 1);
-                    v(next);
-                }
-            }
-
-            println!("bottom faces");
-            for lon in 0..nb_long {
-                v(len - 1);
-                v(len - (lon + 2) - 1);
-                v(len - (lon + 1) - 1);
-            }
-
-            new_verts
-        };
-        for vs in verts.chunks_mut(3) {
-            if vs.len() < 3 {
-                continue;
-            }
-            // flip vertex clockwise direction
-            // vs.swap(1, 2);
-
-            let x: *mut _ = &mut vs[0];
-            let y: *mut _ = &mut vs[1];
-            let z: *mut _ = &mut vs[2];
-            unsafe {
-                calculate_tangent_and_bitangent(&mut *x, &mut *y, &mut *z);
-            }
-        }
+        let verts = sphere_verticies(radius, 24, 16);
         let mesh = Mesh::new(&verts);
         let mesh_ref = self.insert_mesh(mesh);
         self.spheres.push((radius, mesh_ref));
@@ -1650,4 +1631,103 @@ fn cube_vertices() -> Vec<Vertex> {
             [1.0, 0.0, 0.0]
         ),
     ]
+}
+fn sphere_verticies(radius: f32, nb_long: usize, nb_lat: usize) -> Vec<Vertex> {
+    use std::f32::consts::PI;
+
+    let mut verts: Vec<Vertex> = vec![Vertex::default(); (nb_long + 1) * nb_lat + 2];
+
+    let up = v3(0.0, 1.0, 0.0) * radius;
+    verts[0] = Vertex {
+        pos: up,
+        norm: up,
+        tex: v2(0.0, 0.0),
+        tangent: v3(0.0, 0.0, 0.0),
+        bitangent: v3(0.0, 0.0, 0.0),
+    };
+    for lat in 0..nb_lat {
+        let a1 = PI * (lat as f32 + 1.0) / (nb_lat as f32 + 1.0);
+        let (sin1, cos1) = a1.sin_cos();
+
+        for lon in 0..=nb_long {
+            let a2 = PI * 2.0 * (if lon == nb_long { 0.0 } else { lon as f32 }) / nb_long as f32;
+            let (sin2, cos2) = a2.sin_cos();
+
+            let pos = v3(
+                sin1 * cos2,
+                cos1,
+                sin1 * sin2,
+            );
+            let norm = pos;
+            let tex = v2(
+                lon as f32 / nb_long as f32,
+                1.0 - (lat as f32 + 1.0) / (nb_lat as f32 + 1.0)
+            );
+
+            verts[lon + lat * (nb_long + 1) + 1] = Vertex {
+                pos: pos * radius,
+                norm,
+                tex,
+                tangent: v3(0.0, 0.0, 0.0),
+                bitangent: v3(0.0, 0.0, 0.0),
+            };
+        }
+    }
+    let len = verts.len();
+    verts[len - 1] = Vertex {
+        pos: -up,
+        norm: -up,
+        tex: v2(0.0, 0.0),
+        tangent: v3(0.0, 0.0, 0.0),
+        bitangent: v3(0.0, 0.0, 0.0),
+    };
+
+    let nb_faces = verts.len();
+    let nb_triangles = nb_faces * 2;
+    let nb_indices = nb_triangles * 3;
+
+    let mut new_verts: Vec<Vertex> = Vec::with_capacity(nb_indices);
+
+    let mut v = |i: usize| new_verts.push(verts[i].clone());
+
+    for lon in 0..nb_long {
+        v(lon + 2);
+        v(lon + 1);
+        v(0);
+    }
+
+    for lat in 0..(nb_lat - 1) {
+        for lon in 0..nb_long {
+            let current = lon + lat * (nb_long + 1) + 1;
+            let next = current + nb_long + 1;
+
+            v(current);
+            v(current + 1);
+            v(next + 1);
+
+            v(current);
+            v(next + 1);
+            v(next);
+        }
+    }
+
+    for lon in 0..nb_long {
+        v(len - 1);
+        v(len - (lon + 2) - 1);
+        v(len - (lon + 1) - 1);
+    }
+
+    for vs in new_verts.chunks_mut(3) {
+        if vs.len() < 3 {
+            continue;
+        }
+
+        let x: *mut _ = &mut vs[0];
+        let y: *mut _ = &mut vs[1];
+        let z: *mut _ = &mut vs[2];
+        unsafe {
+            calculate_tangent_and_bitangent(&mut *x, &mut *y, &mut *z);
+        }
+    }
+    new_verts
 }
