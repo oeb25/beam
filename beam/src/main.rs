@@ -29,6 +29,7 @@ mod render;
 
 use pipeline::*;
 use render::*;
+use misc::*;
 
 #[derive(Default)]
 struct Input {

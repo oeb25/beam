@@ -8,13 +8,13 @@ use mg::*;
 use hot;
 use warmy;
 
-use misc::Cacher;
+use misc::{Cacher, v3, v4, V3, V4, Mat4};
 
 use render::{
-    convolute_cubemap, cubemap_from_equirectangular, cubemap_from_importance, v3, v4, Camera,
-    DirectionalLight, GRenderPass, Mat4, PointLight,
+    convolute_cubemap, cubemap_from_equirectangular, cubemap_from_importance, Camera,
+    DirectionalLight, GRenderPass, PointLight,
     PointShadowMap, RenderObject, RenderObjectChild, RenderTarget, Renderable, ShadowMap,
-    V3, V4, MeshStore, Material, MeshRef,
+    MeshStore, Material, MeshRef,
 };
 
 pub struct RenderProps<'a> {
