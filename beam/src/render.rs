@@ -1731,3 +1731,11 @@ fn sphere_verticies(radius: f32, nb_long: usize, nb_lat: usize) -> Vec<Vertex> {
     }
     new_verts
 }
+
+
+pub fn rgb(r: u8, g: u8, b: u8) -> V3 {
+    v3( r as f32 / 255.0, 
+        g as f32 / 255.0, 
+        b as f32 / 255.0
+    )
+ }
