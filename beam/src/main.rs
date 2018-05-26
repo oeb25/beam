@@ -353,6 +353,7 @@ fn main() -> Result<(), Error> {
                         metallic: black3,
                         roughness: white3,
                         ao: white3,
+                        opacity: white3,
                     });
                 objects.push(mesh);
             }

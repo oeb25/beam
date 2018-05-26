@@ -501,6 +501,7 @@ pub struct Material {
     pub metallic: TextureRef,
     pub roughness: TextureRef,
     pub ao: TextureRef,
+    pub opacity: TextureRef,
 }
 
 impl Material {
@@ -510,7 +511,8 @@ impl Material {
             .bind_texture("tex_metallic", meshes.get_texture(&self.metallic))
             .bind_texture("tex_roughness", meshes.get_texture(&self.roughness))
             .bind_texture("tex_normal", meshes.get_texture(&self.normal))
-            .bind_texture("tex_ao", meshes.get_texture(&self.ao));
+            .bind_texture("tex_ao", meshes.get_texture(&self.ao))
+            .bind_texture("tex_opacity", meshes.get_texture(&self.opacity));
     }
 }
 
@@ -550,17 +552,22 @@ impl MeshStore {
         let mut metallic_src = None;
         let mut roughness_src = None;
         let mut ao_src = None;
+        let mut opacity_src = None;
 
         for image in data.images.iter() {
+            let x = |x| Some(path.with_file_name(x));
             match image.name.as_str() {
-                "DIFF" => albedo_src = Some(path.with_file_name(&image.source)),
-                "ROUGH" => roughness_src = Some(path.with_file_name(&image.source)),
-                "MET" => metallic_src = Some(path.with_file_name(&image.source)),
-                "NRM" => normal_src = Some(path.with_file_name(&image.source)),
-                "AO" => ao_src = Some(path.with_file_name(&image.source)),
+                "DIFF" => albedo_src = x(&image.source),
+                "ROUGH" => roughness_src = x(&image.source),
+                "MET" => metallic_src = x(&image.source),
+                "NRM" => normal_src = x(&image.source),
+                "AO" => ao_src = x(&image.source),
+                "OPAC" => opacity_src = x(&image.source),
                 _ => {},
             }
         }
+
+        let white3 = self.rgb_texture(v3(1.0, 1.0, 1.0));
 
         let custom_material = Material {
             normal: normal_src
@@ -570,19 +577,23 @@ impl MeshStore {
             albedo: albedo_src
                 .map(|x| self.load_srgb(x))
                 .transpose()?
-                .unwrap_or_else(|| self.rgb_texture(v3(1.0, 1.0, 1.0))),
+                .unwrap_or_else(|| white3),
             metallic: metallic_src
                 .map(|x| self.load_rgb(x))
                 .transpose()?
-                .unwrap_or_else(|| self.rgb_texture(v3(1.0, 1.0, 1.0))),
+                .unwrap_or_else(|| white3),
             roughness: roughness_src
                 .map(|x| self.load_rgb(x))
                 .transpose()?
-                .unwrap_or_else(|| self.rgb_texture(v3(1.0, 1.0, 1.0))),
+                .unwrap_or_else(|| white3),
             ao: ao_src
                 .map(|x| self.load_rgb(x))
                 .transpose()?
-                .unwrap_or_else(|| self.rgb_texture(v3(1.0, 1.0, 1.0))),
+                .unwrap_or_else(|| white3),
+            opacity: opacity_src
+                .map(|x| self.load_rgb(x))
+                .transpose()?
+                .unwrap_or_else(|| white3),
         };
 
         let mut mesh_ids: HashMap<usize, Vec<(MeshRef, Material)>> = HashMap::new();
@@ -600,9 +611,9 @@ impl MeshStore {
 
                 t * acc
             });
-            std::mem::swap(&mut transform.y, &mut transform.z);
+            transform.swap_rows(1, 2);
             transform = transform.transpose();
-            std::mem::swap(&mut transform.y, &mut transform.z);
+            transform.swap_rows(1, 2);
             assert_eq!(node.geometry.len(), 1);
             for geom_instance in node.geometry.iter() {
                 let mesh_refs = if let Some(mesh_cache) = mesh_ids.get(&geom_instance.geometry.0) {
@@ -715,6 +726,7 @@ impl MeshStore {
             metallic: white,
             roughness: self.rgb_texture(v3(0.5, 0.5, 0.5)),
             ao: white,
+            opacity: white,
         })
     }
 
@@ -895,10 +907,11 @@ impl MeshStore {
 
         Ok(Material {
             albedo,
-            ao: load_rgb("ao").context("failed to load pbr ao")?,
             metallic: load_rgb("metallic").context("failed to load pbr metallic")?,
             roughness: load_rgb("roughness").context("failed to load pbr roughness")?,
             normal: load_rgb("normal").context("failed to load pbr normal")?,
+            ao: load_rgb("ao").context("failed to load pbr ao")?,
+            opacity: load_rgb("opacity").context("failed to load pbr opacity")?,
         })
     }
 }
@@ -971,7 +984,7 @@ pub struct GRenderPass {
     pub position: Texture,
     pub normal: Texture,
     pub albedo: Texture,
-    pub metallic_roughness_ao: Texture,
+    pub metallic_roughness_ao_opacity: Texture,
 
     pub width: u32,
     pub height: u32,
@@ -984,7 +997,7 @@ impl GRenderPass {
             .bind()
             .storage(TextureInternalFormat::DepthComponent, w, h);
 
-        let (position, normal, albedo, metallic_roughness_ao) = {
+        let (position, normal, albedo, metallic_roughness_ao_opacity) = {
             let buffer = fbo.bind();
 
             let create_texture = |internal, format, typ, attachment| {
@@ -1015,9 +1028,9 @@ impl GRenderPass {
                 GlType::UnsignedByte,
                 Attachment::Color2,
             );
-            let metallic_roughness_ao = create_texture(
-                TextureInternalFormat::Rgb8,
-                TextureFormat::Rgb,
+            let metallic_roughness_ao_opacity = create_texture(
+                TextureInternalFormat::Rgba8,
+                TextureFormat::Rgba,
                 GlType::UnsignedByte,
                 Attachment::Color3,
             );
@@ -1031,7 +1044,7 @@ impl GRenderPass {
                 ])
                 .renderbuffer(Attachment::Depth, &depth);
 
-            (position, normal, albedo, metallic_roughness_ao)
+            (position, normal, albedo, metallic_roughness_ao_opacity)
         };
 
         GRenderPass {
@@ -1040,7 +1053,7 @@ impl GRenderPass {
             position,
             normal,
             albedo,
-            metallic_roughness_ao,
+            metallic_roughness_ao_opacity,
 
             width: w,
             height: h,

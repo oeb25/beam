@@ -383,6 +383,7 @@ impl Pipeline {
                 metallic: white3,
                 roughness: whiteish3,
                 ao: white3,
+                opacity: white3,
             };
             default_material.bind(&mut self.meshes, &program);
 
@@ -453,7 +454,7 @@ impl Pipeline {
                 .bind_texture("aNormal", &self.g.normal)
                 .bind_texture("aAlbedo", &self.g.albedo)
                 .bind_texture("aAlbedo", &self.g.albedo)
-                .bind_texture("aMetallicRoughnessAo", &self.g.metallic_roughness_ao)
+                .bind_texture("aMetallicRoughnessAoOpacity", &self.g.metallic_roughness_ao_opacity)
                 .bind_float(
                     "ambientIntensity",
                     props
