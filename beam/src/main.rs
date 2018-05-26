@@ -24,7 +24,7 @@ use time::{Duration, PreciseTime};
 mod hot;
 mod pipeline;
 mod render;
-mod logic;
+// mod logic;
 
 use pipeline::*;
 use render::*;
@@ -55,7 +55,7 @@ struct Scene {
 
 impl Scene {
     fn new(screen_width: u32, screen_height: u32) -> Scene {
-        let game = logic::Game::new((8,8));
+        // let game = logic::Game::new((8,8)); 
 
         let light_pos1 = v3(1.5, 1.0, 0.0);
         let light_pos2 = v3(1.5 + -10.0 * (23.0 / 14.0 as f32).sin(), 2.0, 0.0);
@@ -63,7 +63,7 @@ impl Scene {
         let one = v3(1.0, 1.0, 1.0);
 
         let sun = DirectionalLight {
-            color: v3(0.2, 0.4, 1.0) * 1.00,
+            color: hsv(0.1, 0.5, 1.0) * 0.2,
             direction: v3(0.0, 1.0, -1.5).normalize(),
 
             shadow_map: ShadowMap::new(),
@@ -71,7 +71,7 @@ impl Scene {
 
         let point_lights = vec![
             PointLight {
-                color: v3(0.7, 0.4, 0.2) * 10.0,
+                color: v3(0.7, 0.4, 0.2) * 0.0,
 
                 position: light_pos2,
                 last_shadow_map_position: light_pos2,
@@ -79,7 +79,7 @@ impl Scene {
                 shadow_map: Some(PointShadowMap::new()),
             },
             PointLight {
-                color: v3(1.0, 0.0, 0.2),
+                color: v3(1.0, 0.0, 0.2) * 0.0,
 
                 position: light_pos1 + light_pos2,
                 last_shadow_map_position: light_pos1 + light_pos2,
@@ -87,7 +87,7 @@ impl Scene {
                 shadow_map: None,
             },
             PointLight {
-                color: v3(0.2, 0.2, 0.8),
+                color: v3(0.2, 0.2, 0.8) * 0.0,
 
                 position: v3(
                     light_pos1.x * light_pos2.x,
@@ -370,8 +370,8 @@ fn main() -> Result<(), Error> {
 
                     ibl: &room_ibl,
 
-                    ambient_intensity: Some(1.0),
-                    skybox_intensity: Some(1.0),
+                    ambient_intensity: Some(0.1),
+                    skybox_intensity: Some(0.1),
                 },
                 &objects,
             );

@@ -1761,3 +1761,55 @@ fn sphere_verticies(radius: f32, nb_long: usize, nb_lat: usize) -> Vec<Vertex> {
     }
     new_verts
 }
+
+
+pub fn rgb(r: u8, g: u8, b: u8) -> V3 {
+    v3( r as f32 / 255.0, 
+        g as f32 / 255.0, 
+        b as f32 / 255.0
+    )
+ }
+
+ pub fn clamp<T: PartialOrd>(input: T, min: T, max: T) -> T {
+    debug_assert!(min <= max, "min must be less than or equal to max");
+    if input < min {
+        min
+    } else if input > max {
+        max
+    } else {
+        input
+    }
+}
+
+ pub fn hsv(h: f32, s: f32, v: f32) -> V3 {
+    
+    let r: f32 = 
+        if (h % 1.0) < 0.5 {
+            (clamp(-6.0 * (h % 1.0)  + 2.0, 0.0, 1.0) * s + 1.0 - s)  * v
+        } 
+        else {
+            (clamp(6.0 * (h % 1.0)  - 4.0, 0.0, 1.0) * s + 1.0 - s)  * v
+    };
+
+    let g: f32 = 
+        if (h % 1.0) < 1.0 / 3.0 {
+            (clamp(6.0 * (h % 1.0), 0.0, 1.0) * s + 1.0 - s)  * v
+        } 
+        else {
+            (clamp(-6.0 * (h % 1.0) + 4.0, 0.0, 1.0) * s + 1.0 - s)  * v
+    };
+
+    let b: f32 = 
+        if (h % 1.0) < 2.0 / 0.3 {
+            (clamp(6.0 * (h % 1.0)  - 2.0, 0.0, 1.0) * s + 1.0 - s)  * v
+        } 
+        else {
+            (clamp(-6.0 * (h % 1.0)  + 6.0, 0.0, 1.0) * s + 1.0 - s)  * v
+    };
+
+    v3(r, g, b)
+ }
+
+ pub fn hex(v: u32) -> V3 {
+    rgb((v >> 16 & 0xff) as u8, (v >> 8 & 0xff) as u8, (v & 0xff) as u8)
+}
