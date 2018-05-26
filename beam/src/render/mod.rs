@@ -11,7 +11,12 @@ use failure::{Error, ResultExt};
 
 use std::{self, collections::HashMap, path::Path};
 
-use mg::*;
+use mg::{
+    Attachment, Framebuffer, FramebufferBinderBase, FramebufferBinderDraw, FramebufferBinderDrawer,
+    FramebufferBinderRead, FramebufferBinderReadDraw, GlError, GlType, Mask, ProgramBinding,
+    Renderbuffer, Texture, TextureFormat, TextureInternalFormat, TextureKind, TextureParameter,
+    TextureTarget,
+};
 
 use mesh::{calculate_tangent_and_bitangent, Mesh};
 use misc::{v3, v4, Cacher, Mat4, P3, V3, V4, Vertex};

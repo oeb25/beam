@@ -15,13 +15,6 @@ macro_rules! offset_of {
     };
 }
 
-#[allow(unused_macros)]
-macro_rules! offset_ptr {
-    ($ty:ty, $field:ident) => {
-        ptr::null::<os::raw::c_void>().add(offset_of!($ty, $field))
-    };
-}
-
 macro_rules! size_of {
     ($ty:ty, $field:ident) => {
         #[allow(unused_unsafe)]

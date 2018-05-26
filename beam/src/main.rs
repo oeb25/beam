@@ -15,7 +15,7 @@ extern crate obj;
 extern crate time;
 extern crate warmy;
 
-use failure::{Error};
+use failure::Error;
 
 use cgmath::{InnerSpace, Rad};
 
@@ -29,9 +29,9 @@ mod pipeline;
 mod render;
 // mod logic;
 
-use misc::*;
-use pipeline::*;
-use render::*;
+use misc::{v3, Mat4};
+use pipeline::{Pipeline, RenderProps};
+use render::{hex, hsv, mesh, rgb, Camera, Material, RenderObject};
 
 use render::lights::{DirectionalLight, PointLight, PointShadowMap, ShadowMap};
 
@@ -197,7 +197,6 @@ fn main() -> Result<(), Error> {
         .translate(v3(0.0, 20.0, 0.0));
 
     let mut is = vec![];
-
 
     for i in 1..5 {
         for n in 0..i {
