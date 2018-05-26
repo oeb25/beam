@@ -8,13 +8,12 @@ use mg::*;
 use hot;
 use warmy;
 
-use misc::{Cacher, v3, v4, V3, V4, Mat4};
+use misc::{v3, v4, Cacher, Mat4, V3, V4};
 
 use render::{
-    convolute_cubemap, cubemap_from_equirectangular, cubemap_from_importance, Camera,
-    DirectionalLight, GRenderPass, PointLight,
-    PointShadowMap, RenderObject, RenderObjectChild, RenderTarget, Renderable, ShadowMap,
-    MeshStore, Material, MeshRef,
+    convolute_cubemap, cubemap_from_equirectangular, cubemap_from_importance,
+    lights::{DirectionalLight, PointLight, PointShadowMap, ShadowMap}, Camera, GRenderPass,
+    Material, MeshRef, MeshStore, RenderObject, RenderObjectChild, RenderTarget, Renderable,
 };
 
 pub struct RenderProps<'a> {
@@ -269,11 +268,7 @@ impl Pipeline {
         );
 
         let mut render_cube = |fbo: &FramebufferBinderReadDraw, program: &ProgramBinding| {
-            program.bind_texture_to(
-                "equirectangularMap",
-                &cubemap,
-                TextureSlot::One,
-            );
+            program.bind_texture_to("equirectangularMap", &cubemap, TextureSlot::One);
             rect.bind()
                 .draw_arrays(fbo, program, DrawMode::Points, 0, 1);
         };
@@ -306,7 +301,7 @@ impl Pipeline {
         render_object: RenderObject,
         transform: &Mat4,
         material: Option<Material>,
-        calls: &mut Cacher<(MeshRef, Option<Material>), Vec<Mat4>>
+        calls: &mut Cacher<(MeshRef, Option<Material>), Vec<Mat4>>,
     ) {
         let transform = transform * render_object.transform;
         // if a material is passed as a prop, use that over the one bound to the mesh
@@ -322,11 +317,10 @@ impl Pipeline {
                 }
             }
         }
-
     }
     pub fn render<T>(&mut self, update_shadows: bool, props: RenderProps, render_objects: T)
     where
-        T: Iterator<Item = RenderObject>
+        T: Iterator<Item = RenderObject>,
     {
         let view = props.camera.get_view();
         let view_pos = props.camera.pos;
@@ -337,9 +331,10 @@ impl Pipeline {
 
             for obj in render_objects {
                 Pipeline::render_object(obj, &Mat4::from_scale(1.0), None, &mut draw_calls);
-            };
+            }
 
-            draw_calls.into_iter()
+            draw_calls
+                .into_iter()
                 .map(|((mesh_ref, material), transforms)| {
                     (mesh_ref, material, VertexBuffer::from_data(&transforms))
                 })
@@ -358,7 +353,8 @@ impl Pipeline {
                         material.bind(&mut self.meshes, &$program);
                     }
                     let mesh = self.meshes.get_mesh_mut(&mesh_ref);
-                    mesh.bind().draw_instanced(&$fbo, &$program, &transforms.bind());
+                    mesh.bind()
+                        .draw_instanced(&$fbo, &$program, &transforms.bind());
                     &$program.set_next_texture_slot(start_slot);
                 }
             }};
@@ -470,7 +466,10 @@ impl Pipeline {
                 .bind_texture("aNormal", &self.g.normal)
                 .bind_texture("aAlbedo", &self.g.albedo)
                 .bind_texture("aAlbedo", &self.g.albedo)
-                .bind_texture("aMetallicRoughnessAoOpacity", &self.g.metallic_roughness_ao_opacity)
+                .bind_texture(
+                    "aMetallicRoughnessAoOpacity",
+                    &self.g.metallic_roughness_ao_opacity,
+                )
                 .bind_float(
                     "ambientIntensity",
                     props
@@ -527,7 +526,10 @@ impl Pipeline {
                 )
                 .bind_texture("skybox", &props.ibl.cubemap);
             let cube_ref = self.meshes.get_cube();
-            self.meshes.get_mesh_mut(&cube_ref).bind().draw(&fbo, &program);
+            self.meshes
+                .get_mesh_mut(&cube_ref)
+                .bind()
+                .draw(&fbo, &program);
             unsafe {
                 gl::DepthFunc(gl::LESS);
                 gl::Enable(gl::CULL_FACE);

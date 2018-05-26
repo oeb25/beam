@@ -1,8 +1,10 @@
 use std::{self, collections::HashMap, mem, path::Path};
 
-use mg::{VertexArray, VertexBuffer, VertexBufferBinder, ProgramBinding,
-        FramebufferBinderDrawer, DrawMode};
-use misc::{Vertex, Mat4};
+use mg::{
+    DrawMode, FramebufferBinderDrawer, ProgramBinding, VertexArray, VertexBuffer,
+    VertexBufferBinder,
+};
+use misc::{Mat4, Vertex};
 
 macro_rules! offset_of {
     ($ty:ty, $field:ident) => {

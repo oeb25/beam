@@ -1,4 +1,4 @@
-use misc::{Vertex, V3, v2, v3};
+use misc::{v2, v3, V3, Vertex};
 use render::mesh::calculate_tangent_and_bitangent;
 
 macro_rules! v {
@@ -262,15 +262,11 @@ pub fn sphere_verticies(radius: f32, nb_long: usize, nb_lat: usize) -> Vec<Verte
             let a2 = PI * 2.0 * (if lon == nb_long { 0.0 } else { lon as f32 }) / nb_long as f32;
             let (sin2, cos2) = a2.sin_cos();
 
-            let pos = v3(
-                sin1 * cos2,
-                cos1,
-                sin1 * sin2,
-            );
+            let pos = v3(sin1 * cos2, cos1, sin1 * sin2);
             let norm = pos;
             let tex = v2(
                 lon as f32 / nb_long as f32,
-                1.0 - (lat as f32 + 1.0) / (nb_lat as f32 + 1.0)
+                1.0 - (lat as f32 + 1.0) / (nb_lat as f32 + 1.0),
             );
 
             verts[lon + lat * (nb_long + 1) + 1] = Vertex {

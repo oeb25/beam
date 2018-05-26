@@ -1,15 +1,8 @@
 use gl;
-use std::{borrow::Cow,
-          ffi,
-          fs,
-          marker::PhantomData,
-          mem,
-          ptr,
-          path::Path,
-      };
+use std::{borrow::Cow, ffi, fs, marker::PhantomData, mem, path::Path, ptr};
 
-use types::GlError;
 use textures::{Texture, TextureSlot};
+use types::GlError;
 
 #[derive(Debug, Clone, Copy)]
 pub enum ShaderKind {
@@ -36,7 +29,7 @@ impl Shader {
         Shader::new(&src, kind)
     }
     pub fn new(src: &str, kind: ShaderKind) -> Result<Shader, ()> {
-        let id = unsafe {;
+        let id = unsafe {
             let shader_id = gl::CreateShader(kind.into());
             let source = ffi::CString::new(src).unwrap();
             gl::ShaderSource(
@@ -59,7 +52,8 @@ impl Shader {
                     buffer.as_mut_ptr() as *mut _,
                 );
                 buffer.set_len(error_log_size as usize);
-                let error_msg = String::from_utf8(buffer).expect("error message could not be turned into utf8");
+                let error_msg =
+                    String::from_utf8(buffer).expect("error message could not be turned into utf8");
                 println!("Error while compiling shader of type {:?}", kind);
                 for line in error_msg.lines() {
                     println!("{}", line);
@@ -203,28 +197,34 @@ impl Program {
         Program::new(&vs, gs.as_ref(), &fs)
     }
     #[allow(unused)]
-    pub fn new_from_src(
-        vs_src: &str,
-        gs_src: Option<&str>,
-        fs_src: &str,
-    ) -> Result<Program, ()> {
+    pub fn new_from_src(vs_src: &str, gs_src: Option<&str>, fs_src: &str) -> Result<Program, ()> {
         let vs = VertexShader::new(&vs_src).map_err(|e| {
             println!("unable to create vertex shader with src:");
-            println!("{}", vs_src.lines().enumerate().map(|(i, line)| {
-                format!("{:?} | {}\n", i + 1, line)
-            }).collect::<String>());
+            println!(
+                "{}",
+                vs_src
+                    .lines()
+                    .enumerate()
+                    .map(|(i, line)| format!("{:?} | {}\n", i + 1, line))
+                    .collect::<String>()
+            );
             e
-        })?;//.expect("unable to create vertex shader");
+        })?; //.expect("unable to create vertex shader");
         let gs = gs_src
             .map(|gs_src| GeometryShader::new(&gs_src))
             .transpose()?;
         let fs = FragmentShader::new(&fs_src).map_err(|e| {
             println!("unable to create fragment shader with src:");
-            println!("{}", fs_src.lines().enumerate().map(|(i, line)| {
-                format!("{:?} | {}\n", i + 1, line)
-            }).collect::<String>());
+            println!(
+                "{}",
+                fs_src
+                    .lines()
+                    .enumerate()
+                    .map(|(i, line)| format!("{:?} | {}\n", i + 1, line))
+                    .collect::<String>()
+            );
             e
-        })?;//.expect("unable to create fragment shader");
+        })?; //.expect("unable to create fragment shader");
 
         Program::new(&vs, gs.as_ref(), &fs)
     }
@@ -251,7 +251,7 @@ pub trait Uloc: Sized {
     fn loc(self, program: &ProgramBinding) -> UniformLocation;
     fn id(self, program: &ProgramBinding) -> i32 {
         self.loc(program).0
-    } 
+    }
 }
 impl<'a> Uloc for &'a str {
     fn loc(self, program: &ProgramBinding) -> UniformLocation {
@@ -288,7 +288,10 @@ impl<'a> ProgramBinding<'a> {
             gl::UseProgram(program.id);
         }
         let next_texture_slot = Cell::new(TextureSlot::Zero);
-        ProgramBinding { program, next_texture_slot }
+        ProgramBinding {
+            program,
+            next_texture_slot,
+        }
     }
     pub fn set_next_texture_slot(&self, slot: TextureSlot) -> &ProgramBinding<'a> {
         self.next_texture_slot.set(slot);
@@ -300,13 +303,14 @@ impl<'a> ProgramBinding<'a> {
     pub fn bind_mat4(&self, loc: impl Uloc, mat: impl Into<Mat4>) -> &ProgramBinding<'a> {
         self.bind_mat4s(loc, &[mat.into()])
     }
-    pub fn bind_mat4s(
-        &self,
-        loc: impl Uloc,
-        mats: &[Mat4],
-    ) -> &ProgramBinding<'a> {
+    pub fn bind_mat4s(&self, loc: impl Uloc, mats: &[Mat4]) -> &ProgramBinding<'a> {
         unsafe {
-            gl::UniformMatrix4fv(loc.id(self), mats.len() as i32, gl::FALSE, mats.as_ptr() as *const _);
+            gl::UniformMatrix4fv(
+                loc.id(self),
+                mats.len() as i32,
+                gl::FALSE,
+                mats.as_ptr() as *const _,
+            );
         }
         self
     }
@@ -340,22 +344,14 @@ impl<'a> ProgramBinding<'a> {
         texture.bind_to(slot);
         self.bind_int(loc, slot.into())
     }
-    pub fn bind_texture_returning_slot(
-        &self,
-        loc: impl Uloc,
-        texture: &Texture,
-    ) -> TextureSlot {
+    pub fn bind_texture_returning_slot(&self, loc: impl Uloc, texture: &Texture) -> TextureSlot {
         let slot = self.next_texture_slot.get();
         texture.bind_to(slot);
         self.next_texture_slot.set(slot.next());
         self.bind_int(loc, slot.into());
         slot
     }
-    pub fn bind_texture(
-        &self,
-        loc: impl Uloc,
-        texture: &Texture,
-    ) -> &ProgramBinding<'a> {
+    pub fn bind_texture(&self, loc: impl Uloc, texture: &Texture) -> &ProgramBinding<'a> {
         self.bind_texture_returning_slot(loc, texture);
         self
     }
@@ -365,12 +361,14 @@ impl<'a> ProgramBinding<'a> {
         textures: impl Iterator<Item = &'b Texture>,
     ) -> &ProgramBinding<'a> {
         let mut cur_slot = self.next_texture_slot.get();
-        let slots = textures.map(|tex| {
-            let slot = cur_slot;
-            tex.bind_to(slot);
-            cur_slot = slot.next();
-            slot.into()
-        }).collect::<Vec<_>>();
+        let slots = textures
+            .map(|tex| {
+                let slot = cur_slot;
+                tex.bind_to(slot);
+                cur_slot = slot.next();
+                slot.into()
+            })
+            .collect::<Vec<_>>();
         self.next_texture_slot.set(cur_slot.next());
         self.bind_ints(loc, &slots)
     }
@@ -388,7 +386,9 @@ impl<'a> ProgramBinding<'a> {
     }
     pub fn bind_vec3<T: Into<[f32; 3]>>(&self, loc: impl Uloc, v: T) -> &ProgramBinding<'a> {
         let v = v.into();
-        unsafe { gl::Uniform3f(loc.id(self), v[0], v[1], v[2]); }
+        unsafe {
+            gl::Uniform3f(loc.id(self), v[0], v[1], v[2]);
+        }
         self
     }
     pub fn bind_vec3s(&self, loc: impl Uloc, v: &[[f32; 3]]) -> &ProgramBinding<'a> {

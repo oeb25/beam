@@ -47,15 +47,16 @@ pub struct Cacher<K: PartialEq, V> {
 }
 impl<K: PartialEq, V> Cacher<K, V> {
     pub fn new() -> Cacher<K, V> {
-        Cacher {
-            cache: vec![],
-        }
+        Cacher { cache: vec![] }
     }
     pub fn get<'a>(&'a self, key: &K) -> Option<&'a V> {
         self.cache.iter().find(|(k, _)| k == key).map(|(_, v)| v)
     }
     pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
-        self.cache.iter_mut().find(|(k, _)| k == key).map(|(_, v)| v)
+        self.cache
+            .iter_mut()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v)
     }
     // pub fn get_or_else<'a, F>(&'a mut self, key: K, f: F) -> &'a V
     // where
@@ -91,8 +92,6 @@ impl<K: PartialEq, V> Cacher<K, Vec<V>> {
 }
 impl<K: PartialEq, V> Default for Cacher<K, V> {
     fn default() -> Cacher<K, V> {
-        Cacher {
-            cache: vec![],
-        }
+        Cacher { cache: vec![] }
     }
 }

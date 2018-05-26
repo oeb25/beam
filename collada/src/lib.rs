@@ -67,9 +67,7 @@ pub struct MeshTriangles {
 #[derive(Debug)]
 pub enum Geometry {
     ConvexMesh,
-    Mesh {
-        triangles: Vec<MeshTriangles>
-    },
+    Mesh { triangles: Vec<MeshTriangles> },
     Spline,
 }
 
@@ -207,7 +205,11 @@ impl From<raw::ColladaRaw> for Result<Collada, Error> {
             let convert = |x: &raw::TechniqueValue| match x {
                 raw::TechniqueValue::Color { value, .. } => {
                     let mut result = [0.0; 4];
-                    for (i, n) in value.split_whitespace().map(|x| x.parse().unwrap()).enumerate() {
+                    for (i, n) in value
+                        .split_whitespace()
+                        .map(|x| x.parse().unwrap())
+                        .enumerate()
+                    {
                         result[i] = n;
                     }
                     Ok(PhongProperty::Color(result))
@@ -218,10 +220,11 @@ impl From<raw::ColladaRaw> for Result<Collada, Error> {
                         .find(|x| &x.sid == texture)
                         .ok_or(TextureNotFound(texture.clone()))?;
                     let id = match &id.kind {
-                        raw::NewParamKind::Sampler2D { source } => newparams
-                            .iter()
-                            .find(|x| &x.sid == source)
-                            .ok_or_else(|| Sampler2DNotFound(source.clone()).context("second indirection"))?,
+                        raw::NewParamKind::Sampler2D { source } => {
+                            newparams.iter().find(|x| &x.sid == source).ok_or_else(|| {
+                                Sampler2DNotFound(source.clone()).context("second indirection")
+                            })?
+                        }
                         _ => unimplemented!("non sampler on second indirect"),
                     };
                     let id = match &id.kind {
@@ -229,7 +232,9 @@ impl From<raw::ColladaRaw> for Result<Collada, Error> {
                             image_ids
                                 .iter()
                                 .find(|x| &x.0 == init_from)
-                                .ok_or(SurfaceNotFound(init_from.clone()).context("third indirection"))?
+                                .ok_or(
+                                    SurfaceNotFound(init_from.clone()).context("third indirection"),
+                                )?
                                 .1
                         }
                         _ => unimplemented!("non surface on third indirect"),
@@ -281,45 +286,49 @@ impl From<raw::ColladaRaw> for Result<Collada, Error> {
         let mut geometry_ids = vec![];
         for (i, geom) in library_geometries.geometry.into_iter().enumerate() {
             let mesh = geom.mesh;
-            let triangles = mesh.triangles.iter().map(|triangles| {
-                let input = &triangles.input;
-                let v_input_id = &mesh.vertices.input;
-                let n_input_id = &input[1];
-                let t_input_id = &input[2];
-                let find = |s: &str| {
-                    &mesh
-                        .source
+            let triangles = mesh
+                .triangles
+                .iter()
+                .map(|triangles| {
+                    let input = &triangles.input;
+                    let v_input_id = &mesh.vertices.input;
+                    let n_input_id = &input[1];
+                    let t_input_id = &input[2];
+                    let find = |s: &str| {
+                        &mesh
+                            .source
+                            .iter()
+                            .find(|x| x.id == s[1..])
+                            .unwrap()
+                            .float_array
+                            .data
+                    };
+                    let vd = find(&v_input_id.source);
+                    let nd = find(&n_input_id.source);
+                    let td = find(&t_input_id.source);
+                    let vertices = triangles
+                        .p
+                        .chunks(3)
+                        .map(|x| (x[0] * 3, x[1] * 3, x[2] * 2))
+                        .map(|(v, n, t)| {
+                            (
+                                [vd[v], vd[v + 1], vd[v + 2]],
+                                [nd[n], nd[n + 1], nd[n + 2]],
+                                [td[t], td[t + 1]],
+                            )
+                        })
+                        .map(|(pos, nor, tex)| Vertex { pos, nor, tex })
+                        .collect();
+
+                    let material = material_ids
                         .iter()
-                        .find(|x| x.id == s[1..])
-                        .unwrap()
-                        .float_array
-                        .data
-                };
-                let vd = find(&v_input_id.source);
-                let nd = find(&n_input_id.source);
-                let td = find(&t_input_id.source);
-                let vertices = triangles
-                    .p
-                    .chunks(3)
-                    .map(|x| (x[0] * 3, x[1] * 3, x[2] * 2))
-                    .map(|(v, n, t)| {
-                        (
-                            [vd[v], vd[v + 1], vd[v + 2]],
-                            [nd[n], nd[n + 1], nd[n + 2]],
-                            [td[t], td[t + 1]],
-                        )
-                    })
-                    .map(|(pos, nor, tex)| Vertex { pos, nor, tex })
-                    .collect();
+                        .find(|x| x.0 == triangles.material)
+                        .expect("could not find material for mesh")
+                        .1;
 
-                let material = material_ids
-                    .iter()
-                    .find(|x| x.0 == triangles.material)
-                    .expect("could not find material for mesh")
-                    .1;
-
-                MeshTriangles { vertices, material }
-            }).collect();
+                    MeshTriangles { vertices, material }
+                })
+                .collect();
 
             let new_geometry = Geometry::Mesh { triangles };
 
@@ -336,16 +345,14 @@ impl From<raw::ColladaRaw> for Result<Collada, Error> {
                 .nodes
                 .into_iter()
                 .map(|node| {
-                    let (transformations, instance_geometry): (
-                        Vec<_>,
-                        Vec<_>,
-                    ) = node.elements.into_iter().partition(|e| {
-                        use raw::SceneNodeElement::*;
-                        match e {
-                            LookAt | Matrix(_) | Rotate | Scale | Skew | Translate => true,
-                            InstanceGeometry(_) => false,
-                        }
-                    });
+                    let (transformations, instance_geometry): (Vec<_>, Vec<_>) =
+                        node.elements.into_iter().partition(|e| {
+                            use raw::SceneNodeElement::*;
+                            match e {
+                                LookAt | Matrix(_) | Rotate | Scale | Skew | Translate => true,
+                                InstanceGeometry(_) => false,
+                            }
+                        });
 
                     let transformations = transformations.into_iter().map(|x| match x {
                         raw::SceneNodeElement::LookAt => raw::Transformation::LookAt,
@@ -385,8 +392,10 @@ impl From<raw::ColladaRaw> for Result<Collada, Error> {
                                     .expect("could not find geometry for node")
                                     .1,
                                 material: geom.bind_material.map(|mat| {
-                                    mat.technique_common.materials.into_iter().map(|t| {
-                                        match t {
+                                    mat.technique_common
+                                        .materials
+                                        .into_iter()
+                                        .map(|t| match t {
                                             raw::BindTechniqueCommon::InstanceMaterial {
                                                 target,
                                                 ..
@@ -397,8 +406,8 @@ impl From<raw::ColladaRaw> for Result<Collada, Error> {
                                                     .expect("could not find material for node")
                                                     .1
                                             }
-                                        }
-                                    }).collect()
+                                        })
+                                        .collect()
                                 }),
                             })
                             .collect(),
@@ -421,10 +430,10 @@ impl From<raw::ColladaRaw> for Result<Collada, Error> {
                 visual_scene_ids
                     .iter()
                     .find(|x| x.0 == &scene.instance_visual_scene.url[1..])
-                    .ok_or_else(||
+                    .ok_or_else(|| {
                         VisualSceneNotFound(scene.instance_visual_scene.url.clone())
                             .context("from main scene")
-                    )?
+                    })?
                     .1,
             ),
         };

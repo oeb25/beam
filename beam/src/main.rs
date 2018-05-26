@@ -1,16 +1,17 @@
 #![feature(fs_read_write, stmt_expr_attributes, transpose_result, box_syntax, box_patterns)]
 #![feature(custom_attribute, nll, iterator_flatten)]
 
-#[macro_use] extern crate failure;
+#[macro_use]
+extern crate failure;
 extern crate cgmath;
 extern crate collada;
 extern crate genmesh;
 extern crate gl;
 extern crate glutin;
 extern crate image;
+extern crate mg;
 extern crate obj;
 extern crate time;
-extern crate mg;
 extern crate warmy;
 
 use failure::{Error, Fail};
@@ -21,15 +22,17 @@ use glutin::GlContext;
 
 use time::{Duration, PreciseTime};
 
-mod misc;
 mod hot;
+mod misc;
 mod pipeline;
 mod render;
 // mod logic;
 
+use misc::*;
 use pipeline::*;
 use render::*;
-use misc::*;
+
+use render::lights::{DirectionalLight, PointLight, PointShadowMap, ShadowMap};
 
 #[derive(Default)]
 struct Input {
@@ -77,19 +80,19 @@ impl Scene {
             },
             PointLight {
                 color: hex(0x0050ff) * 0.3,
-                position:  v3(10.0, 2.0, 10.0),
+                position: v3(10.0, 2.0, 10.0),
                 last_shadow_map_position: one,
                 shadow_map: None,
             },
             PointLight {
                 color: hex(0x00ff2e) * 0.3,
-                position:  v3(10.0, 2.0, -10.0),
+                position: v3(10.0, 2.0, -10.0),
                 last_shadow_map_position: one,
                 shadow_map: None,
             },
             PointLight {
                 color: hex(0xffc700) * 0.3,
-                position:  v3(-10.0, 2.0, -10.0),
+                position: v3(-10.0, 2.0, -10.0),
                 last_shadow_map_position: one,
                 shadow_map: None,
             },
@@ -120,7 +123,8 @@ impl Scene {
         let sensitivity = 0.005;
 
         self.camera.pos += walk_speed
-            * (front * (inputs.w - inputs.s) + right * (inputs.d - inputs.a)
+            * (front * (inputs.w - inputs.s)
+                + right * (inputs.d - inputs.a)
                 + up * (inputs.space - inputs.shift));
         self.camera.yaw += sensitivity * inputs.mouse_delta.0;
         self.camera.pitch = (self.camera.pitch - sensitivity * inputs.mouse_delta.1)
@@ -144,7 +148,10 @@ fn main() -> Result<(), Error> {
         .with_gl_profile(glutin::GlProfile::Core)
         .with_srgb(true);
     let gl_window = glutin::GlWindow::new(window, context, &events_loop).unwrap();
-    gl_window.window().set_cursor_state(glutin::CursorState::Grab).unwrap();
+    gl_window
+        .window()
+        .set_cursor_state(glutin::CursorState::Grab)
+        .unwrap();
 
     let hidpi_factor = gl_window.window().hidpi_factor();
 
@@ -168,18 +175,15 @@ fn main() -> Result<(), Error> {
     let mut pipeline = Pipeline::new(w, h, hidpi_factor);
 
     let room_ibl = pipeline.load_ibl("assets/Newport_Loft/Newport_Loft_Ref.hdr")?;
-    let rust_material = pipeline.meshes.load_pbr_with_default_filenames(
-        "assets/pbr/rusted_iron",
-        "png",
-    )?;
-    let plastic_material = pipeline.meshes.load_pbr_with_default_filenames(
-        "assets/pbr/plastic",
-        "png",
-    )?;
-    let gold_material = pipeline.meshes.load_pbr_with_default_filenames(
-        "assets/pbr/gold",
-        "png",
-    )?;
+    let rust_material = pipeline
+        .meshes
+        .load_pbr_with_default_filenames("assets/pbr/rusted_iron", "png")?;
+    let plastic_material = pipeline
+        .meshes
+        .load_pbr_with_default_filenames("assets/pbr/plastic", "png")?;
+    let gold_material = pipeline
+        .meshes
+        .load_pbr_with_default_filenames("assets/pbr/gold", "png")?;
 
     let white4 = pipeline.meshes.rgba_texture(v4(1.0, 1.0, 1.0, 1.0));
     let white3 = pipeline.meshes.rgb_texture(v3(1.0, 1.0, 1.0));
@@ -188,7 +192,8 @@ fn main() -> Result<(), Error> {
     let black3 = pipeline.meshes.rgb_texture(v3(0.0, 0.0, 0.0));
     let normal3 = pipeline.meshes.rgb_texture(v3(0.5, 0.5, 1.0));
 
-    let suzanne = pipeline.meshes
+    let suzanne = pipeline
+        .meshes
         .load_collada("assets/suzanne/suzanne.dae")?
         .scale(1.0 / 2.0)
         .translate(v3(0.0, 20.0, 0.0));
@@ -205,7 +210,7 @@ fn main() -> Result<(), Error> {
             let x = i as f32 / 2.0;
             let v = v3(i as f32 / 2.0, -i as f32 - 5.0, n as f32 - x) * 2.0;
             let v = Mat4::from_translation(v) * Mat4::from_angle_y(Rad(i as f32 - 1.0));
-            let obj = suzanne.transform(v);// .with_material(pbr_materials[m % nr_pbr_materials]);
+            let obj = suzanne.transform(v); // .with_material(pbr_materials[m % nr_pbr_materials]);
             m += 1;
             is.push(obj);
         }
@@ -255,7 +260,7 @@ fn main() -> Result<(), Error> {
                 glutin::WindowEvent::Resized(w, h) => {
                     gl_window.resize(w, h);
                     pipeline.resize(w, h);
-                },
+                }
                 glutin::WindowEvent::CursorMoved { position, .. } => {
                     match last_pos {
                         None => {
@@ -301,15 +306,13 @@ fn main() -> Result<(), Error> {
                     }
                 }
                 // x => println!("{:?}", x),
-                _ => {},
+                _ => {}
             },
-            glutin::Event::DeviceEvent { event, .. } => {
-                match event {
-                    glutin::DeviceEvent::MouseMotion { delta } => {
-                        inputs.mouse_delta = (delta.0 as f32, delta.1 as f32);
-                    }
-                    _ => {},
+            glutin::Event::DeviceEvent { event, .. } => match event {
+                glutin::DeviceEvent::MouseMotion { delta } => {
+                    inputs.mouse_delta = (delta.0 as f32, delta.1 as f32);
                 }
+                _ => {}
             },
             // x => println!("{:?}", x),
             _ => (),
@@ -328,19 +331,17 @@ fn main() -> Result<(), Error> {
                 // (v3(0.0, -10.0, -10.0), v3(20.0, 20.0, 0.1)),
                 // (v3(0.0, -10.0, 10.0), v3(20.0, 20.0, 0.1)),
             ].into_iter()
-                .map(|(p, s)|
+                .map(|(p, s)| {
                     cube_mesh.transform(
-                        Mat4::from_translation(*p)
-                        * Mat4::from_nonuniform_scale(s.x, s.y, s.z)
+                        Mat4::from_translation(*p) * Mat4::from_nonuniform_scale(s.x, s.y, s.z),
                     )
-                )
+                })
                 .collect();
 
             for light in scene.point_lights.iter() {
                 let mesh = sphere_mesh
                     .transform(
-                        Mat4::from_translation(light.position.clone()) *
-                        Mat4::from_scale(0.8)
+                        Mat4::from_translation(light.position.clone()) * Mat4::from_scale(0.8),
                     )
                     .with_material(Material {
                         albedo: pipeline.meshes.rgb_texture(light.color),

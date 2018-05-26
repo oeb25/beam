@@ -1,11 +1,10 @@
 use gl;
-use std::{ptr, os::{self}, mem};
+use std::{mem, os, ptr};
 
-use types::{GlType, GlError};
-use shaders::{ProgramBinding};
+use buffers::{ElementBufferBinder, ElementKind, VertexBufferBinder};
 use framebuffers::FramebufferBinderDrawer;
-use buffers::{ElementKind, ElementBufferBinder, VertexBufferBinder};
-
+use shaders::ProgramBinding;
+use types::{GlError, GlType};
 
 pub struct VertexArray(gl::types::GLuint);
 
@@ -87,13 +86,11 @@ impl<'a> VertexArrayBinder<'a> {
         unsafe {
             gl::DrawArraysInstanced(mode.into(), first as i32, count as i32, instances as i32);
         }
-        GlError::check().expect(
-            &format!(
-                r#"VertexArrayBinder::draw_arrays_instanced: failed to draw instanced.
+        GlError::check().expect(&format!(
+            r#"VertexArrayBinder::draw_arrays_instanced: failed to draw instanced.
                 Call looks like: gl::DrawArraysInstanced({:?}, {}, {}, {})"#,
-                mode, first, count, instances,
-            ),
-        );
+            mode, first, count, instances,
+        ));
         self
     }
     pub fn draw_elements<T, S>(
@@ -104,7 +101,7 @@ impl<'a> VertexArrayBinder<'a> {
     ) -> &VertexArrayBinder
     where
         T: FramebufferBinderDrawer,
-        S: ElementKind
+        S: ElementKind,
     {
         unsafe {
             gl::DrawElements(
@@ -125,7 +122,7 @@ impl<'a> VertexArrayBinder<'a> {
     ) -> &VertexArrayBinder
     where
         T: FramebufferBinderDrawer,
-        S: ElementKind
+        S: ElementKind,
     {
         unsafe {
             gl::DrawElementsInstanced(
