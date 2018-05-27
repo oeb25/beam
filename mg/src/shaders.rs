@@ -1,8 +1,7 @@
 use gl;
-use std::{borrow::Cow, ffi, fs, marker::PhantomData, mem, path::Path, ptr};
+use std::{ffi, fs, mem, path::Path, ptr};
 
 use textures::{Texture, TextureSlot};
-use types::GlError;
 
 #[derive(Debug, Clone, Copy)]
 pub enum ShaderKind {

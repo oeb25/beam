@@ -63,11 +63,9 @@ impl<K: PartialEq, V> Cacher<K, V> {
     // where
     //     F: FnOnce() -> V
     // {
-    //     if let Some(value) = self.get(&key) {
-    //         return value;
-    //     } else {
-    //         let value = f();
-    //         self.insert(key, value)
+    //     match self.get(&key) {
+    //         Some(value) => value,
+    //         None => self.insert(key, f())
     //     }
     // }
     pub fn insert<'a>(&'a mut self, key: K, value: V) -> &'a V {

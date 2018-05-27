@@ -182,7 +182,7 @@ fn main() -> Result<(), Error> {
     let _plastic_material = pipeline
         .meshes
         .load_pbr_with_default_filenames("assets/pbr/plastic", "png")?;
-    let _gold_material = pipeline
+    let gold_material = pipeline
         .meshes
         .load_pbr_with_default_filenames("assets/pbr/gold", "png")?;
 
@@ -347,6 +347,28 @@ fn main() -> Result<(), Error> {
             }
 
             objects.append(&mut is.clone());
+
+            let mut closest_object = None;
+            let ray = (scene.camera.pos, scene.camera.front());
+            for (i, obj) in objects.iter().enumerate() {
+                let dist = obj.raymarch(&pipeline.meshes, ray.0, ray.1);
+                match closest_object {
+                    None => closest_object = Some((dist, i)),
+                    Some((prev_dist, _)) => {
+                        if prev_dist > dist {
+                            closest_object = Some((dist, i))
+                        }
+                    }
+                }
+            }
+            match closest_object {
+                Some((d, i)) => {
+                    if d < 1.0 {
+                        objects[i] = objects[i].with_material(gold_material);
+                    }
+                }
+                None => {}
+            }
 
             pipeline.render(
                 update_shadows,

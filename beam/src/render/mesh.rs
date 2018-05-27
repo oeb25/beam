@@ -1,10 +1,9 @@
 use std::mem;
 
 use mg::{
-    DrawMode, FramebufferBinderDrawer, ProgramBind, VertexArray, VertexBuffer,
-    VertexBufferBinder,
+    DrawMode, FramebufferBinderDrawer, ProgramBind, VertexArray, VertexBuffer, VertexBufferBinder,
 };
-use misc::{Mat4, Vertex};
+use misc::{Mat4, V3, Vertex};
 
 macro_rules! offset_of {
     ($ty:ty, $field:ident) => {
@@ -27,10 +26,13 @@ macro_rules! size_of {
 pub struct Mesh {
     vcount: usize,
     vao: VertexArray,
+    pub simple_verts: Vec<V3>,
 }
 
 impl Mesh {
     pub fn new(vertices: &[Vertex]) -> Mesh {
+        let simple_verts = vertices.iter().map(|v| v.pos).collect();
+
         let mut vao = VertexArray::new();
         let mut vbo = VertexBuffer::from_data(vertices);
 
@@ -60,6 +62,7 @@ impl Mesh {
         Mesh {
             vcount: vertices.len(),
             vao: vao,
+            simple_verts,
         }
     }
     pub fn bind(&mut self) -> MeshBinding {
@@ -72,7 +75,7 @@ impl<'a> MeshBinding<'a> {
     pub fn draw<F, P>(&mut self, fbo: &F, program: &P)
     where
         F: FramebufferBinderDrawer,
-        P: ProgramBind
+        P: ProgramBind,
     {
         // self.bind_textures(program);
 
@@ -88,7 +91,7 @@ impl<'a> MeshBinding<'a> {
         transforms: &VertexBufferBinder<Mat4>,
     ) where
         F: FramebufferBinderDrawer,
-        P: ProgramBind
+        P: ProgramBind,
     {
         let mut vao = self.0.vao.bind();
         let offset = 5;
@@ -108,7 +111,7 @@ impl<'a> MeshBinding<'a> {
         transforms: &VertexBufferBinder<Mat4>,
     ) where
         F: FramebufferBinderDrawer,
-        P: ProgramBind
+        P: ProgramBind,
     {
         // self.bind_textures(program);
         self.draw_geometry_instanced(fbo, program, transforms);

@@ -490,24 +490,25 @@ impl MeshStore {
         extension: &str,
     ) -> Result<Material, Error> {
         let path = path.as_ref();
-
-        let mut load_srgb = |map| {
-            let p = path.join(map).with_extension(extension);
-            self.load_srgb(p)
-        };
-        let albedo = load_srgb("albedo").context("failed to load pbr albedo")?;
-        let mut load_rgb = |map| {
-            let p = path.join(map).with_extension(extension);
-            self.load_rgb(p)
-        };
+        let x = |map| path.join(map).with_extension(extension);
 
         Ok(Material {
-            albedo,
-            metallic: load_rgb("metallic").context("failed to load pbr metallic")?,
-            roughness: load_rgb("roughness").context("failed to load pbr roughness")?,
-            normal: load_rgb("normal").context("failed to load pbr normal")?,
-            ao: load_rgb("ao").context("failed to load pbr ao")?,
-            opacity: load_rgb("opacity").context("failed to load pbr opacity")?,
+            albedo: self
+                .load_srgb(x("albedo"))
+                .context("failed to load pbr albedo")?,
+            metallic: self
+                .load_rgb(x("metallic"))
+                .context("failed to load pbr metallic")?,
+            roughness: self
+                .load_rgb(x("roughness"))
+                .context("failed to load pbr roughness")?,
+            normal: self
+                .load_rgb(x("normal"))
+                .context("failed to load pbr normal")?,
+            ao: self.load_rgb(x("ao")).context("failed to load pbr ao")?,
+            opacity: self
+                .load_rgb(x("opacity"))
+                .context("failed to load pbr opacity")?,
         })
     }
 }
@@ -573,6 +574,76 @@ impl RenderObject {
         new.material = Some(material);
 
         new
+    }
+
+    pub fn combined_transformed_verts_within_distance(
+        &self,
+        meshes: &MeshStore,
+        transform: &Mat4,
+        p: &V3,
+        max_dist: f32,
+    ) -> Vec<V3> {
+        fn apply(v: &V3, t: &Mat4) -> V3 {
+            let w = t * v4(v.x, v.y, v.z, 1.0);
+            v3(w.x, w.y, w.z)
+        }
+
+        let transform = self.transform * transform;
+
+        match &self.child {
+            RenderObjectChild::Mesh(mesh_ref) => {
+                let mesh = meshes.get_mesh(mesh_ref);
+                mesh.simple_verts
+                    .iter()
+                    .map(|v| apply(v, &transform))
+                    .filter(|v| (v - p).magnitude() < max_dist)
+                    .collect()
+            }
+            RenderObjectChild::RenderObjects(children) => children
+                .iter()
+                .flat_map(|child| {
+                    child
+                        .combined_transformed_verts_within_distance(meshes, &transform, p, max_dist)
+                })
+                .collect(),
+        }
+    }
+
+    pub fn raymarch(&self, meshes: &MeshStore, p: V3, d: V3) -> f32 {
+        let verts = self.combined_transformed_verts_within_distance(
+            meshes,
+            &Mat4::from_scale(0.0),
+            &p,
+            6.0,
+        );
+
+        let closest_vert = |dp: &V3| {
+            verts
+                .iter()
+                .enumerate()
+                .fold((0, std::f32::MAX), |(j, d), (i, v)| {
+                    let vd = (dp - v).magnitude();
+                    if vd < d {
+                        (i, vd)
+                    } else {
+                        (j, d)
+                    }
+                })
+        };
+
+        const MAX_ITER: usize = 50;
+        const EPOSILON: f32 = 1.0;
+
+        let mut dp = p;
+        let mut h = closest_vert(&dp);
+        for _ in 0..MAX_ITER {
+            if h.1 < EPOSILON {
+                return h.1;
+            }
+            dp = dp + h.1 * d;
+            h = closest_vert(&dp);
+        }
+        std::f32::MAX
     }
 }
 
