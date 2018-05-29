@@ -389,11 +389,12 @@ impl Pipeline {
             let white3 = self.meshes.rgb_texture(v3(1.0, 1.0, 1.0));
             let whiteish3 = self.meshes.rgb_texture(v3(0.2, 0.2, 0.2));
             let normal3 = self.meshes.rgb_texture(v3(0.5, 0.5, 1.0));
+            let black3 = self.meshes.rgb_texture(v3(0.0, 0.0, 0.0));
 
             let default_material = Material {
                 normal: normal3,
-                albedo: white4,
-                metallic: white3,
+                albedo: whiteish3,
+                metallic: black3,
                 roughness: whiteish3,
                 ao: white3,
                 opacity: white3,
