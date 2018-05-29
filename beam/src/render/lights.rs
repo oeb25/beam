@@ -156,50 +156,48 @@ impl PointLight {
 }
 #[repr(C)]
 #[derive(Debug, Clone)]
-struct SpotLight {
-    ambient: V3,
-    diffuse: V3,
-    specular: V3,
+pub struct SpotLight {
+    pub color: V3,
 
-    position: V3,
-    direction: V3,
+    pub position: V3,
+    pub direction: V3,
 
-    cut_off: Rad<f32>,
-    outer_cut_off: Rad<f32>,
-
-    constant: f32,
-    linear: f32,
-    quadratic: f32,
+    pub cut_off: Rad<f32>,
+    pub outer_cut_off: Rad<f32>,
 }
 impl SpotLight {
-    #[allow(unused)]
-    fn bind(&self, name: &str, program: &ProgramBinding) {
+    pub fn bind<P>(&self, name: &str, program: &P)
+    where
+        P: ProgramBind,
+    {
         let ext = |e| format!("{}.{}", name, e);
         let SpotLight {
             position,
-            ambient,
-            diffuse,
-            specular,
+            color,
             direction,
             cut_off,
             outer_cut_off,
-            constant,
-            linear,
-            quadratic,
         } = self;
-        program.bind_vec3(&ext("ambient"), *ambient);
-        program.bind_vec3(&ext("diffuse"), *diffuse);
-        program.bind_vec3(&ext("specular"), *specular);
+        program.bind_vec3(&ext("color"), *color);
 
         program.bind_vec3(&ext("position"), *position);
         program.bind_vec3(&ext("direction"), *direction);
 
         program.bind_float(&ext("cutOff"), cut_off.0.cos());
         program.bind_float(&ext("outerCutOff"), outer_cut_off.0.cos());
-
-        program.bind_float(&ext("constant"), *constant);
-        program.bind_float(&ext("linear"), *linear);
-        program.bind_float(&ext("quadratic"), *quadratic);
+    }
+    pub fn bind_multiple<P>(
+        lights: &[SpotLight],
+        name_uniform: &str,
+        amt_uniform: &str,
+        program: &P,
+    ) where
+        P: ProgramBind,
+    {
+        program.bind_int(amt_uniform, lights.len() as i32);
+        for (i, light) in lights.iter().enumerate() {
+            light.bind(&format!("{}[{}]", name_uniform, i), program);
+        }
     }
 }
 
@@ -268,7 +266,7 @@ impl PointShadowMap {
             let tex = map.bind();
             let faces = TextureTarget::cubemap_faces();
 
-            for face in faces.into_iter() {
+            for face in &faces {
                 tex.empty(
                     *face,
                     0,

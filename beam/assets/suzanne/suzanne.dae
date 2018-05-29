@@ -23,6 +23,9 @@
     <image id="NRM" name="NRM">
       <init_from>NRM.png</init_from>
     </image>
+    <image id="OPAC" name="OPAC">
+      <init_from>OPAC.png</init_from>
+    </image>
   </library_images>
   <library_effects>
     <effect id="Main-effect">

@@ -15,7 +15,7 @@ use misc::{v3, v4, Cacher, Mat4, V3, V4};
 
 use render::{
     create_irradiance_map, create_prefiler_map, cubemap_from_equirectangular,
-    lights::{DirectionalLight, PointLight, PointShadowMap, ShadowMap}, Camera, GRenderPass,
+    lights::{DirectionalLight, PointLight, SpotLight, PointShadowMap, ShadowMap}, Camera, GRenderPass,
     Material, MeshRef, MeshStore, RenderObject, RenderObjectChild, RenderTarget, Renderable,
 };
 
@@ -25,6 +25,7 @@ pub struct RenderProps<'a> {
 
     pub directional_lights: &'a mut [DirectionalLight],
     pub point_lights: &'a mut [PointLight],
+    pub spot_lights: &'a mut [SpotLight],
 
     pub ibl: &'a Ibl,
 
@@ -48,6 +49,8 @@ pub struct Ibl {
     pub brdf_lut: Texture,
 }
 
+type DrawCalls = Cacher<(MeshRef, Option<Material>), Vec<Mat4>>;
+
 pub struct Pipeline {
     pub warmy_store: warmy::Store<()>,
 
@@ -67,6 +70,7 @@ pub struct Pipeline {
     pub hdr_program: HotShader,
     pub screen_program: HotShader,
 
+    pub draw_calls: DrawCalls,
     pub meshes: MeshStore,
 
     pub rect: VertexArray,
@@ -205,9 +209,10 @@ impl Pipeline {
             hdr_program,
             screen_program,
 
-            rect: rect,
+            rect,
 
             meshes,
+            draw_calls: DrawCalls::new(),
 
             hidpi_factor,
 
@@ -299,43 +304,42 @@ impl Pipeline {
         })
     }
     fn render_object(
-        render_object: RenderObject,
+        render_object: &RenderObject,
         transform: &Mat4,
         material: Option<Material>,
-        calls: &mut Cacher<(MeshRef, Option<Material>), Vec<Mat4>>,
+        calls: &mut DrawCalls,
     ) {
         let transform = transform * render_object.transform;
         // if a material is passed as a prop, use that over the one bound to the mesh
         let material = material.or(render_object.material);
 
-        match render_object.child {
+        match &render_object.child {
             RenderObjectChild::Mesh(mesh_ref) => {
-                calls.push_into((mesh_ref, material), transform);
+                calls.push_into((*mesh_ref, material), transform);
             }
             RenderObjectChild::RenderObjects(render_objects) => {
-                for obj in render_objects.into_iter() {
+                for obj in render_objects.iter() {
                     Pipeline::render_object(obj, &transform, material, calls)
                 }
             }
         }
     }
-    pub fn render<T>(&mut self, update_shadows: bool, props: RenderProps, render_objects: T)
+    pub fn render<'a, T>(&mut self, update_shadows: bool, props: RenderProps, render_objects: T)
     where
-        T: Iterator<Item = RenderObject>,
+        T: Iterator<Item = &'a RenderObject>,
     {
         let view = props.camera.get_view();
         let view_pos = props.camera.pos;
         let projection = props.camera.get_projection();
 
         let mut scene_draw_calls_meshes: Vec<_> = {
-            let mut draw_calls = Cacher::new();
-
+            self.draw_calls.clear();
             for obj in render_objects {
-                Pipeline::render_object(obj, &Mat4::from_scale(1.0), None, &mut draw_calls);
+                Pipeline::render_object(obj, &Mat4::from_scale(1.0), None, &mut self.draw_calls);
             }
 
-            draw_calls
-                .into_iter()
+            self.draw_calls
+                .iter()
                 .map(|((mesh_ref, material), transforms)| {
                     (mesh_ref, material, VertexBuffer::from_data(&transforms))
                 })
@@ -347,11 +351,10 @@ impl Pipeline {
                 render_scene!($fbo, $program, draw_instanced)
             };
             ($fbo:expr, $program:expr, $func:ident) => {{
-                $program.bind_mat4("model", Mat4::from_scale(1.0));
-                for (mesh_ref, material, transforms) in scene_draw_calls_meshes.iter_mut() {
+                for (mesh_ref, material, transforms) in &mut scene_draw_calls_meshes {
                     let start_slot = $program.next_texture_slot();
                     if let Some(material) = material {
-                        material.bind(&mut self.meshes, &$program);
+                        material.bind(&self.meshes, &$program);
                     }
                     let mesh = self.meshes.get_mesh_mut(&mesh_ref);
                     mesh.bind()
@@ -395,7 +398,7 @@ impl Pipeline {
                 ao: white3,
                 opacity: white3,
             };
-            default_material.bind(&mut self.meshes, &program);
+            default_material.bind(&self.meshes, &program);
 
             render_scene!(fbo, program);
         }
@@ -487,6 +490,7 @@ impl Pipeline {
             );
 
             PointLight::bind_multiple(props.point_lights, "pointLights", "nrPointLights", &g);
+            SpotLight::bind_multiple(props.spot_lights, "spotLights", "nrSpotLights", &g);
 
             draw_rect!(&fbo, &g);
             GlError::check().expect("Lighting pass failed");

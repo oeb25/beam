@@ -46,11 +46,19 @@ impl Default for Vertex {
 pub struct Cacher<K: PartialEq, V> {
     cache: Vec<(K, V)>,
 }
+#[allow(unused)]
 impl<K: PartialEq, V> Cacher<K, V> {
     pub fn new() -> Cacher<K, V> {
         Cacher { cache: vec![] }
     }
-    pub fn get<'a>(&'a self, key: &K) -> Option<&'a V> {
+    fn get_index(&self, key: &K) -> Option<usize> {
+        self.cache
+            .iter()
+            .enumerate()
+            .find(|(_, (k, _))| k == key)
+            .map(|(i, _)| i)
+    }
+    pub fn get(&self, key: &K) -> Option<&V> {
         self.cache.iter().find(|(k, _)| k == key).map(|(_, v)| v)
     }
     pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
@@ -59,16 +67,19 @@ impl<K: PartialEq, V> Cacher<K, V> {
             .find(|(k, _)| k == key)
             .map(|(_, v)| v)
     }
-    // pub fn get_or_else<'a, F>(&'a mut self, key: K, f: F) -> &'a V
-    // where
-    //     F: FnOnce() -> V
-    // {
-    //     match self.get(&key) {
-    //         Some(value) => value,
-    //         None => self.insert(key, f())
-    //     }
-    // }
-    pub fn insert<'a>(&'a mut self, key: K, value: V) -> &'a V {
+    pub fn get_or_insert(&mut self, key: K, value: V) -> &V {
+        self.get_or_insert_with(key, || value)
+    }
+    pub fn get_or_insert_with<F>(&mut self, key: K, f: F) -> &V
+    where
+        F: FnOnce() -> V,
+    {
+        match self.get_index(&key) {
+            Some(index) => &self.cache[index].1,
+            None => self.insert(key, f()),
+        }
+    }
+    pub fn insert(&mut self, key: K, value: V) -> &V {
         let index = self.cache.len();
         self.cache.push((key, value));
         &self.cache[index].1
@@ -78,6 +89,9 @@ impl<K: PartialEq, V> Cacher<K, V> {
     }
     pub fn into_iter(self) -> impl Iterator<Item = (K, V)> {
         self.cache.into_iter()
+    }
+    pub fn clear(&mut self) {
+        self.cache.clear();
     }
 }
 impl<K: PartialEq, V> Cacher<K, Vec<V>> {

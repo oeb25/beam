@@ -293,7 +293,7 @@ pub fn sphere_verticies(radius: f32, nb_long: usize, nb_lat: usize) -> Vec<Verte
 
     let mut new_verts: Vec<Vertex> = Vec::with_capacity(nb_indices);
 
-    let mut v = |i: usize| new_verts.push(verts[i].clone());
+    let mut v = |i: usize| new_verts.push(verts[i]);
 
     for lon in 0..nb_long {
         v(lon + 2);

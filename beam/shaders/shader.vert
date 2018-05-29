@@ -12,16 +12,14 @@ out VS_OUT {
     mat3 TBN;
 } vs_out;
 
-uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
 
 void main() {
     vs_out.OriginalPos = aPos;
-    mat4 model_ = aModel * model;
-    vec4 pos = model_ * vec4(aPos, 1.0);
+    vec4 pos = aModel * vec4(aPos, 1.0);
     vs_out.FragPos = vec3(pos);
-    mat3 normalMatrix = transpose(inverse(mat3(model_)));
+    mat3 normalMatrix = transpose(inverse(mat3(aModel)));
     vs_out.Normal = normalMatrix * aNormal;
     vs_out.TexCoords = vec2(aTexCoords.x, vec2(1.0) - aTexCoords.y);
 

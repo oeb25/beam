@@ -4,13 +4,11 @@ version = "0.1.0"
 authors = ["oeb"]
 
 [dependencies]
-gl = "*"
+gl = "0.10"
 glutin = "0.15"
-cgmath = "*"
+cgmath = "0.16.1"
 image = "0.19"
-obj = { version = "0.8", features = ["genmesh"] }
-genmesh = "0.5"
-time = "*"
+time = "0.1"
 warmy = "0.7.2"
 failure = "0.1"
 

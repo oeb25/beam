@@ -1,17 +1,15 @@
 #![feature(fs_read_write, stmt_expr_attributes, transpose_result, box_syntax, box_patterns)]
 #![feature(custom_attribute, nll, iterator_flatten)]
 
-#[allow(unused_imports)]
+#![allow(unused_imports)]
 #[macro_use]
 extern crate failure;
 extern crate cgmath;
 extern crate collada;
-extern crate genmesh;
 extern crate gl;
 extern crate glutin;
 extern crate image;
 extern crate mg;
-extern crate obj;
 extern crate time;
 extern crate warmy;
 
@@ -29,11 +27,11 @@ mod pipeline;
 mod render;
 // mod logic;
 
-use misc::{v3, Mat4};
+use misc::{v3, P3, Mat4};
 use pipeline::{Pipeline, RenderProps};
 use render::{hex, hsv, mesh, rgb, Camera, Material, RenderObject};
 
-use render::lights::{DirectionalLight, PointLight, PointShadowMap, ShadowMap};
+use render::lights::{DirectionalLight, PointLight, SpotLight, PointShadowMap, ShadowMap};
 
 #[derive(Default)]
 struct Input {
@@ -55,8 +53,9 @@ struct Input {
 
 struct Scene {
     camera: Camera,
-    point_lights: Vec<PointLight>,
     directional_lights: Vec<DirectionalLight>,
+    point_lights: Vec<PointLight>,
+    spot_lights: Vec<SpotLight>,
 }
 
 impl Scene {
@@ -71,6 +70,8 @@ impl Scene {
 
             shadow_map: ShadowMap::new(),
         };
+
+        let directional_lights = vec![sun];
 
         let point_lights = vec![
             PointLight {
@@ -99,7 +100,15 @@ impl Scene {
             },
         ];
 
-        let directional_lights = vec![sun];
+        let spot_lights = vec![
+            SpotLight {
+                color: rgb(25, 25, 255) * 1.9,
+                position: v3(0.0, 25.0, 0.0),
+                direction: v3(0.0, -1.0, 0.0),
+                cut_off: Rad(0.1),
+                outer_cut_off: Rad(0.4),
+            }
+        ];
 
         let camera = Camera::new(
             v3(-15.0, 5.0, 0.0),
@@ -109,8 +118,9 @@ impl Scene {
 
         Scene {
             camera,
-            point_lights,
             directional_lights,
+            point_lights,
+            spot_lights,
         }
     }
     fn tick(&mut self, _t: f32, _dt: f32, inputs: &Input) {
@@ -135,6 +145,9 @@ impl Scene {
         // self.camera.pitch = (self.camera.pitch + sensitivity * (inputs.up - inputs.down))
         //     .max(-pi / 2.001)
         //     .min(pi / 2.001);
+
+        self.spot_lights[0].position = self.camera.pos;
+        self.spot_lights[0].direction = self.camera.front();
     }
 }
 
@@ -145,7 +158,7 @@ fn main() -> Result<(), Error> {
         .with_title("Hello, world!")
         .with_dimensions(screen_width, screen_height);
     let context = glutin::ContextBuilder::new()
-        .with_vsync(true)
+        .with_vsync(false)
         .with_gl_profile(glutin::GlProfile::Core)
         .with_srgb(true);
     let gl_window = glutin::GlWindow::new(window, context, &events_loop).unwrap();
@@ -300,11 +313,10 @@ fn main() -> Result<(), Error> {
                 // x => println!("{:?}", x),
                 _ => {}
             },
-            glutin::Event::DeviceEvent { event, .. } => match event {
-                glutin::DeviceEvent::MouseMotion { delta } => {
+            glutin::Event::DeviceEvent { event, .. } => {
+                if let glutin::DeviceEvent::MouseMotion { delta } = event {
                     inputs.mouse_delta = (delta.0 as f32, delta.1 as f32);
                 }
-                _ => {}
             },
             // x => println!("{:?}", x),
             _ => (),
@@ -330,10 +342,27 @@ fn main() -> Result<(), Error> {
                 })
                 .collect();
 
-            for light in scene.point_lights.iter() {
+            for light in &scene.point_lights {
                 let mesh = sphere_mesh
                     .transform(
-                        Mat4::from_translation(light.position.clone()) * Mat4::from_scale(0.8),
+                        Mat4::from_translation(light.position) * Mat4::from_scale(0.8),
+                    )
+                    .with_material(Material {
+                        albedo: pipeline.meshes.rgb_texture(light.color),
+                        normal: normal3,
+                        metallic: black3,
+                        roughness: white3,
+                        ao: white3,
+                        opacity: white3,
+                    });
+                objects.push(mesh);
+            }
+
+            for light in &scene.spot_lights {
+                let mesh = suzanne
+                    .transform(
+                        Mat4::from_translation(light.position) *
+                        Mat4::from_scale(0.8),
                     )
                     .with_material(Material {
                         albedo: pipeline.meshes.rgb_texture(light.color),
@@ -348,26 +377,10 @@ fn main() -> Result<(), Error> {
 
             objects.append(&mut is.clone());
 
-            let mut closest_object = None;
             let ray = (scene.camera.pos, scene.camera.front());
-            for (i, obj) in objects.iter().enumerate() {
-                let dist = obj.raymarch(&pipeline.meshes, ray.0, ray.1);
-                match closest_object {
-                    None => closest_object = Some((dist, i)),
-                    Some((prev_dist, _)) => {
-                        if prev_dist > dist {
-                            closest_object = Some((dist, i))
-                        }
-                    }
-                }
-            }
-            match closest_object {
-                Some((d, i)) => {
-                    if d < 1.0 {
-                        objects[i] = objects[i].with_material(gold_material);
-                    }
-                }
-                None => {}
+            let res = RenderObject::raymarch_many(objects.iter(), &pipeline.meshes, ray.0, ray.1);
+            if res.1 > 0.99 {
+                objects[res.0] = objects[res.0].with_material(gold_material);
             }
 
             pipeline.render(
@@ -376,6 +389,7 @@ fn main() -> Result<(), Error> {
                     camera: &scene.camera,
                     directional_lights: &mut scene.directional_lights,
                     point_lights: &mut scene.point_lights,
+                    spot_lights: &mut scene.spot_lights,
                     time: t,
 
                     ibl: &room_ibl,
@@ -383,7 +397,7 @@ fn main() -> Result<(), Error> {
                     ambient_intensity: Some(0.1),
                     skybox_intensity: Some(0.1),
                 },
-                objects.into_iter(),
+                objects.iter(),
             );
         }
 

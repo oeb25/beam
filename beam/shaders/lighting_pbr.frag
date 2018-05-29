@@ -18,6 +18,13 @@ uniform vec3 viewPos;
 uniform samplerCube pointShadowMap;
 uniform sampler2D directionalShadowMap;
 
+struct DirectionalLight {
+    vec3 color;
+
+    vec3 direction;
+    mat4 space;
+};
+
 struct PointLight {
     vec3 color;
 
@@ -28,20 +35,27 @@ struct PointLight {
     float farPlane;
 };
 
-struct DirectionalLight {
+struct SpotLight {
     vec3 color;
 
+    vec3 position;
     vec3 direction;
-    mat4 space;
+
+    float cutOff;
+    float outerCutOff;
 };
 
-#define MAX_DIR_LIGHTS 1
+#define MAX_DIR_LIGHTS 10
 uniform int nrDirLights;
 uniform DirectionalLight directionalLights[MAX_DIR_LIGHTS];
 
 #define MAX_POINT_LIGHTS 10
 uniform int nrPointLights;
 uniform PointLight pointLights[MAX_POINT_LIGHTS];
+
+#define MAX_SPOT_LIGHTS 10
+uniform int nrSpotLights;
+uniform SpotLight spotLights[MAX_SPOT_LIGHTS];
 
 float directionalShadowCalculation(float bias, sampler2D shadowMap, vec4 fragPosLightSpace) {
     vec3 projCoords = fragPosLightSpace.xyz;
@@ -107,6 +121,10 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
     return ggx1 * ggx2;
 }
 
+#define DIR_LIGHT_AMP 20.0
+#define POINT_LIGHT_AMP 100.0
+#define SPOT_LIGHT_AMP 100.0
+
 void main() {
     vec3 fragPos = texture(aPosition, TexCoords).rgb;
     vec3 N = normalize(texture(aNormal, TexCoords).rgb);
@@ -131,6 +149,33 @@ void main() {
 
     vec3 Lo;
     vec3 color;
+    for (int i = 0; i < nrDirLights; ++i) {
+        DirectionalLight light = directionalLights[i];
+        vec3 L = normalize(light.direction);
+        vec3 H = normalize(V + L);
+
+        vec3 radiance = light.color * DIR_LIGHT_AMP;
+
+        float NDF = DistributonGGX(N, H, roughness);
+        float G = GeometrySmith(N, V, L, roughness);
+        vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
+
+        vec3 numerator = NDF * G * F;
+        float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.001;
+        vec3 specular = numerator / max(denominator, 0.001);
+
+        vec3 kS = F;
+        vec3 kD = vec3(1.0) - kS;
+
+        kD *= 1.0 - metallic;
+
+        float NdotL = max(dot(N, L), 0.0);
+        float bias = max(0.05 * (1.0 - NdotL), 0.0002);
+        float shadow =
+            1.0 - directionalShadowCalculation(0.0, directionalShadowMap, light.space * vec4(fragPos, 1.0));
+
+        Lo += (kD * albedo / PI + specular) * radiance * NdotL * shadow;
+    }
     for (int i = 0; i < nrPointLights; ++i) {
         PointLight light = pointLights[i];
         vec3 L = normalize(light.position - fragPos);
@@ -138,7 +183,7 @@ void main() {
 
         float distance = length(light.position - fragPos);
         float attenuation = 1.0 / (distance * distance);
-        vec3 radiance = light.color * 100.0 * attenuation;
+        vec3 radiance = light.color * POINT_LIGHT_AMP * attenuation;
 
         float NDF = DistributonGGX(N, H, roughness);
         float G = GeometrySmith(N, V, L, roughness);
@@ -170,20 +215,21 @@ void main() {
         float NdotL = max(dot(N, L), 0.0);
         Lo += (kD * albedo / PI + specular) * radiance * NdotL * shadow;
     }
-    for (int i = 0; i < nrDirLights; ++i) {
-        DirectionalLight light = directionalLights[i];
-        vec3 L = normalize(light.direction);
+    for (int i = 0; i < nrSpotLights; ++i) {
+        SpotLight light = spotLights[i];
+        vec3 L = -light.direction;
         vec3 H = normalize(V + L);
 
-        vec3 radiance = light.color * 20.0;
-
-        vec3 F = fresnelSchlick(max(dot(N, V), 0.0), F0);
+        float distance = length(light.position - fragPos);
+        float attenuation = 1.0 / (distance * distance);
+        vec3 radiance = light.color * SPOT_LIGHT_AMP * attenuation;
 
         float NDF = DistributonGGX(N, H, roughness);
         float G = GeometrySmith(N, V, L, roughness);
+        vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
 
         vec3 numerator = NDF * G * F;
-        float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0);
+        float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.001;
         vec3 specular = numerator / max(denominator, 0.001);
 
         vec3 kS = F;
@@ -191,12 +237,13 @@ void main() {
 
         kD *= 1.0 - metallic;
 
-        float NdotL = max(dot(N, L), 0.0);
-        float bias = max(0.05 * (1.0 - NdotL), 0.0002);
-        float shadow =
-            1.0 - directionalShadowCalculation(0.0, directionalShadowMap, light.space * vec4(fragPos, 1.0));
+        vec3 lightDir = normalize(light.position - fragPos);
+        float theta = dot(lightDir, L);
+        float epsilon = (light.cutOff - light.outerCutOff);
+        float intensity = saturate((theta - light.outerCutOff) / epsilon);
 
-        Lo += (kD * albedo / PI + specular) * radiance * NdotL * shadow;
+        float NdotL = max(dot(N, L), 0.0);
+        Lo += (kD * albedo / PI + specular) * radiance * NdotL * intensity;
     }
 
     vec3 F = fresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);

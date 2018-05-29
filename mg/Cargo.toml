@@ -4,5 +4,5 @@ version = "0.1.0"
 authors = ["Oliver Bøving <oliverboving@gmail.com>"]
 
 [dependencies]
-gl = "*"
-image = "*"
+gl = "0.10"
+image = "0.19"

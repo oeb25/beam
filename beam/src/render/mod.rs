@@ -46,7 +46,7 @@ impl Material {
     }
 
     #[allow(unused)]
-    pub fn into_borrowed<'a>(&self, meshes: &'a MeshStore) -> MaterialBorrowed<'a> {
+    pub fn as_borrowed<'a>(&self, meshes: &'a MeshStore) -> MaterialBorrowed<'a> {
         MaterialBorrowed {
             normal: meshes.get_texture(&self.normal),
             albedo: meshes.get_texture(&self.albedo),
@@ -120,7 +120,7 @@ impl MeshStore {
         let mut ao_src = None;
         let mut opacity_src = None;
 
-        for image in data.images.iter() {
+        for image in &data.images {
             let x = |x| Some(path.with_file_name(x));
             match image.name.as_str() {
                 "DIFF" => albedo_src = x(&image.source),
@@ -165,7 +165,7 @@ impl MeshStore {
         let mut mesh_ids: HashMap<usize, Vec<(MeshRef, Material)>> = HashMap::new();
 
         let mut render_objects = vec![];
-        for node in data.visual_scenes[0].nodes.iter() {
+        for node in &data.visual_scenes[0].nodes {
             use cgmath::Matrix;
             let mut transform = node.transformations.iter().fold(
                 Mat4::from_scale(1.0),
@@ -184,12 +184,12 @@ impl MeshStore {
             transform = transform.transpose();
             transform.swap_rows(1, 2);
             assert_eq!(node.geometry.len(), 1);
-            for geom_instance in node.geometry.iter() {
+            for geom_instance in &node.geometry {
                 let mesh_refs = if let Some(mesh_cache) = mesh_ids.get(&geom_instance.geometry.0) {
                     mesh_cache.clone()
                 } else {
                     let geom = &data.geometry[geom_instance.geometry.0];
-                    let meshes = match geom {
+                    match geom {
                         collada::Geometry::Mesh { triangles } => {
                             let mut meshes = vec![];
 
@@ -234,8 +234,7 @@ impl MeshStore {
                             meshes
                         }
                         _ => unimplemented!(),
-                    };
-                    meshes
+                    }
                 };
 
                 // let material = geom_instance.material
@@ -267,12 +266,8 @@ impl MeshStore {
     ) -> Result<Material, Error> {
         let collada::Material::Effect(effect_ref) = data.materials[material_ref.0];
         let collada::Effect::Phong {
-            emission: _,
-            ambient: _,
             diffuse,
-            specular: _,
-            shininess: _,
-            index_of_refraction: _,
+            ..
         } = &data.effects[effect_ref.0];
 
         let white = self.rgb_texture(v3(1.0, 1.0, 1.0));
@@ -395,12 +390,8 @@ impl MeshStore {
     }
 
     pub fn get_sphere(&mut self, radius: f32) -> MeshRef {
-        if let Some(cached) = self
-            .spheres
-            .iter()
-            .find(|(cache_level, _)| *cache_level == radius)
-        {
-            return cached.1;
+        if let Some(cached) = self.spheres.get(&radius) {
+            return *cached;
         }
 
         let verts = primitives::sphere_verticies(radius, 24, 16);
@@ -576,74 +567,49 @@ impl RenderObject {
         new
     }
 
-    pub fn combined_transformed_verts_within_distance(
-        &self,
-        meshes: &MeshStore,
-        transform: &Mat4,
-        p: &V3,
-        max_dist: f32,
-    ) -> Vec<V3> {
-        fn apply(v: &V3, t: &Mat4) -> V3 {
+    pub fn combined_transformed_verts(&self, meshes: &MeshStore, transform: &Mat4) -> Vec<V3> {
+        let apply = |v: &V3, t: &Mat4| {
             let w = t * v4(v.x, v.y, v.z, 1.0);
             v3(w.x, w.y, w.z)
-        }
+        };
 
         let transform = self.transform * transform;
-
         match &self.child {
             RenderObjectChild::Mesh(mesh_ref) => {
                 let mesh = meshes.get_mesh(mesh_ref);
                 mesh.simple_verts
                     .iter()
                     .map(|v| apply(v, &transform))
-                    .filter(|v| (v - p).magnitude() < max_dist)
                     .collect()
             }
             RenderObjectChild::RenderObjects(children) => children
                 .iter()
-                .flat_map(|child| {
-                    child
-                        .combined_transformed_verts_within_distance(meshes, &transform, p, max_dist)
-                })
+                .flat_map(|child| child.combined_transformed_verts(meshes, &transform))
                 .collect(),
         }
     }
+    pub fn raymarch_many<'a, I>(objs: I, meshes: &MeshStore, p: V3, r: V3) -> (usize, f32)
+    where
+        I: Iterator<Item = &'a RenderObject>,
+    {
+        let verts: Vec<(usize, V3)> = objs
+            .enumerate()
+            .flat_map::<Vec<_>, _>(|(i, obj)| {
+                obj.combined_transformed_verts(meshes, &Mat4::from_scale(1.0))
+                    .into_iter()
+                    .map(|v| (i, v))
+                    .collect()
+            })
+            .collect();
 
-    pub fn raymarch(&self, meshes: &MeshStore, p: V3, d: V3) -> f32 {
-        let verts = self.combined_transformed_verts_within_distance(
-            meshes,
-            &Mat4::from_scale(0.0),
-            &p,
-            6.0,
-        );
-
-        let closest_vert = |dp: &V3| {
-            verts
-                .iter()
-                .enumerate()
-                .fold((0, std::f32::MAX), |(j, d), (i, v)| {
-                    let vd = (dp - v).magnitude();
-                    if vd < d {
-                        (i, vd)
-                    } else {
-                        (j, d)
-                    }
-                })
-        };
-
-        const MAX_ITER: usize = 50;
-        const EPOSILON: f32 = 1.0;
-
-        let mut dp = p;
-        let mut h = closest_vert(&dp);
-        for _ in 0..MAX_ITER {
-            if h.1 < EPOSILON {
-                return h.1;
+        verts.iter().fold((0, -1.0), |(j, d), (i, v)| {
+            let vd = (v - p).normalize().dot(r);
+            if vd > d {
+                (*i, vd)
+            } else {
+                (j, d)
             }
-            dp = dp + h.1 * d;
-            h = closest_vert(&dp);
-        }
-        std::f32::MAX
+        })
     }
 }
 
@@ -876,7 +842,7 @@ impl<'a> CubeMapBuilder<&'a str> {
                 (TextureTarget::TextureCubeMapNegativeZ, self.back),
             ];
 
-            for (target, path) in faces.into_iter() {
+            for (target, path) in &faces {
                 sum_path += path;
                 let img = image::open(path).expect(&format!(
                     "failed to read texture {} while loading cubemap",
@@ -920,7 +886,7 @@ where
     let faces = TextureTarget::cubemap_faces();
     {
         let tex = map.bind();
-        for face in faces.into_iter() {
+        for face in &faces {
             tex.empty(
                 *face,
                 0,
@@ -964,7 +930,7 @@ where
 
     let origo = P3::new(0.0, 0.0, 0.0);
     let lp = origo;
-    let look_at = |p, up| (Mat4::look_at(lp, lp + p, up)).into();
+    let look_at = |p, up| Mat4::look_at(lp, lp + p, up);
 
     let transforms: [Mat4; 6] = [
         look_at(v3(1.0, 0.0, 0.0), v3(0.0, -1.0, 0.0)),

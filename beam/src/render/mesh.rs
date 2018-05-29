@@ -61,7 +61,7 @@ impl Mesh {
 
         Mesh {
             vcount: vertices.len(),
-            vao: vao,
+            vao,
             simple_verts,
         }
     }

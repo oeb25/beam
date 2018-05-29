@@ -49,7 +49,7 @@ impl<C> warmy::Load<C> for FromFS {
                     let res = storage.get(&key, ctx).map_err(rip)?;
                     deps.push(key.into());
                     let r: &FromFS = &res.borrow();
-                    for d in r.deps.iter() {
+                    for d in &r.deps {
                         if !deps.contains(d) {
                             deps.push(d.clone());
                         }
@@ -67,7 +67,7 @@ impl<C> warmy::Load<C> for FromFS {
             deps: deps.clone(),
         };
 
-        Ok(warmy::load::Loaded::with_deps(from_fs.into(), deps))
+        Ok(warmy::load::Loaded::with_deps(from_fs, deps))
     }
 }
 
@@ -89,12 +89,9 @@ pub struct MyShader {
 impl<'a> Into<warmy::key::LogicalKey> for ShaderSrc<'a> {
     fn into(self) -> warmy::key::LogicalKey {
         let mut p = self.vert.to_owned() + "," + self.frag;
-        match self.geom {
-            Some(q) => {
-                p += ",";
-                p += q;
-            }
-            None => {}
+        if let Some(q) = self.geom {
+            p += ",";
+            p += q;
         }
         warmy::key::LogicalKey::new(p)
     }
@@ -110,14 +107,14 @@ impl<C> warmy::Load<C> for MyShader {
         storage: &mut warmy::Storage<C>,
         ctx: &mut C,
     ) -> Result<warmy::Loaded<Self>, Self::Error> {
-        let mut deps = key.as_str().split(",");
+        let mut deps = key.as_str().split(',');
         let vert = deps.next().unwrap();
         let frag = deps.next().unwrap();
         let geom = deps.next();
 
         let vert_key = warmy::FSKey::new(vert);
         let frag_key = warmy::FSKey::new(frag);
-        let geom_key = geom.map(|geom| warmy::FSKey::new(geom));
+        let geom_key = geom.map(warmy::FSKey::new);
 
         let vert_src: warmy::Res<FromFS> = storage.get(&vert_key, ctx).map_err(rip)?;
         let frag_src: warmy::Res<FromFS> = storage.get(&frag_key, ctx).map_err(rip)?;
@@ -135,7 +132,7 @@ impl<C> warmy::Load<C> for MyShader {
             }
         }
         if let Some(geom) = &geom {
-            for d in geom.deps.iter() {
+            for d in &geom.deps {
                 if !deps.contains(d) {
                     deps.push(d.clone());
                 }
@@ -164,6 +161,6 @@ impl<C> warmy::Load<C> for MyShader {
             deps: deps.clone(),
         };
 
-        Ok(warmy::Loaded::with_deps(res.into(), deps))
+        Ok(warmy::Loaded::with_deps(res, deps))
     }
 }
