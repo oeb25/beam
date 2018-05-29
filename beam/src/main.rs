@@ -60,7 +60,7 @@ impl Scene {
         let one = v3(1.0, 1.0, 1.0);
 
         let sun = DirectionalLight {
-            color: hsv(0.1, 0.5, 1.0) * 0.2,
+            color: hsv(0.1, 0.5, 1.0) * 0.05,
             direction: v3(0.0, 1.0, -1.5).normalize(),
 
             shadow_map: ShadowMap::new(),
@@ -68,25 +68,25 @@ impl Scene {
 
         let point_lights = vec![
             PointLight {
-                color: rgb(255, 25, 25) * 0.3,
+                color: rgb(255, 25, 25) * 1.0,
                 position: v3(-10.0, 2.0, 10.0),
                 last_shadow_map_position: v3(-10.0, 2.0, 10.0),
                 shadow_map: Some(PointShadowMap::new()),
             },
             PointLight {
-                color: hex(0x0050ff) * 0.3,
+                color: hex(0x0050ff) * 1.0,
                 position:  v3(10.0, 2.0, 10.0),
                 last_shadow_map_position: one,
                 shadow_map: None,
             },
             PointLight {
-                color: hex(0x00ff2e) * 0.3,
+                color: hex(0x00ff2e) * 1.0,
                 position:  v3(10.0, 2.0, -10.0),
                 last_shadow_map_position: one,
                 shadow_map: None,
             },
             PointLight {
-                color: hex(0xffc700) * 0.3,
+                color: hex(0xffc700) * 1.0,
                 position:  v3(-10.0, 2.0, -10.0),
                 last_shadow_map_position: one,
                 shadow_map: None,
@@ -191,6 +191,10 @@ fn main() -> Result<(), Error> {
         .scale(1.0 / 2.0)
         .translate(v3(0.0, 20.0, 0.0));
 
+    let owl = pipeline.meshes
+        .load_collada("assets/owl/owl.dae")?
+        .translate(v3(0.0, 0.0, 0.0));
+
     let mut is = vec![];
 
     let mut m = 0;
@@ -208,6 +212,8 @@ fn main() -> Result<(), Error> {
             is.push(obj);
         }
     }
+    let v = Mat4::from_angle_y(Rad(-1.5));
+    is.push(owl.transform(v));
 
     println!("drawing {} nanosuits", is.len());
 
@@ -344,7 +350,7 @@ fn main() -> Result<(), Error> {
                         albedo: pipeline.meshes.rgb_texture(light.color),
                         normal: normal3,
                         metallic: black3,
-                        roughness: white3,
+                        roughness: black3,
                         ao: white3,
                         opacity: white3,
                     });

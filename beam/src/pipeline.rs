@@ -400,8 +400,8 @@ impl Pipeline {
 
             let default_material = Material {
                 normal: normal3,
-                albedo: white4,
-                metallic: white3,
+                albedo: whiteish3,
+                metallic: black3,
                 roughness: whiteish3,
                 ao: white3,
                 opacity: white3,
