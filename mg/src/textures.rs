@@ -2,7 +2,7 @@ use gl;
 use image;
 use std::{mem, os::raw::c_void, ptr};
 
-use types::{GlError, GlType};
+use types::GlType;
 
 #[allow(unused)]
 #[derive(Debug, Clone, Copy)]
@@ -468,15 +468,7 @@ impl<'a> TextureBinder<'a> {
         };
 
         unsafe {
-            self.image_2d(
-                target,
-                0,
-                internal_format,
-                w,
-                h,
-                format,
-                &data,
-            );
+            self.image_2d(target, 0, internal_format, w, h, format, &data);
         }
         self
     }

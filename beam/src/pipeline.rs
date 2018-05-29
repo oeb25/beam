@@ -1,18 +1,22 @@
 use gl;
 use std::{cell::RefMut, path::Path};
 
-use failure::{Error, Fail};
+use failure::Error;
 
-use mg::*;
+use mg::{
+    DrawMode, Framebuffer, FramebufferBinderDrawer, FramebufferBinderReadDraw, GlError, Mask,
+    ProgramBind, ProgramBindingRefMut, Texture, TextureSlot, VertexArray, VertexBuffer,
+};
 
 use hot;
 use warmy;
 
+use misc::{v3, v4, Cacher, Mat4, V3, V4};
+
 use render::{
-    convolute_cubemap, cubemap_from_equirectangular, cubemap_from_importance, v3, v4, Camera,
-    DirectionalLight, GRenderPass, Mat4, PointLight,
-    PointShadowMap, RenderObject, RenderObjectChild, RenderTarget, Renderable, ShadowMap,
-    V3, V4, MeshStore, Material, MeshRef,
+    create_irradiance_map, create_prefiler_map, cubemap_from_equirectangular,
+    lights::{DirectionalLight, PointLight, PointShadowMap, ShadowMap}, Camera, GRenderPass,
+    Material, MeshRef, MeshStore, RenderObject, RenderObjectChild, RenderTarget, Renderable,
 };
 
 pub struct RenderProps<'a> {
@@ -31,8 +35,8 @@ pub struct RenderProps<'a> {
 pub struct HotShader(warmy::Res<hot::MyShader>);
 
 impl HotShader {
-    pub fn bind<'a>(&'a mut self) -> RefMut<'a, Program> {
-        RefMut::map(self.0.borrow_mut(), |a| &mut a.program)
+    pub fn bind(&mut self) -> ProgramBindingRefMut {
+        ProgramBindingRefMut::new(RefMut::map(self.0.borrow_mut(), |a| &mut a.program))
     }
 }
 
@@ -166,7 +170,7 @@ impl Pipeline {
             let mut rect_vbo: VertexBuffer<V3> = VertexBuffer::from_data(&[v3(0.0, 0.0, 0.0)]);
 
             {
-                let mut vbo = rect_vbo.bind();
+                let vbo = rect_vbo.bind();
                 rect_vao.bind().vbo_attrib(&vbo, 0, 3, 0);
             }
 
@@ -246,7 +250,8 @@ impl Pipeline {
         let ibl_raw_ref = self.meshes.load_hdr(path)?;
         let ibl_raw = self.meshes.get_texture(&ibl_raw_ref);
         // Borrow checker work around here, we could use the rect vao already define on the pipeline
-        // but this works, and I don't think it is all that costly.
+        // if it were not for the overship issues, but this works, and I don't think it is all that
+        // costly.
         let mut rect = {
             let mut rect_vao = VertexArray::new();
             let mut rect_vbo = VertexBuffer::from_data(&[v3(0.0, 0.0, 0.0)]);
@@ -254,7 +259,7 @@ impl Pipeline {
             rect_vao
         };
 
-        let mut render_cube = |fbo: &FramebufferBinderReadDraw, program: &ProgramBinding| {
+        let mut render_cube = |fbo: &FramebufferBinderReadDraw, program: &ProgramBindingRefMut| {
             program.bind_texture_to("equirectangularMap", &ibl_raw, TextureSlot::One);
             rect.bind()
                 .draw_arrays(fbo, program, DrawMode::Points, 0, 1);
@@ -262,27 +267,20 @@ impl Pipeline {
 
         let cubemap = cubemap_from_equirectangular(
             512,
-            &self.equirectangular_program.bind().bind(),
+            &self.equirectangular_program.bind(),
             &mut render_cube,
         );
 
-        let mut render_cube = |fbo: &FramebufferBinderReadDraw, program: &ProgramBinding| {
-            program.bind_texture_to(
-                "equirectangularMap",
-                &cubemap,
-                TextureSlot::One,
-            );
+        let mut render_cube = |fbo: &FramebufferBinderReadDraw, program: &ProgramBindingRefMut| {
+            program.bind_texture_to("equirectangularMap", &cubemap, TextureSlot::One);
             rect.bind()
                 .draw_arrays(fbo, program, DrawMode::Points, 0, 1);
         };
-        let irradiance_map = convolute_cubemap(
-            32,
-            &self.convolute_cubemap_program.bind().bind(),
-            &mut render_cube,
-        );
-        let prefilter_map = cubemap_from_importance(
+        let irradiance_map =
+            create_irradiance_map(32, &self.convolute_cubemap_program.bind(), &mut render_cube);
+        let prefilter_map = create_prefiler_map(
             128,
-            &self.prefilter_cubemap_program.bind().bind(),
+            &self.prefilter_cubemap_program.bind(),
             &mut render_cube,
         );
 
@@ -290,7 +288,7 @@ impl Pipeline {
         brdf_lut_render_target.set_viewport();
         render_cube(
             &brdf_lut_render_target.bind().clear(Mask::ColorDepth),
-            &self.brdf_lut_program.bind().bind(),
+            &self.brdf_lut_program.bind(),
         );
 
         Ok(Ibl {
@@ -301,50 +299,43 @@ impl Pipeline {
         })
     }
     fn render_object(
-        render_object: &RenderObject,
+        render_object: RenderObject,
         transform: &Mat4,
         material: Option<Material>,
-    ) -> Vec<(MeshRef, Option<Material>, Mat4)> {
+        calls: &mut Cacher<(MeshRef, Option<Material>), Vec<Mat4>>,
+    ) {
         let transform = transform * render_object.transform;
         // if a material is passed as a prop, use that over the one bound to the mesh
         let material = material.or(render_object.material);
 
-        match &render_object.child {
+        match render_object.child {
             RenderObjectChild::Mesh(mesh_ref) => {
-                vec![(*mesh_ref, material, transform)]
+                calls.push_into((mesh_ref, material), transform);
             }
             RenderObjectChild::RenderObjects(render_objects) => {
-                render_objects.iter().flat_map(|obj| {
-                    Pipeline::render_object(obj, &transform, material)
-                }).collect()
+                for obj in render_objects.into_iter() {
+                    Pipeline::render_object(obj, &transform, material, calls)
+                }
             }
         }
-
     }
-    pub fn render(&mut self, update_shadows: bool, props: RenderProps, render_objects: &[RenderObject])
+    pub fn render<T>(&mut self, update_shadows: bool, props: RenderProps, render_objects: T)
+    where
+        T: Iterator<Item = RenderObject>,
     {
         let view = props.camera.get_view();
         let view_pos = props.camera.pos;
         let projection = props.camera.get_projection();
 
-
         let mut scene_draw_calls_meshes: Vec<_> = {
-            let draw_calls = render_objects.iter().flat_map(|obj| {
-                Pipeline::render_object(&obj, &Mat4::from_scale(1.0), None)
-            });
+            let mut draw_calls = Cacher::new();
 
-            let mut grouped_draw_calls: Vec<((MeshRef, Option<Material>), Vec<Mat4>)> = vec![];
-
-            for (mesh_ref, material, transform) in draw_calls {
-                let me = (mesh_ref, material);
-                if let Some((_, transforms)) = grouped_draw_calls.iter_mut().find(|(i, _)| i == &me) {
-                    transforms.push(transform);
-                } else {
-                    grouped_draw_calls.push((me, vec![transform]));
-                }
+            for obj in render_objects {
+                Pipeline::render_object(obj, &Mat4::from_scale(1.0), None, &mut draw_calls);
             }
 
-            grouped_draw_calls.into_iter()
+            draw_calls
+                .into_iter()
                 .map(|((mesh_ref, material), transforms)| {
                     (mesh_ref, material, VertexBuffer::from_data(&transforms))
                 })
@@ -356,14 +347,15 @@ impl Pipeline {
                 render_scene!($fbo, $program, draw_instanced)
             };
             ($fbo:expr, $program:expr, $func:ident) => {{
+                $program.bind_mat4("model", Mat4::from_scale(1.0));
                 for (mesh_ref, material, transforms) in scene_draw_calls_meshes.iter_mut() {
                     let start_slot = $program.next_texture_slot();
-                    $program.bind_mat4("model", Mat4::from_scale(1.0));
                     if let Some(material) = material {
                         material.bind(&mut self.meshes, &$program);
                     }
                     let mesh = self.meshes.get_mesh_mut(&mesh_ref);
-                    mesh.bind().draw_instanced(&$fbo, &$program, &transforms.bind());
+                    mesh.bind()
+                        .draw_instanced(&$fbo, &$program, &transforms.bind());
                     &$program.set_next_texture_slot(start_slot);
                 }
             }};
@@ -383,8 +375,7 @@ impl Pipeline {
             // Render geometry
             let fbo = self.g.fbo.bind();
             fbo.clear(Mask::ColorDepth);
-            let mut program_ = self.pbr_program.bind();
-            let program = program_.bind();
+            let program = self.pbr_program.bind();
             program
                 .bind_mat4("projection", projection)
                 .bind_mat4("view", view)
@@ -394,8 +385,6 @@ impl Pipeline {
             let white4 = self.meshes.rgba_texture(v4(1.0, 1.0, 1.0, 1.0));
             let white3 = self.meshes.rgb_texture(v3(1.0, 1.0, 1.0));
             let whiteish3 = self.meshes.rgb_texture(v3(0.2, 0.2, 0.2));
-            let blueish4 = self.meshes.rgba_texture(v4(0.2, 0.5, 1.0, 1.0));
-            let black3 = self.meshes.rgb_texture(v3(0.0, 0.0, 0.0));
             let normal3 = self.meshes.rgb_texture(v3(0.5, 0.5, 1.0));
 
             let default_material = Material {
@@ -414,8 +403,7 @@ impl Pipeline {
         {
             {
                 // Render depth map for directional lights
-                let mut p_ = self.directional_shadow_program.bind();
-                let p = p_.bind();
+                let p = self.directional_shadow_program.bind();
                 unsafe {
                     let (w, h) = ShadowMap::size();
                     gl::Viewport(0, 0, w as i32, h as i32);
@@ -439,8 +427,7 @@ impl Pipeline {
                     gl::Viewport(0, 0, w as i32, h as i32);
                     gl::CullFace(gl::FRONT);
                 }
-                let mut p_ = self.point_shadow_program.bind();
-                let p = p_.bind();
+                let p = self.point_shadow_program.bind();
                 for light in props.point_lights.iter_mut() {
                     let far = if let Some(ref shadow_map) = light.shadow_map {
                         shadow_map.far
@@ -468,14 +455,16 @@ impl Pipeline {
             let fbo = self.lighting_target.bind();
             fbo.clear(Mask::ColorDepth);
 
-            let mut g_ = self.lighting_pbr_program.bind();
-            let g = g_.bind();
+            let g = self.lighting_pbr_program.bind();
 
             g.bind_texture("aPosition", &self.g.position)
                 .bind_texture("aNormal", &self.g.normal)
                 .bind_texture("aAlbedo", &self.g.albedo)
                 .bind_texture("aAlbedo", &self.g.albedo)
-                .bind_texture("aMetallicRoughnessAoOpacity", &self.g.metallic_roughness_ao_opacity)
+                .bind_texture(
+                    "aMetallicRoughnessAoOpacity",
+                    &self.g.metallic_roughness_ao_opacity,
+                )
                 .bind_float(
                     "ambientIntensity",
                     props
@@ -517,8 +506,7 @@ impl Pipeline {
                 gl::DepthFunc(gl::LEQUAL);
                 gl::Disable(gl::CULL_FACE);
             }
-            let mut program_ = self.skybox_program.bind();
-            let program = program_.bind();
+            let program = self.skybox_program.bind();
             let mut view = view.clone();
             view.w = V4::new(0.0, 0.0, 0.0, 0.0);
             program
@@ -532,7 +520,10 @@ impl Pipeline {
                 )
                 .bind_texture("skybox", &props.ibl.cubemap);
             let cube_ref = self.meshes.get_cube();
-            self.meshes.get_mesh_mut(&cube_ref).bind().draw(&fbo, &program);
+            self.meshes
+                .get_mesh_mut(&cube_ref)
+                .bind()
+                .draw(&fbo, &program);
             unsafe {
                 gl::DepthFunc(gl::LESS);
                 gl::Enable(gl::CULL_FACE);
@@ -552,8 +543,7 @@ impl Pipeline {
                     let fbo = next.bind();
                     fbo.clear(Mask::ColorDepth);
 
-                    let mut blur_ = self.blur_program.bind();
-                    let blur = blur_.bind();
+                    let blur = self.blur_program.bind();
                     blur.bind_texture("tex", &prev.texture)
                         .bind_float("scale", scale);
                     draw_rect!(&fbo, &blur);
@@ -569,12 +559,10 @@ impl Pipeline {
             let fbo = self.screen_target.bind();
             fbo.clear(Mask::ColorDepth);
 
-            let mut hdr_ = self.hdr_program.bind();
-            let hdr = hdr_.bind();
+            let hdr = self.hdr_program.bind();
             hdr.bind_texture("hdrBuffer", &self.lighting_target.texture)
-                .bind_float("time", props.time);
-
-            hdr.bind_textures("blur", self.blur_targets.iter().map(|t| &t.texture));
+                .bind_float("time", props.time)
+                .bind_textures("blur", self.blur_targets.iter().map(|t| &t.texture));
 
             draw_rect!(&fbo, &hdr);
         }
@@ -585,8 +573,7 @@ impl Pipeline {
             let fbo = self.window_fbo.bind();
             fbo.clear(Mask::ColorDepth);
 
-            let mut screen_ = self.screen_program.bind();
-            let screen = screen_.bind();
+            let screen = self.screen_program.bind();
             screen.bind_texture("display", &self.screen_target.texture);
 
             draw_rect!(&fbo, &screen);

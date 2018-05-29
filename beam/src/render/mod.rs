@@ -1,498 +1,25 @@
+pub mod lights;
+pub mod mesh;
+mod primitives;
+
 use cgmath::{self, InnerSpace, Rad};
 use collada;
 use gl;
 use image;
 
-use failure::{Error, Fail, ResultExt};
+use failure::{Error, ResultExt};
 
-use std::{self, collections::HashMap, mem, path::Path};
+use std::{self, collections::HashMap, path::Path};
 
-use mg::*;
+use mg::{
+    Attachment, Framebuffer, FramebufferBinderBase, FramebufferBinderDraw, FramebufferBinderDrawer,
+    FramebufferBinderRead, FramebufferBinderReadDraw, GlError, GlType, Mask, ProgramBind,
+    Renderbuffer, Texture, TextureFormat, TextureInternalFormat, TextureKind, TextureParameter,
+    TextureTarget,
+};
 
-pub type V2 = cgmath::Vector2<f32>;
-pub type V3 = cgmath::Vector3<f32>;
-pub type V4 = cgmath::Vector4<f32>;
-pub type P3 = cgmath::Point3<f32>;
-pub type Mat3 = cgmath::Matrix3<f32>;
-pub type Mat4 = cgmath::Matrix4<f32>;
-
-macro_rules! offset_of {
-    ($ty:ty, $field:ident) => {
-        #[allow(unused_unsafe)]
-        unsafe {
-            &(*(0 as *const $ty)).$field as *const _ as usize
-        }
-    };
-}
-
-#[allow(unused_macros)]
-macro_rules! offset_ptr {
-    ($ty:ty, $field:ident) => {
-        ptr::null::<os::raw::c_void>().add(offset_of!($ty, $field))
-    };
-}
-
-macro_rules! size_of {
-    ($ty:ty, $field:ident) => {
-        #[allow(unused_unsafe)]
-        unsafe {
-            mem::size_of_val(&(*(0 as *const $ty)).$field)
-        }
-    };
-}
-
-pub fn v2(x: f32, y: f32) -> V2 {
-    V2::new(x, y)
-}
-
-pub fn v3(x: f32, y: f32, z: f32) -> V3 {
-    V3::new(x, y, z)
-}
-
-pub fn v4(x: f32, y: f32, z: f32, w: f32) -> V4 {
-    V4::new(x, y, z, w)
-}
-
-pub trait Vertexable {
-    // (pos, norm, tex, trangent, bitangent)
-    fn sizes() -> (usize, usize, usize, usize);
-    fn offsets() -> (usize, usize, usize, usize);
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct Vertex {
-    pub pos: V3,
-    pub norm: V3,
-    pub tex: V2,
-    pub tangent: V3,
-    pub bitangent: V3,
-}
-
-impl Default for Vertex {
-    fn default() -> Vertex {
-        let zero3 = v3(0.0, 0.0, 0.0);
-        Vertex {
-            pos: zero3,
-            norm: zero3,
-            tex: v2(0.0, 0.0),
-            tangent: zero3,
-            bitangent: zero3,
-        }
-    }
-}
-
-pub struct Mesh {
-    vcount: usize,
-    vao: VertexArray,
-}
-
-impl Mesh {
-    pub fn new(vertices: &[Vertex]) -> Mesh {
-        let mut vao = VertexArray::new();
-        let mut vbo = VertexBuffer::from_data(vertices);
-
-        {
-            let float_size = mem::size_of::<f32>();
-            let vao_binder = vao.bind();
-            let vbo_binder = vbo.bind();
-
-            macro_rules! x {
-                ($i:expr, $e:ident) => (
-                    vao_binder.vbo_attrib(
-                        &vbo_binder,
-                        $i,
-                        size_of!(Vertex, $e) / float_size,
-                        offset_of!(Vertex, $e)
-                    )
-                )
-            }
-
-            x!(0, pos);
-            x!(1, norm);
-            x!(2, tex);
-            x!(3, tangent);
-            x!(4, bitangent);
-        }
-
-        Mesh {
-            vcount: vertices.len(),
-            vao: vao,
-        }
-    }
-    pub fn bind(&mut self) -> MeshBinding {
-        MeshBinding(self)
-    }
-}
-
-pub struct MeshBinding<'a>(&'a mut Mesh);
-impl<'a> MeshBinding<'a> {
-    pub fn draw<F>(&mut self, fbo: &F, program: &ProgramBinding)
-    where
-        F: FramebufferBinderDrawer,
-    {
-        // self.bind_textures(program);
-
-        self.0
-            .vao
-            .bind()
-            .draw_arrays(fbo, program, DrawMode::Triangles, 0, self.0.vcount);
-    }
-    pub fn draw_geometry_instanced<F>(
-        &mut self,
-        fbo: &F,
-        _program: &ProgramBinding,
-        transforms: &VertexBufferBinder<Mat4>,
-    ) where
-        F: FramebufferBinderDrawer,
-    {
-        let mut vao = self.0.vao.bind();
-        let offset = 5;
-        let width = 4;
-        for i in 0..width {
-            let index = i + offset;
-            vao.vbo_attrib(&transforms, index, width, width * i * mem::size_of::<f32>())
-                .attrib_divisor(index, 1);
-        }
-
-        vao.draw_arrays_instanced(fbo, DrawMode::Triangles, 0, self.0.vcount, transforms.len());
-    }
-    pub fn draw_instanced<F>(
-        &mut self,
-        fbo: &F,
-        program: &ProgramBinding,
-        transforms: &VertexBufferBinder<Mat4>,
-    ) where
-        F: FramebufferBinderDrawer,
-    {
-        // self.bind_textures(program);
-        self.draw_geometry_instanced(fbo, program, transforms);
-    }
-}
-
-pub fn calculate_tangent_and_bitangent(va: &mut Vertex, vb: &mut Vertex, vc: &mut Vertex) {
-    let v1 = va.pos;
-    let v2 = vb.pos;
-    let v3 = vc.pos;
-
-    let w1 = va.tex;
-    let w2 = vb.tex;
-    let w3 = vc.tex;
-
-    let d1 = v2 - v1;
-    let d2 = v3 - v1;
-    let t1 = w2 - w1;
-    let t2 = w3 - w1;
-
-    let r = 1.0 / (t1.x * t2.y - t2.x * t1.y);
-    let sdir = r * (t2.y * d1 - t1.y * d2);
-    let tdir = r * (t1.x * d2 - t2.x * d1);
-
-    va.tangent = sdir;
-    va.bitangent = tdir;
-    vb.tangent = sdir;
-    vb.bitangent = tdir;
-    vc.tangent = sdir;
-    vc.bitangent = tdir;
-}
-
-#[repr(C)]
-#[derive(Debug)]
-pub struct DirectionalLight {
-    pub color: V3,
-
-    pub direction: V3,
-
-    pub shadow_map: ShadowMap,
-}
-impl DirectionalLight {
-    fn space(&self, camera_pos: V3) -> Mat4 {
-        let size = 50.0;
-        let projection: Mat4 = cgmath::Ortho {
-            left: -size,
-            right: size,
-            bottom: -size,
-            top: size,
-            near: 0.01,
-            far: 300.0,
-        }.into();
-        let origo = P3::new(0.0, 0.0, 0.0);
-        let o = origo + camera_pos + self.direction * 100.0;
-        let view = Mat4::look_at(o, o - self.direction, v3(0.0, 1.0, 0.0));
-        projection * view
-    }
-    fn bind(&self, camera_pos: V3, name: &str, program: &ProgramBinding) {
-        let ext = |e| format!("{}.{}", name, e);
-        let space = self.space(camera_pos);
-        let DirectionalLight {
-            color,
-            direction,
-            shadow_map,
-        } = self;
-        program
-            .bind_vec3(&ext("color"), *color)
-            .bind_vec3(&ext("direction"), *direction)
-            .bind_mat4(&ext("space"), space)
-            .bind_texture("directionalShadowMap", &shadow_map.map);
-    }
-    pub fn bind_multiple(
-        camera_pos: V3,
-        lights: &[DirectionalLight],
-        name_uniform: &str,
-        amt_uniform: &str,
-        program: &ProgramBinding,
-    ) {
-        program.bind_int(amt_uniform, lights.len() as i32);
-        for (i, light) in lights.iter().enumerate() {
-            light.bind(camera_pos, &format!("{}[{}]", name_uniform, i), program);
-        }
-    }
-    pub fn bind_shadow_map(&mut self, camera_pos: V3) -> (FramebufferBinderReadDraw, Mat4) {
-        let light_space = self.space(camera_pos);
-        (self.shadow_map.fbo.bind(), light_space)
-    }
-}
-#[repr(C)]
-#[derive(Debug)]
-pub struct PointLight {
-    pub color: V3,
-
-    pub position: V3,
-    pub last_shadow_map_position: V3,
-
-    pub shadow_map: Option<PointShadowMap>,
-}
-impl PointLight {
-    fn bind(&self, name: &str, program: &ProgramBinding) {
-        let ext = |e| {
-            let res = format!("{}.{}", name, e);
-            res
-        };
-        let PointLight {
-            position,
-            color,
-            shadow_map,
-            last_shadow_map_position,
-        } = self;
-        program.bind_vec3(&ext("color"), *color);
-
-        program.bind_vec3(&ext("position"), *position);
-        program.bind_vec3(&ext("lastPosition"), *last_shadow_map_position);
-
-        match shadow_map {
-            Some(shadow_map) => {
-                program.bind_bool(&ext("useShadowMap"), true);
-                program.bind_texture("pointShadowMap", &shadow_map.map);
-                program.bind_float(&ext("farPlane"), shadow_map.far);
-            }
-            None => {
-                program.bind_vec3(&ext("lastPosition"), *position);
-                program.bind_bool(&ext("useShadowMap"), false);
-            }
-        }
-        GlError::check().expect(&format!("Failed to bind light: {:?}", self));
-    }
-    pub fn bind_multiple(
-        lights: &[PointLight],
-        name_uniform: &str,
-        amt_uniform: &str,
-        program: &ProgramBinding,
-    ) {
-        program.bind_int(amt_uniform, lights.len() as i32);
-        GlError::check().expect("Failed to bind number of lights");
-        for (i, light) in lights.iter().enumerate() {
-            // println!("binding: {} into {:?}", format!("{}[{}]", name_uniform, i), slot);
-            light.bind(&format!("{}[{}]", name_uniform, i), program);
-        }
-        GlError::check().expect("Failed to bind multiple lights");
-    }
-    pub fn bind_shadow_map(&mut self) -> Option<(FramebufferBinderReadDraw, [[[f32; 4]; 4]; 6])> {
-        let shadow_map = self.shadow_map.as_mut()?;
-
-        let light_space: Mat4 = cgmath::PerspectiveFov {
-            fovy: Rad(std::f32::consts::PI / 2.0),
-            aspect: (shadow_map.width as f32) / (shadow_map.height as f32),
-            near: shadow_map.near,
-            far: shadow_map.far,
-        }.into();
-
-        let origo = P3::new(0.0, 0.0, 0.0);
-        let lp = origo + self.last_shadow_map_position;
-        let look_at = |p, up| (light_space * Mat4::look_at(lp, lp + p, up)).into();
-
-        let shadow_transforms = [
-            look_at(v3(1.0, 0.0, 0.0), v3(0.0, -1.0, 0.0)),
-            look_at(v3(-1.0, 0.0, 0.0), v3(0.0, -1.0, 0.0)),
-            look_at(v3(0.0, 1.0, 0.0), v3(0.0, 0.0, 1.0)),
-            look_at(v3(0.0, -1.0, 0.0), v3(0.0, 0.0, -1.0)),
-            look_at(v3(0.0, 0.0, 1.0), v3(0.0, -1.0, 0.0)),
-            look_at(v3(0.0, 0.0, -1.0), v3(0.0, -1.0, 0.0)),
-        ];
-
-        Some((shadow_map.fbo.bind(), shadow_transforms))
-    }
-}
-#[repr(C)]
-#[derive(Debug, Clone)]
-struct SpotLight {
-    ambient: V3,
-    diffuse: V3,
-    specular: V3,
-
-    position: V3,
-    direction: V3,
-
-    cut_off: Rad<f32>,
-    outer_cut_off: Rad<f32>,
-
-    constant: f32,
-    linear: f32,
-    quadratic: f32,
-}
-impl SpotLight {
-    #[allow(unused)]
-    fn bind(&self, name: &str, program: &ProgramBinding) {
-        let ext = |e| format!("{}.{}", name, e);
-        let SpotLight {
-            position,
-            ambient,
-            diffuse,
-            specular,
-            direction,
-            cut_off,
-            outer_cut_off,
-            constant,
-            linear,
-            quadratic,
-        } = self;
-        program.bind_vec3(&ext("ambient"), *ambient);
-        program.bind_vec3(&ext("diffuse"), *diffuse);
-        program.bind_vec3(&ext("specular"), *specular);
-
-        program.bind_vec3(&ext("position"), *position);
-        program.bind_vec3(&ext("direction"), *direction);
-
-        program.bind_float(&ext("cutOff"), cut_off.0.cos());
-        program.bind_float(&ext("outerCutOff"), outer_cut_off.0.cos());
-
-        program.bind_float(&ext("constant"), *constant);
-        program.bind_float(&ext("linear"), *linear);
-        program.bind_float(&ext("quadratic"), *quadratic);
-    }
-}
-
-#[derive(Debug)]
-pub struct ShadowMap {
-    width: u32,
-    height: u32,
-    fbo: Framebuffer,
-    map: Texture,
-}
-
-impl ShadowMap {
-    pub fn new() -> ShadowMap {
-        let (width, height) = ShadowMap::size();
-        let mut fbo = Framebuffer::new();
-        let map = Texture::new(TextureKind::Texture2d);
-        map.bind()
-            .empty(
-                TextureTarget::Texture2d,
-                0,
-                TextureInternalFormat::DepthComponent,
-                width,
-                height,
-                TextureFormat::DepthComponent,
-                GlType::Float,
-            )
-            .parameter_int(TextureParameter::MinFilter, gl::LINEAR as i32)
-            .parameter_int(TextureParameter::MagFilter, gl::LINEAR as i32)
-            .parameter_int(TextureParameter::WrapS, gl::REPEAT as i32)
-            .parameter_int(TextureParameter::WrapT, gl::REPEAT as i32);
-        fbo.bind()
-            .texture_2d(Attachment::Depth, TextureTarget::Texture2d, &map, 0)
-            .draw_buffer(BufferSlot::None)
-            .read_buffer(BufferSlot::None);
-        ShadowMap {
-            width,
-            height,
-            fbo,
-            map,
-        }
-    }
-    pub fn size() -> (u32, u32) {
-        // (1024, 1024)
-        (2048, 2048)
-        // (4096, 4096)
-        // (8192, 8192)
-    }
-}
-
-#[derive(Debug)]
-pub struct PointShadowMap {
-    width: u32,
-    height: u32,
-    near: f32,
-    pub far: f32,
-    fbo: Framebuffer,
-    map: Texture,
-}
-
-impl PointShadowMap {
-    pub fn new() -> PointShadowMap {
-        let (width, height) = PointShadowMap::size();
-        let mut fbo = Framebuffer::new();
-        let map = Texture::new(TextureKind::CubeMap);
-        {
-            let tex = map.bind();
-            let faces = TextureTarget::cubemap_faces();
-
-            for face in faces.into_iter() {
-                tex.empty(
-                    *face,
-                    0,
-                    TextureInternalFormat::DepthComponent,
-                    width,
-                    height,
-                    TextureFormat::DepthComponent,
-                    GlType::UnsignedByte,
-                );
-            }
-
-            tex.parameter_int(TextureParameter::MinFilter, gl::LINEAR as i32)
-                .parameter_int(TextureParameter::MagFilter, gl::LINEAR as i32)
-                .parameter_int(TextureParameter::WrapS, gl::CLAMP_TO_EDGE as i32)
-                .parameter_int(TextureParameter::WrapT, gl::CLAMP_TO_EDGE as i32)
-                .parameter_int(TextureParameter::WrapR, gl::CLAMP_TO_EDGE as i32);
-        }
-        fbo.bind()
-            .texture(Attachment::Depth, &map, 0)
-            .draw_buffer(BufferSlot::None)
-            .read_buffer(BufferSlot::None)
-            .check_status()
-            .expect("point shadow map framebuffer not complete");
-
-        let near = 0.6;
-        let far = 100.0;
-
-        PointShadowMap {
-            width,
-            height,
-            near,
-            far,
-            fbo,
-            map,
-        }
-    }
-    pub fn size() -> (u32, u32) {
-        // (128, 128)
-        // (256, 256)
-        (512, 512)
-        // (1024, 1024)
-        // (2048, 2048)
-        // (4096, 4096)
-        // (8192, 8192)
-    }
-}
-
+use mesh::{calculate_tangent_and_bitangent, Mesh};
+use misc::{v3, v4, Cacher, Mat4, P3, V3, V4, Vertex};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Material {
@@ -505,7 +32,10 @@ pub struct Material {
 }
 
 impl Material {
-    pub fn bind(&self, meshes: &MeshStore, program: &ProgramBinding) {
+    pub fn bind<P>(&self, meshes: &MeshStore, program: &P)
+    where
+        P: ProgramBind,
+    {
         program
             .bind_texture("tex_albedo", meshes.get_texture(&self.albedo))
             .bind_texture("tex_metallic", meshes.get_texture(&self.metallic))
@@ -515,6 +45,7 @@ impl Material {
             .bind_texture("tex_opacity", meshes.get_texture(&self.opacity));
     }
 
+    #[allow(unused)]
     pub fn into_borrowed<'a>(&self, meshes: &'a MeshStore) -> MaterialBorrowed<'a> {
         MaterialBorrowed {
             normal: meshes.get_texture(&self.normal),
@@ -538,7 +69,11 @@ pub struct MaterialBorrowed<'a> {
 }
 
 impl<'a> MaterialBorrowed<'a> {
-    pub fn bind(&self, meshes: &MeshStore, program: &ProgramBinding) {
+    #[allow(unused)]
+    pub fn bind<P>(&self, program: &P)
+    where
+        P: ProgramBind,
+    {
         program
             .bind_texture("tex_albedo", &self.albedo)
             .bind_texture("tex_metallic", &self.metallic)
@@ -559,26 +94,24 @@ pub struct MeshStore {
 
     fs_textures: HashMap<String, TextureRef>,
 
-    rgb_textures: Vec<(V3, TextureRef)>,
-    rgba_textures: Vec<(V4, TextureRef)>,
+    rgb_textures: Cacher<V3, TextureRef>,
+    rgba_textures: Cacher<V4, TextureRef>,
 
     // primitive cache
     cube: Option<MeshRef>,
-    spheres: Vec<(f32, MeshRef)>,
+    spheres: Cacher<f32, MeshRef>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MeshRef(usize);
 
 impl MeshStore {
-    pub fn load_collada(
-        &mut self,
-        path: impl AsRef<Path>,
-    ) -> Result<RenderObject, Error> {
+    pub fn load_collada(&mut self, path: impl AsRef<Path>) -> Result<RenderObject, Error> {
         let path = path.as_ref();
 
         let src = std::fs::read_to_string(path).context("collada src file not found")?;
-        let data: collada::Collada = collada::Collada::parse(&src).context("failed to parse collada")?;
+        let data: collada::Collada =
+            collada::Collada::parse(&src).context("failed to parse collada")?;
 
         let mut normal_src = None;
         let mut albedo_src = None;
@@ -596,7 +129,7 @@ impl MeshStore {
                 "NRM" => normal_src = x(&image.source),
                 "AO" => ao_src = x(&image.source),
                 "OPAC" => opacity_src = x(&image.source),
-                _ => {},
+                _ => {}
             }
         }
 
@@ -634,16 +167,19 @@ impl MeshStore {
         let mut render_objects = vec![];
         for node in data.visual_scenes[0].nodes.iter() {
             use cgmath::Matrix;
-            let mut transform = node.transformations.iter().fold(Mat4::from_scale(1.0), |acc, t| {
-                let t: Mat4 = match t {
-                    collada::Transform::Matrix(a) => unsafe {
-                        std::mem::transmute::<[f32; 16], [[f32; 4]; 4]>(*a).into()
-                    },
-                    _ => unimplemented!(),
-                };
+            let mut transform = node.transformations.iter().fold(
+                Mat4::from_scale(1.0),
+                |acc, t| {
+                    let t: Mat4 = match t {
+                        collada::Transform::Matrix(a) => unsafe {
+                            std::mem::transmute::<[f32; 16], [[f32; 4]; 4]>(*a).into()
+                        },
+                        _ => unimplemented!(),
+                    };
 
-                t * acc
-            });
+                    t * acc
+                },
+            );
             transform.swap_rows(1, 2);
             transform = transform.transpose();
             transform.swap_rows(1, 2);
@@ -654,17 +190,15 @@ impl MeshStore {
                 } else {
                     let geom = &data.geometry[geom_instance.geometry.0];
                     let meshes = match geom {
-                        collada::Geometry::Mesh { triangles }  => {
+                        collada::Geometry::Mesh { triangles } => {
                             let mut meshes = vec![];
 
                             for triangles in triangles.iter() {
-                                let collada::MeshTriangles {
-                                    vertices,
-                                    material,
-                                } = triangles;
+                                let collada::MeshTriangles { vertices, material } = triangles;
 
-                                let mut verts: Vec<_> = vertices.iter().map(|v|
-                                    {
+                                let mut verts: Vec<_> = vertices
+                                    .iter()
+                                    .map(|v| {
                                         let pos = v4(v.pos[0], v.pos[1], v.pos[2], 1.0);
                                         Vertex {
                                             // orient y up instead of z, which is default in blender
@@ -672,9 +206,10 @@ impl MeshStore {
                                             norm: v3(v.nor[0], v.nor[2], v.nor[1]),
                                             tex: v.tex.into(),
                                             tangent: v3(0.0, 0.0, 0.0),
-                                            bitangent: v3(0.0, 0.0, 0.0),
+                                            // bitangent: v3(0.0, 0.0, 0.0),
                                         }
-                                    }).collect();
+                                    })
+                                    .collect();
 
                                 for vs in verts.chunks_mut(3) {
                                     // flip vertex clockwise direction
@@ -688,7 +223,8 @@ impl MeshStore {
                                     }
                                 }
 
-                                let material = self.convert_collada_material(&path, &data, material)?;
+                                let material =
+                                    self.convert_collada_material(&path, &data, material)?;
                                 let mesh = Mesh::new(&verts);
                                 let mesh_ref = self.insert_mesh(mesh);
 
@@ -697,7 +233,7 @@ impl MeshStore {
                             mesh_ids.insert(geom_instance.geometry.0, meshes.clone());
                             meshes
                         }
-                        _ => unimplemented!()
+                        _ => unimplemented!(),
                     };
                     meshes
                 };
@@ -705,14 +241,17 @@ impl MeshStore {
                 // let material = geom_instance.material
                 //     .map(|material_ref| self.convert_collada_material(&path, &data, material_ref));
 
-                let children = mesh_refs.into_iter().map(|(mesh_ref, _material)| {
-                    RenderObject::mesh(mesh_ref).with_material(custom_material)
-                }).collect();
+                let children = mesh_refs
+                    .into_iter()
+                    .map(|(mesh_ref, _material)| {
+                        RenderObject::mesh(mesh_ref).with_material(custom_material)
+                    })
+                    .collect();
 
                 render_objects.push(RenderObject {
                     transform,
                     material: None,
-                    child: RenderObjectChild::RenderObjects(children)
+                    child: RenderObjectChild::RenderObjects(children),
                 });
             }
         }
@@ -728,17 +267,17 @@ impl MeshStore {
     ) -> Result<Material, Error> {
         let collada::Material::Effect(effect_ref) = data.materials[material_ref.0];
         let collada::Effect::Phong {
-            emission,
-            ambient,
+            emission: _,
+            ambient: _,
             diffuse,
-            specular,
-            shininess,
-            index_of_refraction,
+            specular: _,
+            shininess: _,
+            index_of_refraction: _,
         } = &data.effects[effect_ref.0];
 
         let white = self.rgb_texture(v3(1.0, 1.0, 1.0));
 
-        let mut  convert = |c: &collada::PhongProperty| {
+        let convert = |c: &collada::PhongProperty| {
             use collada::PhongProperty::*;
             match c {
                 Color(color) => Ok(self.rgba_texture((*color).into())),
@@ -747,11 +286,15 @@ impl MeshStore {
                     let img = &data.images[image_ref.0];
                     // TODO: How do we determin what kind of file it is?
                     self.load_srgb(path.with_file_name(&img.source))
-                },
+                }
             }
         };
 
-        let albedo = diffuse.as_ref().map(convert).transpose()?.unwrap_or_else(|| white);
+        let albedo = diffuse
+            .as_ref()
+            .map(convert)
+            .transpose()?
+            .unwrap_or_else(|| white);
 
         Ok(Material {
             normal: self.rgb_texture(v3(0.5, 0.5, 1.0)),
@@ -769,6 +312,7 @@ impl MeshStore {
         mesh_ref
     }
 
+    #[allow(unused)]
     pub fn get_mesh(&self, mesh_ref: &MeshRef) -> &Mesh {
         &self.meshes[mesh_ref.0]
     }
@@ -791,7 +335,8 @@ impl MeshStore {
         let texture = Texture::new(TextureKind::Texture2d);
         let is_rgb = color.len() == 3;
         unsafe {
-            texture.bind()
+            texture
+                .bind()
                 .parameter_int(TextureParameter::WrapS, gl::REPEAT as i32)
                 .parameter_int(TextureParameter::WrapT, gl::REPEAT as i32)
                 .parameter_int(TextureParameter::MinFilter, gl::LINEAR as i32)
@@ -799,10 +344,18 @@ impl MeshStore {
                 .image_2d(
                     TextureTarget::Texture2d,
                     0,
-                    if is_rgb { TextureInternalFormat::Rgb } else { TextureInternalFormat::Rgba },
+                    if is_rgb {
+                        TextureInternalFormat::Rgb
+                    } else {
+                        TextureInternalFormat::Rgba
+                    },
                     1,
                     1,
-                    if is_rgb { TextureFormat::Rgb } else { TextureFormat::Rgba },
+                    if is_rgb {
+                        TextureFormat::Rgb
+                    } else {
+                        TextureFormat::Rgba
+                    },
                     color,
                 );
         }
@@ -812,19 +365,21 @@ impl MeshStore {
     }
 
     pub fn rgb_texture(&mut self, color: V3) -> TextureRef {
-        self.rgb_textures.iter().find(|(value, _)| value == &color).map(|(_, id)| *id).unwrap_or_else(||{
+        if let Some(texture_ref) = self.rgb_textures.get(&color) {
+            *texture_ref
+        } else {
             let id = self.color_texture(&[color.x, color.y, color.z]);
-            self.rgb_textures.push((color, id));
-            id
-        })
+            *self.rgb_textures.insert(color, id)
+        }
     }
 
     pub fn rgba_texture(&mut self, color: V4) -> TextureRef {
-        self.rgba_textures.iter().find(|(value, _)| value == &color).map(|(_, id)| *id).unwrap_or_else(||{
+        if let Some(texture_ref) = self.rgba_textures.get(&color) {
+            *texture_ref
+        } else {
             let id = self.color_texture(&[color.x, color.y, color.z, color.w]);
-            self.rgba_textures.push((color, id));
-            id
-        })
+            *self.rgba_textures.insert(color, id)
+        }
     }
 
     pub fn get_cube(&mut self) -> MeshRef {
@@ -832,7 +387,7 @@ impl MeshStore {
             return mesh_ref;
         }
 
-        let verts = cube_vertices();
+        let verts = primitives::cube_vertices();
         let mesh = Mesh::new(&verts);
         let mesh_ref = self.insert_mesh(mesh);
         self.cube = Some(mesh_ref);
@@ -840,14 +395,18 @@ impl MeshStore {
     }
 
     pub fn get_sphere(&mut self, radius: f32) -> MeshRef {
-        if let Some(cached) = self.spheres.iter().find(|(cache_level, _)| *cache_level == radius) {
+        if let Some(cached) = self
+            .spheres
+            .iter()
+            .find(|(cache_level, _)| *cache_level == radius)
+        {
             return cached.1;
         }
 
-        let verts = sphere_verticies(radius, 24, 16);
+        let verts = primitives::sphere_verticies(radius, 24, 16);
         let mesh = Mesh::new(&verts);
         let mesh_ref = self.insert_mesh(mesh);
-        self.spheres.push((radius, mesh_ref));
+        self.spheres.insert(radius, mesh_ref);
         mesh_ref
     }
 
@@ -928,27 +487,28 @@ impl MeshStore {
     pub fn load_pbr_with_default_filenames(
         &mut self,
         path: impl AsRef<Path>,
-        extension: &str
+        extension: &str,
     ) -> Result<Material, Error> {
         let path = path.as_ref();
-
-        let mut load_srgb = |map| {
-            let p = path.join(map).with_extension(extension);
-            self.load_srgb(p)
-        };
-        let albedo = load_srgb("albedo").context("failed to load pbr albedo")?;
-        let mut load_rgb = |map| {
-            let p = path.join(map).with_extension(extension);
-            self.load_rgb(p)
-        };
+        let x = |map| path.join(map).with_extension(extension);
 
         Ok(Material {
-            albedo,
-            metallic: load_rgb("metallic").context("failed to load pbr metallic")?,
-            roughness: load_rgb("roughness").context("failed to load pbr roughness")?,
-            normal: load_rgb("normal").context("failed to load pbr normal")?,
-            ao: load_rgb("ao").context("failed to load pbr ao")?,
-            opacity: load_rgb("opacity").context("failed to load pbr opacity")?,
+            albedo: self
+                .load_srgb(x("albedo"))
+                .context("failed to load pbr albedo")?,
+            metallic: self
+                .load_rgb(x("metallic"))
+                .context("failed to load pbr metallic")?,
+            roughness: self
+                .load_rgb(x("roughness"))
+                .context("failed to load pbr roughness")?,
+            normal: self
+                .load_rgb(x("normal"))
+                .context("failed to load pbr normal")?,
+            ao: self.load_rgb(x("ao")).context("failed to load pbr ao")?,
+            opacity: self
+                .load_rgb(x("opacity"))
+                .context("failed to load pbr opacity")?,
         })
     }
 }
@@ -999,6 +559,7 @@ impl RenderObject {
         self.transform(Mat4::from_scale(s))
     }
 
+    #[allow(unused)]
     pub fn with_transform(&self, transform: Mat4) -> RenderObject {
         let mut new = self.clone();
 
@@ -1013,6 +574,76 @@ impl RenderObject {
         new.material = Some(material);
 
         new
+    }
+
+    pub fn combined_transformed_verts_within_distance(
+        &self,
+        meshes: &MeshStore,
+        transform: &Mat4,
+        p: &V3,
+        max_dist: f32,
+    ) -> Vec<V3> {
+        fn apply(v: &V3, t: &Mat4) -> V3 {
+            let w = t * v4(v.x, v.y, v.z, 1.0);
+            v3(w.x, w.y, w.z)
+        }
+
+        let transform = self.transform * transform;
+
+        match &self.child {
+            RenderObjectChild::Mesh(mesh_ref) => {
+                let mesh = meshes.get_mesh(mesh_ref);
+                mesh.simple_verts
+                    .iter()
+                    .map(|v| apply(v, &transform))
+                    .filter(|v| (v - p).magnitude() < max_dist)
+                    .collect()
+            }
+            RenderObjectChild::RenderObjects(children) => children
+                .iter()
+                .flat_map(|child| {
+                    child
+                        .combined_transformed_verts_within_distance(meshes, &transform, p, max_dist)
+                })
+                .collect(),
+        }
+    }
+
+    pub fn raymarch(&self, meshes: &MeshStore, p: V3, d: V3) -> f32 {
+        let verts = self.combined_transformed_verts_within_distance(
+            meshes,
+            &Mat4::from_scale(0.0),
+            &p,
+            6.0,
+        );
+
+        let closest_vert = |dp: &V3| {
+            verts
+                .iter()
+                .enumerate()
+                .fold((0, std::f32::MAX), |(j, d), (i, v)| {
+                    let vd = (dp - v).magnitude();
+                    if vd < d {
+                        (i, vd)
+                    } else {
+                        (j, d)
+                    }
+                })
+        };
+
+        const MAX_ITER: usize = 50;
+        const EPOSILON: f32 = 1.0;
+
+        let mut dp = p;
+        let mut h = closest_vert(&dp);
+        for _ in 0..MAX_ITER {
+            if h.1 < EPOSILON {
+                return h.1;
+            }
+            dp = dp + h.1 * d;
+            h = closest_vert(&dp);
+        }
+        std::f32::MAX
     }
 }
 
@@ -1218,6 +849,7 @@ impl Renderable for RenderTarget {
     }
 }
 
+#[allow(unused)]
 pub struct CubeMapBuilder<T> {
     pub back: T,
     pub front: T,
@@ -1227,6 +859,7 @@ pub struct CubeMapBuilder<T> {
     pub top: T,
 }
 
+#[allow(unused)]
 impl<'a> CubeMapBuilder<&'a str> {
     pub fn build(self) -> Texture {
         let texture = Texture::new(TextureKind::CubeMap);
@@ -1269,12 +902,15 @@ impl<'a> CubeMapBuilder<&'a str> {
     }
 }
 
-pub fn map_cubemap(
+pub fn map_cubemap<P>(
     size: u32,
     mip_levels: usize,
-    program: &ProgramBinding,
-    mut render_cube: impl FnMut(&FramebufferBinderReadDraw, &ProgramBinding),
-) -> Texture {
+    program: &P,
+    mut render_cube: impl FnMut(&FramebufferBinderReadDraw, &P),
+) -> Texture
+where
+    P: ProgramBind,
+{
     // Prepare
     let mut fbo = Framebuffer::new();
     let mut rbo = Renderbuffer::new();
@@ -1382,25 +1018,25 @@ pub fn map_cubemap(
 
     map
 }
-pub fn cubemap_from_equirectangular(
-    size: u32,
-    program: &ProgramBinding,
-    render_cube: impl FnMut(&FramebufferBinderReadDraw, &ProgramBinding),
-) -> Texture {
+pub fn cubemap_from_equirectangular<F, P>(size: u32, program: &P, render_cube: F) -> Texture
+where
+    F: FnMut(&FramebufferBinderReadDraw, &P),
+    P: ProgramBind,
+{
     map_cubemap(size, 1, program, render_cube)
 }
-pub fn cubemap_from_importance(
-    size: u32,
-    program: &ProgramBinding,
-    render_cube: impl FnMut(&FramebufferBinderReadDraw, &ProgramBinding),
-) -> Texture {
+pub fn create_prefiler_map<F, P>(size: u32, program: &P, render_cube: F) -> Texture
+where
+    F: FnMut(&FramebufferBinderReadDraw, &P),
+    P: ProgramBind,
+{
     map_cubemap(size, 5, program, render_cube)
 }
-pub fn convolute_cubemap(
-    size: u32,
-    program: &ProgramBinding,
-    render_cube: impl FnMut(&FramebufferBinderReadDraw, &ProgramBinding),
-) -> Texture {
+pub fn create_irradiance_map<F, P>(size: u32, program: &P, render_cube: F) -> Texture
+where
+    F: FnMut(&FramebufferBinderReadDraw, &P),
+    P: ProgramBind,
+{
     map_cubemap(size, 1, program, render_cube)
 }
 
@@ -1459,355 +1095,11 @@ impl Camera {
     }
 }
 
-macro_rules! v {
-    ($pos:expr, $norm:expr, $tex:expr, $tangent:expr) => {{
-        let tangent = $tangent.into();
-        let norm = $norm.into();
-        Vertex {
-            pos: $pos.into(),
-            tex: $tex.into(),
-            norm: norm,
-            tangent: tangent,
-            bitangent: tangent.cross(norm),
-        }
-    }};
-}
-
-fn cube_vertices() -> Vec<Vertex> {
-    vec![
-        // Back face
-        v!(
-            [-0.5, -0.5, -0.5],
-            [0.0, 0.0, -1.0],
-            [0.0, 0.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [0.5, 0.5, -0.5],
-            [0.0, 0.0, -1.0],
-            [1.0, 1.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [0.5, -0.5, -0.5],
-            [0.0, 0.0, -1.0],
-            [1.0, 0.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [0.5, 0.5, -0.5],
-            [0.0, 0.0, -1.0],
-            [1.0, 1.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [-0.5, -0.5, -0.5],
-            [0.0, 0.0, -1.0],
-            [0.0, 0.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [-0.5, 0.5, -0.5],
-            [0.0, 0.0, -1.0],
-            [0.0, 1.0],
-            [0.0, 1.0, 0.0]
-        ),
-        // Front face
-        v!(
-            [-0.5, -0.5, 0.5],
-            [0.0, 0.0, 1.0],
-            [0.0, 0.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [0.5, -0.5, 0.5],
-            [0.0, 0.0, 1.0],
-            [1.0, 0.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [0.5, 0.5, 0.5],
-            [0.0, 0.0, 1.0],
-            [1.0, 1.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [0.5, 0.5, 0.5],
-            [0.0, 0.0, 1.0],
-            [1.0, 1.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [-0.5, 0.5, 0.5],
-            [0.0, 0.0, 1.0],
-            [0.0, 1.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [-0.5, -0.5, 0.5],
-            [0.0, 0.0, 1.0],
-            [0.0, 0.0],
-            [0.0, 1.0, 0.0]
-        ),
-        // Left face
-        v!(
-            [-0.5, 0.5, 0.5],
-            [-1.0, 0.0, 0.0],
-            [1.0, 0.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [-0.5, 0.5, -0.5],
-            [-1.0, 0.0, 0.0],
-            [1.0, 1.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [-0.5, -0.5, -0.5],
-            [-1.0, 0.0, 0.0],
-            [0.0, 1.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [-0.5, -0.5, -0.5],
-            [-1.0, 0.0, 0.0],
-            [0.0, 1.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [-0.5, -0.5, 0.5],
-            [-1.0, 0.0, 0.0],
-            [0.0, 0.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [-0.5, 0.5, 0.5],
-            [-1.0, 0.0, 0.0],
-            [1.0, 0.0],
-            [0.0, 1.0, 0.0]
-        ),
-        // Right face
-        v!(
-            [0.5, 0.5, 0.5],
-            [1.0, 0.0, 0.0],
-            [1.0, 0.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [0.5, -0.5, -0.5],
-            [1.0, 0.0, 0.0],
-            [0.0, 1.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [0.5, 0.5, -0.5],
-            [1.0, 0.0, 0.0],
-            [1.0, 1.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [0.5, -0.5, -0.5],
-            [1.0, 0.0, 0.0],
-            [0.0, 1.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [0.5, 0.5, 0.5],
-            [1.0, 0.0, 0.0],
-            [1.0, 0.0],
-            [0.0, 1.0, 0.0]
-        ),
-        v!(
-            [0.5, -0.5, 0.5],
-            [1.0, 0.0, 0.0],
-            [0.0, 0.0],
-            [0.0, 1.0, 0.0]
-        ),
-        // Bottom face
-        v!(
-            [-0.5, -0.5, -0.5],
-            [0.0, -1.0, 0.0],
-            [0.0, 1.0],
-            [1.0, 0.0, 0.0]
-        ),
-        v!(
-            [0.5, -0.5, -0.5],
-            [0.0, -1.0, 0.0],
-            [1.0, 1.0],
-            [1.0, 0.0, 0.0]
-        ),
-        v!(
-            [0.5, -0.5, 0.5],
-            [0.0, -1.0, 0.0],
-            [1.0, 0.0],
-            [1.0, 0.0, 0.0]
-        ),
-        v!(
-            [0.5, -0.5, 0.5],
-            [0.0, -1.0, 0.0],
-            [1.0, 0.0],
-            [1.0, 0.0, 0.0]
-        ),
-        v!(
-            [-0.5, -0.5, 0.5],
-            [0.0, -1.0, 0.0],
-            [0.0, 0.0],
-            [1.0, 0.0, 0.0]
-        ),
-        v!(
-            [-0.5, -0.5, -0.5],
-            [0.0, -1.0, 0.0],
-            [0.0, 1.0],
-            [1.0, 0.0, 0.0]
-        ),
-        // Top face
-        v!(
-            [-0.5, 0.5, -0.5],
-            [0.0, 1.0, 0.0],
-            [0.0, 1.0],
-            [1.0, 0.0, 0.0]
-        ),
-        v!(
-            [0.5, 0.5, 0.5],
-            [0.0, 1.0, 0.0],
-            [1.0, 0.0],
-            [1.0, 0.0, 0.0]
-        ),
-        v!(
-            [0.5, 0.5, -0.5],
-            [0.0, 1.0, 0.0],
-            [1.0, 1.0],
-            [1.0, 0.0, 0.0]
-        ),
-        v!(
-            [0.5, 0.5, 0.5],
-            [0.0, 1.0, 0.0],
-            [1.0, 0.0],
-            [1.0, 0.0, 0.0]
-        ),
-        v!(
-            [-0.5, 0.5, -0.5],
-            [0.0, 1.0, 0.0],
-            [0.0, 1.0],
-            [1.0, 0.0, 0.0]
-        ),
-        v!(
-            [-0.5, 0.5, 0.5],
-            [0.0, 1.0, 0.0],
-            [0.0, 0.0],
-            [1.0, 0.0, 0.0]
-        ),
-    ]
-}
-fn sphere_verticies(radius: f32, nb_long: usize, nb_lat: usize) -> Vec<Vertex> {
-    use std::f32::consts::PI;
-
-    let mut verts: Vec<Vertex> = vec![Vertex::default(); (nb_long + 1) * nb_lat + 2];
-
-    let up = v3(0.0, 1.0, 0.0) * radius;
-    verts[0] = Vertex {
-        pos: up,
-        norm: up,
-        tex: v2(0.0, 0.0),
-        tangent: v3(0.0, 0.0, 0.0),
-        bitangent: v3(0.0, 0.0, 0.0),
-    };
-    for lat in 0..nb_lat {
-        let a1 = PI * (lat as f32 + 1.0) / (nb_lat as f32 + 1.0);
-        let (sin1, cos1) = a1.sin_cos();
-
-        for lon in 0..=nb_long {
-            let a2 = PI * 2.0 * (if lon == nb_long { 0.0 } else { lon as f32 }) / nb_long as f32;
-            let (sin2, cos2) = a2.sin_cos();
-
-            let pos = v3(
-                sin1 * cos2,
-                cos1,
-                sin1 * sin2,
-            );
-            let norm = pos;
-            let tex = v2(
-                lon as f32 / nb_long as f32,
-                1.0 - (lat as f32 + 1.0) / (nb_lat as f32 + 1.0)
-            );
-
-            verts[lon + lat * (nb_long + 1) + 1] = Vertex {
-                pos: pos * radius,
-                norm,
-                tex,
-                tangent: v3(0.0, 0.0, 0.0),
-                bitangent: v3(0.0, 0.0, 0.0),
-            };
-        }
-    }
-    let len = verts.len();
-    verts[len - 1] = Vertex {
-        pos: -up,
-        norm: -up,
-        tex: v2(0.0, 0.0),
-        tangent: v3(0.0, 0.0, 0.0),
-        bitangent: v3(0.0, 0.0, 0.0),
-    };
-
-    let nb_faces = verts.len();
-    let nb_triangles = nb_faces * 2;
-    let nb_indices = nb_triangles * 3;
-
-    let mut new_verts: Vec<Vertex> = Vec::with_capacity(nb_indices);
-
-    let mut v = |i: usize| new_verts.push(verts[i].clone());
-
-    for lon in 0..nb_long {
-        v(lon + 2);
-        v(lon + 1);
-        v(0);
-    }
-
-    for lat in 0..(nb_lat - 1) {
-        for lon in 0..nb_long {
-            let current = lon + lat * (nb_long + 1) + 1;
-            let next = current + nb_long + 1;
-
-            v(current);
-            v(current + 1);
-            v(next + 1);
-
-            v(current);
-            v(next + 1);
-            v(next);
-        }
-    }
-
-    for lon in 0..nb_long {
-        v(len - 1);
-        v(len - (lon + 2) - 1);
-        v(len - (lon + 1) - 1);
-    }
-
-    for vs in new_verts.chunks_mut(3) {
-        if vs.len() < 3 {
-            continue;
-        }
-
-        let x: *mut _ = &mut vs[0];
-        let y: *mut _ = &mut vs[1];
-        let z: *mut _ = &mut vs[2];
-        unsafe {
-            calculate_tangent_and_bitangent(&mut *x, &mut *y, &mut *z);
-        }
-    }
-    new_verts
-}
-
-
 pub fn rgb(r: u8, g: u8, b: u8) -> V3 {
-    v3( r as f32 / 255.0,
-        g as f32 / 255.0,
-        b as f32 / 255.0
-    )
- }
+    v3(r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0)
+}
 
- pub fn clamp<T: PartialOrd>(input: T, min: T, max: T) -> T {
+pub fn clamp<T: PartialOrd>(input: T, min: T, max: T) -> T {
     debug_assert!(min <= max, "min must be less than or equal to max");
     if input < min {
         min
@@ -1818,35 +1110,28 @@ pub fn rgb(r: u8, g: u8, b: u8) -> V3 {
     }
 }
 
- pub fn hsv(h: f32, s: f32, v: f32) -> V3 {
-
-    let r: f32 =
-        if (h % 1.0) < 0.5 {
-            (clamp(-6.0 * (h % 1.0)  + 2.0, 0.0, 1.0) * s + 1.0 - s)  * v
-        }
-        else {
-            (clamp(6.0 * (h % 1.0)  - 4.0, 0.0, 1.0) * s + 1.0 - s)  * v
+pub fn hsv(h: f32, s: f32, v: f32) -> V3 {
+    let r: f32 = if (h % 1.0) < 0.5 {
+        (clamp(-6.0 * (h % 1.0) + 2.0, 0.0, 1.0) * s + 1.0 - s) * v
+    } else {
+        (clamp(6.0 * (h % 1.0) - 4.0, 0.0, 1.0) * s + 1.0 - s) * v
     };
 
-    let g: f32 =
-        if (h % 1.0) < 1.0 / 3.0 {
-            (clamp(6.0 * (h % 1.0), 0.0, 1.0) * s + 1.0 - s)  * v
-        }
-        else {
-            (clamp(-6.0 * (h % 1.0) + 4.0, 0.0, 1.0) * s + 1.0 - s)  * v
+    let g: f32 = if (h % 1.0) < 1.0 / 3.0 {
+        (clamp(6.0 * (h % 1.0), 0.0, 1.0) * s + 1.0 - s) * v
+    } else {
+        (clamp(-6.0 * (h % 1.0) + 4.0, 0.0, 1.0) * s + 1.0 - s) * v
     };
 
-    let b: f32 =
-        if (h % 1.0) < 2.0 / 0.3 {
-            (clamp(6.0 * (h % 1.0)  - 2.0, 0.0, 1.0) * s + 1.0 - s)  * v
-        }
-        else {
-            (clamp(-6.0 * (h % 1.0)  + 6.0, 0.0, 1.0) * s + 1.0 - s)  * v
+    let b: f32 = if (h % 1.0) < 2.0 / 0.3 {
+        (clamp(6.0 * (h % 1.0) - 2.0, 0.0, 1.0) * s + 1.0 - s) * v
+    } else {
+        (clamp(-6.0 * (h % 1.0) + 6.0, 0.0, 1.0) * s + 1.0 - s) * v
     };
 
     v3(r, g, b)
- }
+}
 
- pub fn hex(v: u32) -> V3 {
-    rgb((v >> 16 & 0xff) as u8, (v >> 8 & 0xff) as u8, (v & 0xff) as u8)
+pub fn hex(v: u32) -> V3 {
+    rgb((v >> 16) as u8, (v >> 8) as u8, v as u8)
 }

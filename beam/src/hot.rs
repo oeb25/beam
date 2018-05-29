@@ -1,6 +1,6 @@
-use warmy;
-use std;
 use mg;
+use std;
+use warmy;
 
 fn rip<T, C>(e: warmy::load::StoreErrorOr<T, C>) -> T::Error
 where

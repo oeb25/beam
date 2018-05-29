@@ -1,14 +1,6 @@
 use gl;
-use std::{borrow::Cow,
-          ffi,
-          fs,
-          marker::PhantomData,
-          mem,
-          ptr,
-          path::Path,
-      };
+use std::{ffi, fs, mem, path::Path, ptr};
 
-use types::GlError;
 use textures::{Texture, TextureSlot};
 
 #[derive(Debug, Clone, Copy)]
@@ -36,7 +28,7 @@ impl Shader {
         Shader::new(&src, kind)
     }
     pub fn new(src: &str, kind: ShaderKind) -> Result<Shader, ()> {
-        let id = unsafe {;
+        let id = unsafe {
             let shader_id = gl::CreateShader(kind.into());
             let source = ffi::CString::new(src).unwrap();
             gl::ShaderSource(
@@ -59,7 +51,8 @@ impl Shader {
                     buffer.as_mut_ptr() as *mut _,
                 );
                 buffer.set_len(error_log_size as usize);
-                let error_msg = String::from_utf8(buffer).expect("error message could not be turned into utf8");
+                let error_msg =
+                    String::from_utf8(buffer).expect("error message could not be turned into utf8");
                 println!("Error while compiling shader of type {:?}", kind);
                 for line in error_msg.lines() {
                     println!("{}", line);
@@ -203,28 +196,34 @@ impl Program {
         Program::new(&vs, gs.as_ref(), &fs)
     }
     #[allow(unused)]
-    pub fn new_from_src(
-        vs_src: &str,
-        gs_src: Option<&str>,
-        fs_src: &str,
-    ) -> Result<Program, ()> {
+    pub fn new_from_src(vs_src: &str, gs_src: Option<&str>, fs_src: &str) -> Result<Program, ()> {
         let vs = VertexShader::new(&vs_src).map_err(|e| {
             println!("unable to create vertex shader with src:");
-            println!("{}", vs_src.lines().enumerate().map(|(i, line)| {
-                format!("{:?} | {}\n", i + 1, line)
-            }).collect::<String>());
+            println!(
+                "{}",
+                vs_src
+                    .lines()
+                    .enumerate()
+                    .map(|(i, line)| format!("{:?} | {}\n", i + 1, line))
+                    .collect::<String>()
+            );
             e
-        })?;//.expect("unable to create vertex shader");
+        })?; //.expect("unable to create vertex shader");
         let gs = gs_src
             .map(|gs_src| GeometryShader::new(&gs_src))
             .transpose()?;
         let fs = FragmentShader::new(&fs_src).map_err(|e| {
             println!("unable to create fragment shader with src:");
-            println!("{}", fs_src.lines().enumerate().map(|(i, line)| {
-                format!("{:?} | {}\n", i + 1, line)
-            }).collect::<String>());
+            println!(
+                "{}",
+                fs_src
+                    .lines()
+                    .enumerate()
+                    .map(|(i, line)| format!("{:?} | {}\n", i + 1, line))
+                    .collect::<String>()
+            );
             e
-        })?;//.expect("unable to create fragment shader");
+        })?; //.expect("unable to create fragment shader");
 
         Program::new(&vs, gs.as_ref(), &fs)
     }
@@ -248,18 +247,18 @@ impl Drop for Program {
 }
 type Mat4 = [[f32; 4]; 4];
 pub trait Uloc: Sized {
-    fn loc(self, program: &ProgramBinding) -> UniformLocation;
-    fn id(self, program: &ProgramBinding) -> i32 {
+    fn loc(self, program: &impl ProgramBind) -> UniformLocation;
+    fn id(self, program: &impl ProgramBind) -> i32 {
         self.loc(program).0
-    } 
+    }
 }
 impl<'a> Uloc for &'a str {
-    fn loc(self, program: &ProgramBinding) -> UniformLocation {
+    fn loc(self, program: &impl ProgramBind) -> UniformLocation {
         let loc = unsafe {
             gl::GetUniformLocation(
-                program.program.id,
+                program.id(),
                 ffi::CString::new(self)
-                    .expect("unable to create a CString from passes str")
+                    .expect("unable to create a CString from passed str")
                     .as_ptr(),
             )
         };
@@ -267,13 +266,13 @@ impl<'a> Uloc for &'a str {
     }
 }
 impl<'a> Uloc for &'a String {
-    fn loc(self, program: &ProgramBinding) -> UniformLocation {
+    fn loc(self, program: &impl ProgramBind) -> UniformLocation {
         let a: &str = self;
         a.loc(program)
     }
 }
 impl Uloc for UniformLocation {
-    fn loc(self, _program: &ProgramBinding) -> UniformLocation {
+    fn loc(self, _program: &impl ProgramBind) -> UniformLocation {
         self
     }
 }
@@ -283,132 +282,172 @@ pub struct ProgramBinding<'a> {
     next_texture_slot: Cell<TextureSlot>,
 }
 impl<'a> ProgramBinding<'a> {
-    fn new(program: &'a mut Program) -> ProgramBinding<'a> {
+    fn new(program: &mut Program) -> ProgramBinding {
         unsafe {
             gl::UseProgram(program.id);
         }
         let next_texture_slot = Cell::new(TextureSlot::Zero);
-        ProgramBinding { program, next_texture_slot }
+        ProgramBinding {
+            program,
+            next_texture_slot,
+        }
     }
-    pub fn set_next_texture_slot(&self, slot: TextureSlot) -> &ProgramBinding<'a> {
+}
+impl<'a> ProgramBind for ProgramBinding<'a> {
+    fn set_next_texture_slot(&self, slot: TextureSlot) -> &Self {
         self.next_texture_slot.set(slot);
         self
     }
-    pub fn next_texture_slot(&self) -> TextureSlot {
+    fn next_texture_slot(&self) -> TextureSlot {
         self.next_texture_slot.get().clone()
     }
-    pub fn bind_mat4(&self, loc: impl Uloc, mat: impl Into<Mat4>) -> &ProgramBinding<'a> {
+    fn id(&self) -> u32 {
+        self.program.id
+    }
+}
+use std::cell::RefMut;
+pub struct ProgramBindingRefMut<'a> {
+    program: RefMut<'a, Program>,
+    next_texture_slot: Cell<TextureSlot>,
+}
+impl<'a> ProgramBindingRefMut<'a> {
+    pub fn new(program: RefMut<Program>) -> ProgramBindingRefMut {
+        unsafe {
+            gl::UseProgram(program.id);
+        }
+        let next_texture_slot = Cell::new(TextureSlot::Zero);
+        ProgramBindingRefMut {
+            program,
+            next_texture_slot,
+        }
+    }
+}
+impl<'a> ProgramBind for ProgramBindingRefMut<'a> {
+    fn set_next_texture_slot(&self, slot: TextureSlot) -> &Self {
+        self.next_texture_slot.set(slot);
+        self
+    }
+    fn next_texture_slot(&self) -> TextureSlot {
+        self.next_texture_slot.get().clone()
+    }
+    fn id(&self) -> u32 {
+        self.program.id
+    }
+}
+
+pub trait ProgramBind: Sized {
+    fn set_next_texture_slot(&self, slot: TextureSlot) -> &Self;
+    fn next_texture_slot(&self) -> TextureSlot;
+    fn id(&self) -> u32;
+    fn bind_mat4(&self, loc: impl Uloc, mat: impl Into<Mat4>) -> &Self {
         self.bind_mat4s(loc, &[mat.into()])
     }
-    pub fn bind_mat4s(
-        &self,
-        loc: impl Uloc,
-        mats: &[Mat4],
-    ) -> &ProgramBinding<'a> {
+    fn bind_mat4s(&self, loc: impl Uloc, mats: &[Mat4]) -> &Self {
         unsafe {
-            gl::UniformMatrix4fv(loc.id(self), mats.len() as i32, gl::FALSE, mats.as_ptr() as *const _);
+            gl::UniformMatrix4fv(
+                loc.id(self),
+                mats.len() as i32,
+                gl::FALSE,
+                mats.as_ptr() as *const _,
+            );
         }
         self
     }
-    pub fn bind_int(&self, loc: impl Uloc, i: i32) -> &ProgramBinding<'a> {
+    fn bind_int(&self, loc: impl Uloc, i: i32) -> &Self {
         unsafe {
             gl::Uniform1i(loc.id(self), i);
         }
         self
     }
-    pub fn bind_ints(&self, loc: impl Uloc, i: &[i32]) -> &ProgramBinding<'a> {
+    fn bind_ints(&self, loc: impl Uloc, i: &[i32]) -> &Self {
         unsafe {
             gl::Uniform1iv(loc.id(self), i.len() as i32, i.as_ptr() as *const _);
         }
         self
     }
-    pub fn bind_uint(&self, loc: impl Uloc, i: u32) -> &ProgramBinding<'a> {
+    fn bind_uint(&self, loc: impl Uloc, i: u32) -> &Self {
         unsafe {
             gl::Uniform1ui(loc.id(self), i);
         }
         self
     }
-    pub fn bind_bool(&self, loc: impl Uloc, i: bool) -> &ProgramBinding<'a> {
+    fn bind_bool(&self, loc: impl Uloc, i: bool) -> &Self {
         self.bind_uint(loc, if i { 1 } else { 0 })
     }
-    pub fn bind_texture_to(
+    fn bind_texture_to(
         &self,
         loc: impl Uloc,
         texture: &Texture,
         slot: TextureSlot,
-    ) -> &ProgramBinding<'a> {
+    ) -> &Self {
         texture.bind_to(slot);
         self.bind_int(loc, slot.into())
     }
-    pub fn bind_texture_returning_slot(
-        &self,
-        loc: impl Uloc,
-        texture: &Texture,
-    ) -> TextureSlot {
-        let slot = self.next_texture_slot.get();
+    fn bind_texture_returning_slot(&self, loc: impl Uloc, texture: &Texture) -> TextureSlot {
+        let slot = self.next_texture_slot();
         texture.bind_to(slot);
-        self.next_texture_slot.set(slot.next());
+        self.set_next_texture_slot(slot.next());
         self.bind_int(loc, slot.into());
         slot
     }
-    pub fn bind_texture(
-        &self,
-        loc: impl Uloc,
-        texture: &Texture,
-    ) -> &ProgramBinding<'a> {
+    fn bind_texture(&self, loc: impl Uloc, texture: &Texture) -> &Self {
         self.bind_texture_returning_slot(loc, texture);
         self
     }
-    pub fn bind_textures<'b>(
+    fn bind_textures<'b>(
         &self,
         loc: impl Uloc,
         textures: impl Iterator<Item = &'b Texture>,
-    ) -> &ProgramBinding<'a> {
-        let mut cur_slot = self.next_texture_slot.get();
-        let slots = textures.map(|tex| {
-            let slot = cur_slot;
-            tex.bind_to(slot);
-            cur_slot = slot.next();
-            slot.into()
-        }).collect::<Vec<_>>();
-        self.next_texture_slot.set(cur_slot.next());
+    ) -> &Self {
+        let mut cur_slot = self.next_texture_slot();
+        let slots = textures
+            .map(|tex| {
+                let slot = cur_slot;
+                tex.bind_to(slot);
+                cur_slot = slot.next();
+                slot.into()
+            })
+            .collect::<Vec<_>>();
+        self.set_next_texture_slot(cur_slot.next());
         self.bind_ints(loc, &slots)
     }
-    pub fn bind_float(&self, loc: impl Uloc, f: f32) -> &ProgramBinding<'a> {
+    fn bind_float(&self, loc: impl Uloc, f: f32) -> &Self {
         unsafe {
             gl::Uniform1f(loc.id(self), f);
         }
         self
     }
-    pub fn bind_float2(&self, loc: impl Uloc, f: &[f32]) -> &ProgramBinding<'a> {
+    fn bind_float2(&self, loc: impl Uloc, f: &[f32]) -> &Self {
         unsafe {
             gl::Uniform1fv(loc.id(self), f.len() as i32, f.as_ptr() as *const _);
         }
         self
     }
-    pub fn bind_vec3<T: Into<[f32; 3]>>(&self, loc: impl Uloc, v: T) -> &ProgramBinding<'a> {
+    fn bind_vec3<T: Into<[f32; 3]>>(&self, loc: impl Uloc, v: T) -> &Self {
         let v = v.into();
-        unsafe { gl::Uniform3f(loc.id(self), v[0], v[1], v[2]); }
+        unsafe {
+            gl::Uniform3f(loc.id(self), v[0], v[1], v[2]);
+        }
         self
     }
-    pub fn bind_vec3s(&self, loc: impl Uloc, v: &[[f32; 3]]) -> &ProgramBinding<'a> {
+    fn bind_vec3s(&self, loc: impl Uloc, v: &[[f32; 3]]) -> &Self {
         unsafe {
             gl::Uniform3fv(loc.id(self), v.len() as i32, v.as_ptr() as *const _);
         }
         self
     }
     #[allow(unused)]
-    pub fn get_uniform_block_index(&self, name: &str) -> UniformBlockIndex {
+    fn get_uniform_block_index(&self, name: &str) -> UniformBlockIndex {
         let loc = unsafe {
-            gl::GetUniformBlockIndex(self.program.id, ffi::CString::new(name).unwrap().as_ptr())
+            gl::GetUniformBlockIndex(self.id(), ffi::CString::new(name).unwrap().as_ptr())
         };
         UniformBlockIndex::new(loc)
     }
     #[allow(unused)]
-    pub fn uniform_block_binding(&self, name: &str, index: usize) -> &ProgramBinding<'a> {
+    fn uniform_block_binding(&self, name: &str, index: usize) -> &Self {
         let block_index = self.get_uniform_block_index(name);
         unsafe {
-            gl::UniformBlockBinding(self.program.id, block_index.0, index as u32);
+            gl::UniformBlockBinding(self.id(), block_index.0, index as u32);
         }
         self
     }
