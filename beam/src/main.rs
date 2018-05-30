@@ -49,6 +49,7 @@ struct Input {
 
     space: f32,
     shift: f32,
+    ctrl: f32,
 }
 
 struct Scene {
@@ -138,17 +139,19 @@ impl Scene {
         let front = up.cross(right).normalize();
 
         let walk_speed = 0.1;
+        let walk_speed = walk_speed + 0.2 * inputs.shift;
         let sensitivity = 0.005;
 
         self.camera.pos += walk_speed
             * (front * (inputs.w - inputs.s)
                 + right * (inputs.d - inputs.a)
-                + up * (inputs.space - inputs.shift));
+                + up * (inputs.space - inputs.ctrl));
         self.camera.yaw += sensitivity * inputs.mouse_delta.0;
         self.camera.pitch = (self.camera.pitch - sensitivity * inputs.mouse_delta.1)
             .max(-pi / 2.001)
             .min(pi / 2.001);
 
+        self.point_lights[0].position = v3((_t as f32/50.0).sin()*5.0, 10.0, 0.0);
 
         // self.camera.yaw += sensitivity * (inputs.right - inputs.left);
         // self.camera.pitch = (self.camera.pitch + sensitivity * (inputs.up - inputs.down))
@@ -349,6 +352,7 @@ fn main() -> Result<(), Error> {
                             Kc::Right => inputs.right = value,
                             Kc::Space => inputs.space = value,
                             Kc::LShift => inputs.shift = value,
+                            Kc::LControl => inputs.ctrl = value,
                             _ => {}
                         }
                         if input.state == glutin::ElementState::Pressed {
