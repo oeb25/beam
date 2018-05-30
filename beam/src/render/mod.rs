@@ -1111,19 +1111,19 @@ pub fn clamp<T: PartialOrd>(input: T, min: T, max: T) -> T {
 }
 
 pub fn hsv(h: f32, s: f32, v: f32) -> V3 {
-    let r: f32 = if (h % 1.0) < 0.5 {
+    let r = if (h % 1.0) < 0.5 {
         (clamp(-6.0 * (h % 1.0) + 2.0, 0.0, 1.0) * s + 1.0 - s) * v
     } else {
         (clamp(6.0 * (h % 1.0) - 4.0, 0.0, 1.0) * s + 1.0 - s) * v
     };
 
-    let g: f32 = if (h % 1.0) < 1.0 / 3.0 {
+    let g = if (h % 1.0) < 1.0 / 3.0 {
         (clamp(6.0 * (h % 1.0), 0.0, 1.0) * s + 1.0 - s) * v
     } else {
         (clamp(-6.0 * (h % 1.0) + 4.0, 0.0, 1.0) * s + 1.0 - s) * v
     };
 
-    let b: f32 = if (h % 1.0) < 2.0 / 0.3 {
+    let b = if (h % 1.0) < 2.0 / 0.3 {
         (clamp(6.0 * (h % 1.0) - 2.0, 0.0, 1.0) * s + 1.0 - s) * v
     } else {
         (clamp(-6.0 * (h % 1.0) + 6.0, 0.0, 1.0) * s + 1.0 - s) * v

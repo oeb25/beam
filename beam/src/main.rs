@@ -189,6 +189,7 @@ fn main() -> Result<(), Error> {
     let white3 = pipeline.meshes.rgb_texture(v3(1.0, 1.0, 1.0));
     let black3 = pipeline.meshes.rgb_texture(v3(0.0, 0.0, 0.0));
     let normal3 = pipeline.meshes.rgb_texture(v3(0.5, 0.5, 1.0));
+    let blue3 = pipeline.meshes.rgb_texture(v3(0.0, 0.1, 1.0));
 
     let suzanne = pipeline
         .meshes
@@ -214,10 +215,33 @@ fn main() -> Result<(), Error> {
     let v = Mat4::from_angle_y(Rad(-1.5));
     is.push(owl.transform(v));
 
-    println!("drawing {} nanosuits", is.len());
+    println!("drawing {} mankeys", is.len());
 
     let cube_mesh = RenderObject::mesh(pipeline.meshes.get_cube());
     let sphere_mesh = RenderObject::mesh(pipeline.meshes.get_sphere(0.5));
+
+    let mut gradient_textures = vec![];
+
+    for i in 0..5 {
+        let val = i as f32 / 4.0;
+        let texture = pipeline.meshes.rgb_texture(v3(val, val, val));
+        gradient_textures.push(texture);
+    }
+
+    for (i, rough) in gradient_textures.iter().enumerate() {
+        for (n, met) in gradient_textures.iter().enumerate() {
+            let v = v3(i as f32 * 2.0, 10.0 - n as f32 * 2.0 ,-10.0);
+            let obj = sphere_mesh.translate(v) .with_material(Material {
+                        albedo: blue3,
+                        normal: normal3,
+                        metallic: *met,
+                        roughness: *rough,
+                        ao: white3,
+                        opacity: white3,
+                    });;
+            is.push(obj);
+        }
+    }
 
     let mut fps_last_time = PreciseTime::now();
     let fps_step = Duration::seconds(1);
