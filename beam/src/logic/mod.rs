@@ -1,7 +1,7 @@
-use std::f32::consts::PI;
 use cgmath::Rad;
 use misc::{v3, Mat4};
 use render;
+use std::f32::consts::PI;
 
 const MAP_SIZE: (usize, usize) = (10, 10);
 type Map = [[Tile; MAP_SIZE.1]; MAP_SIZE.0];
@@ -68,21 +68,52 @@ pub struct Entity {
     pub direction: Direction,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct LastEntityState {
+    pos: (i32, i32),
+    direction: Direction,
+}
+
+impl Entity {
+    #[allow(unused)]
+    fn animate(&self, last: &LastEntityState, t: f32) -> Mat4 {
+        match self.kind {
+            EntityKind::Owl => {
+                    Mat4::from_translation(v3(
+                        MAP_SIZE.0 as f32 - 1.0 - (self.pos.0 as f32),
+                        0.5,
+                        self.pos.1 as f32,
+                    )) * self.direction.to_rotation()
+            }
+        }
+    }
+}
+
+impl<'a> Into<LastEntityState> for Entity {
+    fn into(self) -> LastEntityState {
+        LastEntityState {
+            pos: self.pos,
+            direction: self.direction,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Game {
     pub map: Map,
-    pub owl: Entity,
+    pub owl: (LastEntityState, Entity),
 }
 
 impl Game {
     pub fn new() -> Game {
+        let owl = Entity {
+            pos: (4, 4),
+            kind: EntityKind::Owl,
+            direction: Direction::Up,
+        };
         let mut game = Game {
             map: Default::default(),
-            owl: Entity {
-                pos: (4, 4),
-                kind: EntityKind::Owl,
-                direction: Direction::Up,
-            },
+            owl: (owl.clone().into(), owl),
         };
         game.map_all_tiles_mut(|(x, y), tile| {
             let is_on_x_bounds = x == 0 || x == MAP_SIZE.0 - 1;
@@ -103,14 +134,14 @@ impl Game {
             Action::Left => Direction::Left,
         };
 
-        game.owl.direction = direction;
+        game.owl.1.direction = direction;
 
         let move_by = direction.to_tuple();
 
-        let new_pos = (self.owl.pos.0 + move_by.0, self.owl.pos.1 + move_by.1);
+        let new_pos = (self.owl.1.pos.0 + move_by.0, self.owl.1.pos.1 + move_by.1);
 
         if game.map[new_pos.0 as usize][new_pos.1 as usize] == Tile::Empty {
-            game.owl.pos = new_pos;
+            game.owl.1.pos = new_pos;
         }
 
         game
@@ -147,6 +178,7 @@ impl Game {
         &self,
         owl_mesh: &render::RenderObject,
         meshes: &mut render::MeshStore,
+        t: f32,
     ) -> Vec<render::RenderObject> {
         let mut calls = vec![];
         let cube_mesh = meshes.get_cube();
@@ -166,14 +198,7 @@ impl Game {
             }
         }
 
-        let owl = owl_mesh
-            .scale(0.3)
-            .transform(self.owl.direction.to_rotation())
-            .translate(v3(
-                MAP_SIZE.0 as f32 - 1.0 - (self.owl.pos.0 as f32),
-                0.5,
-                self.owl.pos.1 as f32,
-            ));
+        let owl = owl_mesh.scale(0.3).transform(self.owl.1.animate(&self.owl.0, t));
 
         calls.push(owl);
 

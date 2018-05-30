@@ -276,10 +276,17 @@ fn main() -> Result<(), Error> {
 
     let mut queued_actions = VecDeque::new();
 
+    let mut last_time = PreciseTime::now();
+    let frame_time = 1.0;
+    let mut timer = 0.0;
+
     while running {
         update_shadows = !update_shadows;
 
         let now = PreciseTime::now();
+        let dt = last_time.to(now).num_milliseconds() as f32 / 1000.0;
+        last_time = now;
+
         {
             fps_number_of_frames += 1;
             let delta = fps_last_time.to(now);
@@ -383,11 +390,16 @@ fn main() -> Result<(), Error> {
 
         t += 1.0;
 
-        if let Some(action) = queued_actions.pop_front() {
-            scene.game = scene.game.action(action);
+        timer += dt;
+
+        if timer > 1.0 {
+            if let Some(action) = queued_actions.pop_front() {
+                timer = 0.0;
+                scene.game = scene.game.action(action);
+            }
         }
 
-        scene.tick(t, t, &inputs);
+        scene.tick(t, dt, &inputs);
 
         // Begin rendering!
         {
@@ -445,7 +457,7 @@ fn main() -> Result<(), Error> {
                 }
             }
 
-            let game_calls = scene.game.render(&owl, &mut pipeline.meshes);
+            let game_calls = scene.game.render(&owl, &mut pipeline.meshes, timer.min(1.0));
 
             let game_call = RenderObject::with_children(game_calls)
                 .translate(v3(-5.0, 0.0, -5.0))
