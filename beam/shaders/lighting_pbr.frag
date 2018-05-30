@@ -58,23 +58,25 @@ uniform int nrSpotLights;
 uniform SpotLight spotLights[MAX_SPOT_LIGHTS];
 
 float directionalShadowCalculation(float bias, sampler2D shadowMap, vec4 fragPosLightSpace) {
-    vec3 projCoords = fragPosLightSpace.xyz;
+    vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
     projCoords = projCoords * 0.5 + 0.5;
-    float shadow;
+    float closestDepth = texture(shadowMap, projCoords.xy).r;
     float currentDepth = projCoords.z;
 
+    float shadow = 0.0;
     vec2 texelSize = 1.0 / textureSize(shadowMap, 0);
-    const int n = 3;
-    for(int x = -n; x <= n; ++x)
-    {
-        for(int y = -n; y <= n; ++y)
-        {
+    const int n = 1;
+    for (int x = -n; x <= n; ++x) {
+        for (int y = -n; y <= n; ++y) {
             float pcfDepth = texture(shadowMap, projCoords.xy + vec2(x, y) * texelSize).r;
             shadow += currentDepth - bias > pcfDepth ? 1.0 : 0.0;
         }
     }
     int m = n * 2 + 1;
     shadow /= m * m;
+
+    if (projCoords.z > 1.0)
+        shadow = 0.0;
 
     return shadow;
 }
@@ -170,9 +172,9 @@ void main() {
         kD *= 1.0 - metallic;
 
         float NdotL = max(dot(N, L), 0.0);
-        float bias = max(0.05 * (1.0 - NdotL), 0.0002);
+        float bias = max(0.05 * (1.0 - NdotL), 0.0005);
         float shadow =
-            1.0 - directionalShadowCalculation(0.0, directionalShadowMap, light.space * vec4(fragPos, 1.0));
+            1.0 - directionalShadowCalculation(0.001, directionalShadowMap, light.space * vec4(fragPos, 1.0));
 
         Lo += (kD * albedo / PI + specular) * radiance * NdotL * shadow;
     }
@@ -256,7 +258,7 @@ void main() {
     vec3 irradiance = texture(irradianceMap, N).rgb * ambientIntensity;
     vec3 diffuse = irradiance * albedo;
 
-    const float MAX_REFLECTION_LOD = 4.0;
+    const float MAX_REFLECTION_LOD = 1.0;
     vec3 prefilteredColor =
         textureLod(prefilterMap, R, roughness * MAX_REFLECTION_LOD).rgb * ambientIntensity;
     vec2 envBRDF = texture(brdfLUT, vec2(max(dot(N, V), 0.0), roughness)).rg;

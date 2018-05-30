@@ -478,6 +478,12 @@ impl<'a> TextureBinder<'a> {
         }
         self
     }
+    pub fn generate_mipmap(&self) -> &TextureBinder {
+        unsafe {
+            gl::GenerateMipmap(self.0.kind.into());
+        }
+        self
+    }
 }
 
 #[allow(unused)]

@@ -79,11 +79,24 @@ impl Entity {
     fn animate(&self, last: &LastEntityState, t: f32) -> Mat4 {
         match self.kind {
             EntityKind::Owl => {
-                Mat4::from_translation(v3(
+                let a = v3(
+                    MAP_SIZE.0 as f32 - 1.0 - (last.pos.0 as f32),
+                    0.5,
+                    last.pos.1 as f32,
+                );
+                let b = v3(
                     MAP_SIZE.0 as f32 - 1.0 - (self.pos.0 as f32),
                     0.5,
                     self.pos.1 as f32,
-                )) * self.direction.to_rotation()
+                );
+
+                let lerp = |a, t, b| a + t * (b - a);
+
+                let mut pos = lerp(a, t, b);
+
+                pos.y += (t * PI).sin();
+
+                Mat4::from_translation(pos) * self.direction.to_rotation()
             }
         }
     }
@@ -140,10 +153,11 @@ impl Game {
 
         let new_pos = (self.owl.1.pos.0 + move_by.0, self.owl.1.pos.1 + move_by.1);
 
+        game.owl.0 = game.owl.1.clone().into();
+
         if game.map[new_pos.0 as usize][new_pos.1 as usize] == Tile::Empty {
             game.owl.1.pos = new_pos;
         }
-        game.owl.0 = game.owl.1.clone().into();
 
         game
     }
@@ -199,7 +213,7 @@ impl Game {
             }
         }
 
-        let owl = owl_mesh.transform(self.owl.1.animate(&self.owl.0, t)).scale(0.3);
+        let owl = owl_mesh.scale(0.3).transform(self.owl.1.animate(&self.owl.0, t));
 
         calls.push(owl);
 

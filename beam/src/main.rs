@@ -246,23 +246,23 @@ fn main() -> Result<(), Error> {
 
     let mut gradient_textures = vec![];
 
-    for i in 0..10 {
-        let val = i as f32 / 9.0;
+    for i in 0..5 {
+        let val = i as f32 / 4.0;
         let texture = pipeline.meshes.rgb_texture(v3(val, val, val));
         gradient_textures.push(texture);
     }
 
     for (i, rough) in gradient_textures.iter().enumerate() {
         for (n, met) in gradient_textures.iter().enumerate() {
-            let v = v3(i as f32 * 2.0, 10.0 - n as f32 * 2.0 ,-13.0);
-            let obj = sphere_mesh.translate(v) .with_material(Material {
-                        albedo: blue3,
-                        normal: normal3,
-                        metallic: *met,
-                        roughness: *rough,
-                        ao: white3,
-                        opacity: white3,
-                    });;
+            let v = v3(i as f32 * 2.0, 10.0 - n as f32 * 2.0, -13.0);
+            let obj = sphere_mesh.translate(v).with_material(Material {
+                albedo: blue3,
+                normal: normal3,
+                metallic: *met,
+                roughness: *rough,
+                ao: white3,
+                opacity: white3,
+            });
             is.push(obj);
         }
     }
@@ -279,7 +279,7 @@ fn main() -> Result<(), Error> {
     let mut queued_actions = VecDeque::new();
 
     let mut last_time = PreciseTime::now();
-    let frame_time = 1.0;
+    let frame_time = 0.5;
     let mut timer = 0.0;
 
     while running {
@@ -395,7 +395,7 @@ fn main() -> Result<(), Error> {
 
         timer += dt;
 
-        if timer > 1.0 {
+        if timer > frame_time {
             if let Some(action) = queued_actions.pop_front() {
                 timer = 0.0;
                 scene.game = scene.game.action(action);
@@ -460,7 +460,10 @@ fn main() -> Result<(), Error> {
                 }
             }
 
-            let game_calls = scene.game.render(&owl, &mut pipeline.meshes, timer.min(1.0));
+            let game_calls =
+                scene
+                    .game
+                    .render(&owl, &mut pipeline.meshes, (timer / frame_time).min(1.0));
 
             let game_call = RenderObject::with_children(game_calls)
                 .translate(v3(-5.0, 0.0, -5.0))

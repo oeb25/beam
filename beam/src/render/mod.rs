@@ -993,7 +993,9 @@ where
     F: FnMut(&FramebufferBinderReadDraw, &P),
     P: ProgramBind,
 {
-    map_cubemap(size, 1, program, render_cube)
+    let tex = map_cubemap(size, 1, program, render_cube);
+    tex.bind().parameter_int(TextureParameter::MinFilter, gl::LINEAR_MIPMAP_LINEAR as i32);
+    tex
 }
 pub fn create_prefiler_map<F, P>(size: u32, program: &P, render_cube: F) -> Texture
 where

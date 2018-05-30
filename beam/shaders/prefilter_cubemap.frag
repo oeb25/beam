@@ -18,7 +18,7 @@ float DistributonGGX(vec3 N, vec3 H, float roughness) {
     float denom = (NdotH2 * (a2 - 1.0) + 1.0);
     denom = PI * denom * denom;
 
-    return num / max(denom, 0.001);
+    return num / denom;
 }
 
 float RadicalInverse_VdC(uint bits) {

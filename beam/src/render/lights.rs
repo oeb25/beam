@@ -29,7 +29,7 @@ impl DirectionalLight {
             far: 300.0,
         }.into();
         let origo = P3::new(0.0, 0.0, 0.0);
-        let o = origo + camera_pos + self.direction * 100.0;
+        let o = origo + camera_pos + self.direction * 25.0;
         let view = Mat4::look_at(o, o - self.direction, v3(0.0, 1.0, 0.0));
         projection * view
     }

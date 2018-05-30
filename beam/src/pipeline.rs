@@ -275,6 +275,7 @@ impl Pipeline {
             &self.equirectangular_program.bind(),
             &mut render_cube,
         );
+        cubemap.bind().generate_mipmap();
 
         let mut render_cube = |fbo: &FramebufferBinderReadDraw, program: &ProgramBindingRefMut| {
             program.bind_texture_to("equirectangularMap", &cubemap, TextureSlot::One);
