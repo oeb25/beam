@@ -28,7 +28,7 @@ void main() {
 
     color = color / (vec3(1.0) + color);
 
-    color = pow(color, vec3(1.0 / gamma));
+    color = pow(color, vec3(1.0 / gamma * 2.0));
 
     FragColor = vec4(color, 1.0);
 }

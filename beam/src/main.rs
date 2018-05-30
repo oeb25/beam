@@ -482,8 +482,8 @@ fn main() -> Result<(), Error> {
 
                     ibl: &room_ibl,
 
-                    ambient_intensity: Some(0.1),
-                    skybox_intensity: Some(0.1),
+                    ambient_intensity: Some(1.0),
+                    skybox_intensity: Some(1.0),
                 },
                 objects.iter(),
             );
