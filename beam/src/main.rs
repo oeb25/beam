@@ -151,8 +151,6 @@ impl Scene {
             .max(-pi / 2.001)
             .min(pi / 2.001);
 
-        self.point_lights[0].position = v3((_t as f32/50.0).sin()*5.0, 10.0, 0.0);
-
         // self.camera.yaw += sensitivity * (inputs.right - inputs.left);
         // self.camera.pitch = (self.camera.pitch + sensitivity * (inputs.up - inputs.down))
         //     .max(-pi / 2.001)
