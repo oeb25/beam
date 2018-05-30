@@ -49,6 +49,7 @@ struct Input {
 
     space: f32,
     shift: f32,
+    ctrl: f32,
 }
 
 struct Scene {
@@ -76,26 +77,26 @@ impl Scene {
 
         let point_lights = vec![
             PointLight {
-                color: rgb(255, 25, 25) * 1.0,
-                position: v3(-10.0, 2.0, 10.0),
-                last_shadow_map_position: v3(-10.0, 2.0, 10.0),
+                color: rgb(255, 25, 25) * 3.0,
+                position: v3(-10.0, 4.0, 10.0),
+                last_shadow_map_position: v3(-10.0, 4.0, 10.0),
                 shadow_map: Some(PointShadowMap::new()),
             },
             PointLight {
                 color: hex(0x0050ff) * 1.0,
-                position: v3(10.0, 2.0, 10.0),
+                position: v3(10.0, 4.0, 10.0),
                 last_shadow_map_position: one,
                 shadow_map: None,
             },
             PointLight {
                 color: hex(0x00ff2e) * 1.0,
-                position: v3(10.0, 2.0, -10.0),
+                position: v3(10.0, 4.0, -10.0),
                 last_shadow_map_position: one,
                 shadow_map: None,
             },
             PointLight {
                 color: hex(0xffc700) * 1.0,
-                position: v3(-10.0, 2.0, -10.0),
+                position: v3(-10.0, 4.0, -10.0),
                 last_shadow_map_position: one,
                 shadow_map: None,
             },
@@ -138,12 +139,13 @@ impl Scene {
         let front = up.cross(right).normalize();
 
         let walk_speed = 0.1;
+        let walk_speed = walk_speed + 0.2 * inputs.shift;
         let sensitivity = 0.005;
 
         self.camera.pos += walk_speed
             * (front * (inputs.w - inputs.s)
                 + right * (inputs.d - inputs.a)
-                + up * (inputs.space - inputs.shift));
+                + up * (inputs.space - inputs.ctrl));
         self.camera.yaw += sensitivity * inputs.mouse_delta.0;
         self.camera.pitch = (self.camera.pitch - sensitivity * inputs.mouse_delta.1)
             .max(-pi / 2.001)
@@ -166,7 +168,7 @@ fn main() -> Result<(), Error> {
         .with_title("Hello, world!")
         .with_dimensions(screen_width, screen_height);
     let context = glutin::ContextBuilder::new()
-        .with_vsync(false)
+        .with_vsync(true)
         .with_gl_profile(glutin::GlProfile::Core)
         .with_srgb(true);
     let gl_window = glutin::GlWindow::new(window, context, &events_loop).unwrap();
@@ -244,15 +246,15 @@ fn main() -> Result<(), Error> {
 
     let mut gradient_textures = vec![];
 
-    for i in 0..5 {
-        let val = i as f32 / 4.0;
+    for i in 0..10 {
+        let val = i as f32 / 9.0;
         let texture = pipeline.meshes.rgb_texture(v3(val, val, val));
         gradient_textures.push(texture);
     }
 
     for (i, rough) in gradient_textures.iter().enumerate() {
         for (n, met) in gradient_textures.iter().enumerate() {
-            let v = v3(i as f32 * 2.0, 10.0 - n as f32 * 2.0 ,-10.0);
+            let v = v3(i as f32 * 2.0, 10.0 - n as f32 * 2.0 ,-13.0);
             let obj = sphere_mesh.translate(v) .with_material(Material {
                         albedo: blue3,
                         normal: normal3,
@@ -355,6 +357,7 @@ fn main() -> Result<(), Error> {
                             Kc::Right => inputs.right = value,
                             Kc::Space => inputs.space = value,
                             Kc::LShift => inputs.shift = value,
+                            Kc::LControl => inputs.ctrl = value,
                             _ => {}
                         }
                         if input.state == glutin::ElementState::Pressed {
