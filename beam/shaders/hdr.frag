@@ -26,9 +26,9 @@ void main() {
     // color += blur(5);
 #endif
 
-    color = color / (vec3(1.0) + color); 
+    color = color / (vec3(1.0) + color);
 
-    color = pow(color, vec3(1.0 / gamma)); 
+    color = pow(color, vec3(1.0 / gamma));
 
     FragColor = vec4(color, 1.0);
 }
