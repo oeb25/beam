@@ -122,13 +122,13 @@ impl MeshStore {
 
         for image in &data.images {
             let x = |x| Some(path.with_file_name(x));
-            match image.name.as_str() {
-                "DIFF" => albedo_src = x(&image.source),
-                "ROUGH" => roughness_src = x(&image.source),
-                "MET" => metallic_src = x(&image.source),
-                "NRM" => normal_src = x(&image.source),
-                "AO" => ao_src = x(&image.source),
-                "OPAC" => opacity_src = x(&image.source),
+            match image.source.as_str() {
+                "DIFF.png" => albedo_src = x(&image.source),
+                "ROUGH.png" => roughness_src = x(&image.source),
+                "MET.png" => metallic_src = x(&image.source),
+                "NRM.png" => normal_src = x(&image.source),
+                "AO.png" => ao_src = x(&image.source),
+                "OPAC.png" => opacity_src = x(&image.source),
                 _ => {}
             }
         }
@@ -548,6 +548,10 @@ impl RenderObject {
 
     pub fn scale(&self, s: f32) -> RenderObject {
         self.transform(Mat4::from_scale(s))
+    }
+
+    pub fn scale_nonuniformly(&self, s: V3) -> RenderObject {
+        self.transform(Mat4::from_nonuniform_scale(s.x, s.y, s.z))
     }
 
     #[allow(unused)]

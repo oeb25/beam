@@ -1,6 +1,5 @@
 #![feature(fs_read_write, stmt_expr_attributes, transpose_result, box_syntax, box_patterns)]
 #![feature(custom_attribute, nll, iterator_flatten)]
-
 #![allow(unused_imports)]
 #[macro_use]
 extern crate failure;
@@ -22,16 +21,17 @@ use glutin::GlContext;
 use time::{Duration, PreciseTime};
 
 mod hot;
+mod logic;
 mod misc;
 mod pipeline;
 mod render;
-// mod logic;
 
-use misc::{v3, P3, Mat4};
+use misc::{v3, Mat4, P3};
 use pipeline::{Pipeline, RenderProps};
 use render::{hex, hsv, mesh, rgb, Camera, Material, RenderObject};
+use std::collections::VecDeque;
 
-use render::lights::{DirectionalLight, PointLight, SpotLight, PointShadowMap, ShadowMap};
+use render::lights::{DirectionalLight, PointLight, PointShadowMap, ShadowMap, SpotLight};
 
 #[derive(Default)]
 struct Input {
@@ -53,6 +53,7 @@ struct Input {
 
 struct Scene {
     camera: Camera,
+    game: logic::Game,
     directional_lights: Vec<DirectionalLight>,
     point_lights: Vec<PointLight>,
     spot_lights: Vec<SpotLight>,
@@ -60,7 +61,7 @@ struct Scene {
 
 impl Scene {
     fn new(screen_width: u32, screen_height: u32) -> Scene {
-        // let game = logic::Game::new((8,8));
+        let game = logic::Game::new();
 
         let one = v3(1.0, 1.0, 1.0);
 
@@ -82,33 +83,31 @@ impl Scene {
             },
             PointLight {
                 color: hex(0x0050ff) * 1.0,
-                position:  v3(10.0, 2.0, 10.0),
+                position: v3(10.0, 2.0, 10.0),
                 last_shadow_map_position: one,
                 shadow_map: None,
             },
             PointLight {
                 color: hex(0x00ff2e) * 1.0,
-                position:  v3(10.0, 2.0, -10.0),
+                position: v3(10.0, 2.0, -10.0),
                 last_shadow_map_position: one,
                 shadow_map: None,
             },
             PointLight {
                 color: hex(0xffc700) * 1.0,
-                position:  v3(-10.0, 2.0, -10.0),
+                position: v3(-10.0, 2.0, -10.0),
                 last_shadow_map_position: one,
                 shadow_map: None,
             },
         ];
 
-        let spot_lights = vec![
-            SpotLight {
-                color: rgb(25, 25, 255) * 1.9,
-                position: v3(0.0, 25.0, 0.0),
-                direction: v3(0.0, -1.0, 0.0),
-                cut_off: Rad(0.1),
-                outer_cut_off: Rad(0.4),
-            }
-        ];
+        let spot_lights = vec![SpotLight {
+            color: rgb(25, 25, 255) * 1.9,
+            position: v3(0.0, 25.0, 0.0),
+            direction: v3(0.0, -1.0, 0.0),
+            cut_off: Rad(0.1),
+            outer_cut_off: Rad(0.4),
+        }];
 
         let camera = Camera::new(
             v3(-15.0, 5.0, 0.0),
@@ -118,10 +117,18 @@ impl Scene {
 
         Scene {
             camera,
+            game,
             directional_lights,
             point_lights,
             spot_lights,
         }
+    }
+    fn resize(&mut self, screen_width: u32, screen_height: u32) {
+        self.camera = Camera::new(
+            v3(-15.0, 5.0, 0.0),
+            Rad(std::f32::consts::PI / 2.0),
+            (screen_width as f32) / (screen_height as f32),
+        );
     }
     fn tick(&mut self, _t: f32, _dt: f32, inputs: &Input) {
         let pi = std::f32::consts::PI;
@@ -141,13 +148,14 @@ impl Scene {
         self.camera.pitch = (self.camera.pitch - sensitivity * inputs.mouse_delta.1)
             .max(-pi / 2.001)
             .min(pi / 2.001);
+
         // self.camera.yaw += sensitivity * (inputs.right - inputs.left);
         // self.camera.pitch = (self.camera.pitch + sensitivity * (inputs.up - inputs.down))
         //     .max(-pi / 2.001)
         //     .min(pi / 2.001);
 
-        self.spot_lights[0].position = self.camera.pos;
-        self.spot_lights[0].direction = self.camera.front();
+        // self.spot_lights[0].position = self.camera.pos;
+        // self.spot_lights[0].direction = self.camera.front();
     }
 }
 
@@ -209,7 +217,8 @@ fn main() -> Result<(), Error> {
         .scale(1.0 / 2.0)
         .translate(v3(0.0, 20.0, 0.0));
 
-    let owl = pipeline.meshes
+    let owl = pipeline
+        .meshes
         .load_collada("assets/owl/owl.dae")?
         .translate(v3(0.0, 0.0, 0.0));
 
@@ -241,6 +250,8 @@ fn main() -> Result<(), Error> {
 
     let mut update_shadows = false;
 
+    let mut queued_actions = VecDeque::new();
+
     while running {
         update_shadows = !update_shadows;
 
@@ -269,6 +280,7 @@ fn main() -> Result<(), Error> {
             glutin::Event::WindowEvent { event, .. } => match event {
                 glutin::WindowEvent::CloseRequested => running = false,
                 glutin::WindowEvent::Resized(w, h) => {
+                    scene.resize(w, h);
                     gl_window.resize(w, h);
                     pipeline.resize(w, h);
                 }
@@ -314,6 +326,23 @@ fn main() -> Result<(), Error> {
                             Kc::LShift => inputs.shift = value,
                             _ => {}
                         }
+                        if input.state == glutin::ElementState::Pressed {
+                            let use_wasd = false;
+                            let action = match keycode {
+                                Kc::W if use_wasd => Some(logic::Action::Up),
+                                Kc::Up => Some(logic::Action::Up),
+                                Kc::D if use_wasd => Some(logic::Action::Right),
+                                Kc::Right => Some(logic::Action::Right),
+                                Kc::S if use_wasd => Some(logic::Action::Down),
+                                Kc::Down => Some(logic::Action::Down),
+                                Kc::A if use_wasd => Some(logic::Action::Left),
+                                Kc::Left => Some(logic::Action::Left),
+                                _ => None,
+                            };
+                            if let Some(action) = action {
+                                queued_actions.push_back(action);
+                            }
+                        }
                     }
                 }
                 // x => println!("{:?}", x),
@@ -323,12 +352,16 @@ fn main() -> Result<(), Error> {
                 if let glutin::DeviceEvent::MouseMotion { delta } = event {
                     inputs.mouse_delta = (delta.0 as f32, delta.1 as f32);
                 }
-            },
+            }
             // x => println!("{:?}", x),
             _ => (),
         });
 
         t += 1.0;
+
+        if let Some(action) = queued_actions.pop_front() {
+            scene.game = scene.game.action(action);
+        }
 
         scene.tick(t, t, &inputs);
 
@@ -350,9 +383,7 @@ fn main() -> Result<(), Error> {
 
             for light in &scene.point_lights {
                 let mesh = sphere_mesh
-                    .transform(
-                        Mat4::from_translation(light.position) * Mat4::from_scale(0.8),
-                    )
+                    .transform(Mat4::from_translation(light.position) * Mat4::from_scale(0.8))
                     .with_material(Material {
                         albedo: pipeline.meshes.rgb_texture(light.color),
                         normal: normal3,
@@ -366,10 +397,7 @@ fn main() -> Result<(), Error> {
 
             for light in &scene.spot_lights {
                 let mesh = suzanne
-                    .transform(
-                        Mat4::from_translation(light.position) *
-                        Mat4::from_scale(0.8),
-                    )
+                    .transform(Mat4::from_translation(light.position) * Mat4::from_scale(0.8))
                     .with_material(Material {
                         albedo: pipeline.meshes.rgb_texture(light.color),
                         normal: normal3,
@@ -383,11 +411,23 @@ fn main() -> Result<(), Error> {
 
             objects.append(&mut is.clone());
 
-            let ray = (scene.camera.pos, scene.camera.front());
-            let res = RenderObject::raymarch_many(objects.iter(), &pipeline.meshes, ray.0, ray.1);
-            if res.1 > 0.99 {
-                objects[res.0] = objects[res.0].with_material(gold_material);
+            let trace_scene = false;
+            if trace_scene {
+                let ray = (scene.camera.pos, scene.camera.front());
+                let res =
+                    RenderObject::raymarch_many(objects.iter(), &pipeline.meshes, ray.0, ray.1);
+                if res.1 > 0.99 {
+                    objects[res.0] = objects[res.0].with_material(gold_material);
+                }
             }
+
+            let game_calls = scene.game.render(&owl, &mut pipeline.meshes);
+
+            let game_call = RenderObject::with_children(game_calls)
+                .translate(v3(-5.0, 0.0, -5.0))
+                .scale(2.0);
+
+            objects.push(game_call);
 
             pipeline.render(
                 update_shadows,

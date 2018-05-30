@@ -458,23 +458,13 @@ mod tests {
     use std;
 
     fn it_works_run() -> Result<(), Error> {
-        let src = std::fs::read_to_string("./suzanne.dae")?;
-        let data: raw::ColladaRaw = serde_xml_rs::deserialize(src.as_bytes())?;
-        let dae: Result<Collada, _> = data.into();
-        // println!("{:?}", dae);
-        // let data = Collada::parse(&src)?;
-
-        // for mesh in data.meshes() {
-        //     let mat = mesh.material();
-        //     println!("{:?}", mat);
-        // }
-        // for scene in data.scenes() {
-        //     for node in scene.nodes() {
-        //         println!("{:?}", node.raw);
-        //     }
-        // }
-
-        assert!(false);
+        let srcs = ["./suzanne.dae", "./owl.dae"];
+        for src in &srcs {
+            println!("parsing {:?}", src);
+            let src = std::fs::read_to_string(src)?;
+            let data: raw::ColladaRaw = serde_xml_rs::deserialize(src.as_bytes())?;
+            let _dae: Result<Collada, _> = data.into();
+        }
 
         Ok(())
     }
