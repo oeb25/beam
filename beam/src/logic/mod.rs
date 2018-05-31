@@ -231,8 +231,7 @@ impl Game {
                         let wall = props
                             .cube_mesh
                             .scale_nonuniformly(v3(1.0, 2.0, 1.0))
-                            .translate(pos)
-                            .with_material(props.plastic_material);
+                            .translate(pos).with_material(props.plastic_material);
 
                         calls.push(wall)
                     }

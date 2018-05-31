@@ -278,7 +278,7 @@ impl Pipeline {
             rect.bind()
                 .draw_arrays(fbo, program, DrawMode::Points, 0, 1);
         };
-        material.bake(&self.bake_material_program.bind(), &mut self.meshes, draw_rect)
+        self.meshes.bake_material(material, &self.bake_material_program.bind(), draw_rect)
     }
     pub fn resize(&mut self, w: u32, h: u32) {
         let screen_target = RenderTarget::new(w, h);

@@ -113,17 +113,19 @@ pub struct TextureRef(usize, (u32, u32));
 
 #[derive(Default)]
 pub struct MeshStore {
-    meshes: Vec<Mesh>,
-    textures: Vec<Texture>,
+    pub meshes: Vec<Mesh>,
+    pub textures: Vec<Texture>,
 
-    fs_textures: HashMap<String, TextureRef>,
+    pub fs_textures: HashMap<String, TextureRef>,
 
-    rgb_textures: Cacher<V3, TextureRef>,
-    rgba_textures: Cacher<V4, TextureRef>,
+    pub rgb_textures: Cacher<V3, TextureRef>,
+    pub rgba_textures: Cacher<V4, TextureRef>,
+
+    pub bake_cache: Cacher<MaterialBuilder, Material>,
 
     // primitive cache
-    cube: Option<MeshRef>,
-    spheres: Cacher<f32, MeshRef>,
+    pub cube: Option<MeshRef>,
+    pub spheres: Cacher<f32, MeshRef>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -543,6 +545,24 @@ impl MeshStore {
         };
 
         Ok(builder.bake(bake_material_program, self, draw_rect))
+    }
+
+    pub fn bake_material<F, P>(
+        &mut self,
+        material_builder: MaterialBuilder,
+        bake_material_program: &P,
+        mut draw_rect: F,
+    ) -> Material
+    where
+        F: FnMut(&FramebufferBinderReadDraw, &P),
+        P: ProgramBind,
+    {
+        if let Some(material) = self.bake_cache.get(&material_builder) {
+            *material
+        } else {
+            let material = material_builder.bake(bake_material_program, self, draw_rect);
+            *self.bake_cache.insert(material_builder, material)
+        }
     }
 }
 
