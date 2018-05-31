@@ -93,6 +93,9 @@ impl<K: PartialEq, V> Cacher<K, V> {
     pub fn clear(&mut self) {
         self.cache.clear();
     }
+    pub fn len(&self) -> usize {
+        self.cache.len()
+    }
 }
 impl<K: PartialEq, V> Cacher<K, Vec<V>> {
     pub fn push_into(&mut self, key: K, value: V) {

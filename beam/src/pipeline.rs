@@ -16,7 +16,7 @@ use misc::{v3, v4, Cacher, Mat4, V3, V4};
 use render::{
     create_irradiance_map, create_prefiler_map, cubemap_from_equirectangular,
     lights::{DirectionalLight, PointLight, SpotLight, PointShadowMap, ShadowMap}, Camera, GRenderPass,
-    Material, MeshRef, MeshStore, RenderObject, RenderObjectChild, RenderTarget, Renderable,
+    Material, MaterialBuilder, MeshRef, MeshStore, RenderObject, RenderObjectChild, RenderTarget, Renderable,
 };
 
 pub struct RenderProps<'a> {
@@ -26,6 +26,8 @@ pub struct RenderProps<'a> {
     pub directional_lights: &'a mut [DirectionalLight],
     pub point_lights: &'a mut [PointLight],
     pub spot_lights: &'a mut [SpotLight],
+
+    pub default_material: Option<Material>,
 
     pub ibl: &'a Ibl,
 
@@ -59,6 +61,7 @@ pub struct Pipeline {
     pub prefilter_cubemap_program: HotShader,
     pub brdf_lut_program: HotShader,
 
+    pub bake_material_program: HotShader,
     pub pbr_program: HotShader,
     pub directional_shadow_program: HotShader,
     pub point_shadow_program: HotShader,
@@ -69,6 +72,8 @@ pub struct Pipeline {
     pub blur_program: HotShader,
     pub hdr_program: HotShader,
     pub screen_program: HotShader,
+
+    pub default_material: Option<Material>,
 
     pub draw_calls: DrawCalls,
     pub meshes: MeshStore,
@@ -131,6 +136,12 @@ impl Pipeline {
             "shaders/prefilter_cubemap.frag",
         );
 
+        let bake_material_program = shader!(
+            "shaders/rect.vert",
+            Some("shaders/rect.geom"),
+            "shaders/bake_material.frag",
+        );
+
         let brdf_lut_program = shader!(
             "shaders/rect.vert",
             Some("shaders/rect.geom"),
@@ -190,7 +201,7 @@ impl Pipeline {
 
         let blur_targets = Pipeline::generate_blur_targets(w, h, 6);
 
-        Pipeline {
+        let mut pipeline = Pipeline {
             warmy_store,
 
             equirectangular_program,
@@ -198,6 +209,7 @@ impl Pipeline {
             prefilter_cubemap_program,
             brdf_lut_program,
 
+            bake_material_program,
             pbr_program,
             directional_shadow_program,
             point_shadow_program,
@@ -208,6 +220,8 @@ impl Pipeline {
             blur_program,
             hdr_program,
             screen_program,
+
+            default_material: None,
 
             rect,
 
@@ -224,7 +238,28 @@ impl Pipeline {
 
             screen_target,
             window_fbo,
-        }
+        };
+
+        let default_material = {
+            let white4 = pipeline.meshes.rgba_texture(v4(1.0, 1.0, 1.0, 1.0));
+            let white3 = pipeline.meshes.rgb_texture(v3(1.0, 1.0, 1.0));
+            let whiteish3 = pipeline.meshes.rgb_texture(v3(0.2, 0.2, 0.2));
+            let normal3 = pipeline.meshes.rgb_texture(v3(0.5, 0.5, 1.0));
+            let black3 = pipeline.meshes.rgb_texture(v3(0.0, 0.0, 0.0));
+
+            MaterialBuilder {
+                normal: normal3,
+                albedo: whiteish3,
+                metallic: black3,
+                roughness: whiteish3,
+                ao: white3,
+                opacity: white3,
+            }
+        };
+
+        pipeline.default_material = Some(pipeline.bake_material(default_material));
+
+        pipeline
     }
     fn generate_blur_targets(w: u32, h: u32, n: usize) -> Vec<RenderTarget> {
         let mut blur_targets = Vec::with_capacity(n);
@@ -236,6 +271,14 @@ impl Pipeline {
         }
 
         blur_targets
+    }
+    pub fn bake_material(&mut self, material: MaterialBuilder) -> Material {
+        let mut rect = Pipeline::make_rect();
+        let mut draw_rect = |fbo: &FramebufferBinderReadDraw, program: &ProgramBindingRefMut| {
+            rect.bind()
+                .draw_arrays(fbo, program, DrawMode::Points, 0, 1);
+        };
+        material.bake(&self.bake_material_program.bind(), &mut self.meshes, draw_rect)
     }
     pub fn resize(&mut self, w: u32, h: u32) {
         let screen_target = RenderTarget::new(w, h);
@@ -251,18 +294,19 @@ impl Pipeline {
         self.lighting_target = lighting_target;
         self.blur_targets = blur_targets;
     }
+    fn make_rect() -> VertexArray {
+            let mut rect_vao = VertexArray::new();
+            let mut rect_vbo = VertexBuffer::from_data(&[v3(0.0, 0.0, 0.0)]);
+            rect_vao.bind().vbo_attrib(&rect_vbo.bind(), 0, 3, 0);
+            rect_vao
+    }
     pub fn load_ibl(&mut self, path: impl AsRef<Path>) -> Result<Ibl, Error> {
         let ibl_raw_ref = self.meshes.load_hdr(path)?;
         let ibl_raw = self.meshes.get_texture(&ibl_raw_ref);
         // Borrow checker work around here, we could use the rect vao already define on the pipeline
         // if it were not for the overship issues, but this works, and I don't think it is all that
         // costly.
-        let mut rect = {
-            let mut rect_vao = VertexArray::new();
-            let mut rect_vbo = VertexBuffer::from_data(&[v3(0.0, 0.0, 0.0)]);
-            rect_vao.bind().vbo_attrib(&rect_vbo.bind(), 0, 3, 0);
-            rect_vao
-        };
+        let mut rect = Pipeline::make_rect();
 
         let mut render_cube = |fbo: &FramebufferBinderReadDraw, program: &ProgramBindingRefMut| {
             program.bind_texture_to("equirectangularMap", &ibl_raw, TextureSlot::One);
@@ -303,6 +347,34 @@ impl Pipeline {
             prefilter_map,
             brdf_lut: brdf_lut_render_target.texture,
         })
+    }
+    pub fn load_collada(
+        &mut self,
+        path: impl AsRef<Path>,
+    ) -> Result<RenderObject, Error> {
+        let mut rect = Pipeline::make_rect();
+        let mut draw_rect = |fbo: &FramebufferBinderReadDraw, program: &ProgramBindingRefMut| {
+            rect.bind()
+                .draw_arrays(fbo, program, DrawMode::Points, 0, 1);
+        };
+        self.meshes.load_collada(path, &self.bake_material_program.bind(), draw_rect)
+    }
+    pub fn load_pbr_with_default_filenames(
+        &mut self,
+        path: impl AsRef<Path>,
+        extension: &str,
+    ) -> Result<Material, Error> {
+        let mut rect = Pipeline::make_rect();
+        let mut draw_rect = |fbo: &FramebufferBinderReadDraw, program: &ProgramBindingRefMut| {
+            rect.bind()
+                .draw_arrays(fbo, program, DrawMode::Points, 0, 1);
+        };
+        self.meshes.load_pbr_with_default_filenames(
+            path,
+            extension,
+            &self.bake_material_program.bind(),
+            draw_rect
+        )
     }
     fn render_object(
         render_object: &RenderObject,
@@ -347,6 +419,8 @@ impl Pipeline {
                 .collect()
         };
 
+        let default_material = props.default_material.unwrap_or(self.default_material.unwrap());
+
         macro_rules! render_scene {
             ($fbo:expr, $program:expr) => {
                 render_scene!($fbo, $program, draw_instanced)
@@ -356,6 +430,8 @@ impl Pipeline {
                     let start_slot = $program.next_texture_slot();
                     if let Some(material) = material {
                         material.bind(&self.meshes, &$program);
+                    } else {
+                        default_material.bind(&self.meshes, &$program);
                     }
                     let mesh = self.meshes.get_mesh_mut(&mesh_ref);
                     mesh.bind()
@@ -386,20 +462,6 @@ impl Pipeline {
                 .bind_vec3("viewPos", view_pos)
                 .bind_float("time", props.time);
 
-            let white4 = self.meshes.rgba_texture(v4(1.0, 1.0, 1.0, 1.0));
-            let white3 = self.meshes.rgb_texture(v3(1.0, 1.0, 1.0));
-            let whiteish3 = self.meshes.rgb_texture(v3(0.2, 0.2, 0.2));
-            let normal3 = self.meshes.rgb_texture(v3(0.5, 0.5, 1.0));
-            let black3 = self.meshes.rgb_texture(v3(0.0, 0.0, 0.0));
-
-            let default_material = Material {
-                normal: normal3,
-                albedo: whiteish3,
-                metallic: black3,
-                roughness: whiteish3,
-                ao: white3,
-                opacity: white3,
-            };
             default_material.bind(&self.meshes, &program);
 
             render_scene!(fbo, program);
@@ -467,8 +529,8 @@ impl Pipeline {
                 .bind_texture("aAlbedo", &self.g.albedo)
                 .bind_texture("aAlbedo", &self.g.albedo)
                 .bind_texture(
-                    "aMetallicRoughnessAoOpacity",
-                    &self.g.metallic_roughness_ao_opacity,
+                    "aMrao",
+                    &self.g.mrao,
                 )
                 .bind_float(
                     "ambientIntensity",

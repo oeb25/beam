@@ -5,7 +5,7 @@ in vec2 TexCoords;
 uniform sampler2D aPosition;
 uniform sampler2D aNormal;
 uniform sampler2D aAlbedo;
-uniform sampler2D aMetallicRoughnessAoOpacity;
+uniform sampler2D aMrao;
 
 uniform float ambientIntensity = 1.0;
 uniform samplerCube irradianceMap;
@@ -130,12 +130,12 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
 void main() {
     vec3 fragPos = texture(aPosition, TexCoords).rgb;
     vec3 N = normalize(texture(aNormal, TexCoords).rgb);
-    vec4 metallicRoughnessAoOpacity = texture(aMetallicRoughnessAoOpacity, TexCoords).rgba;
+    vec4 mrao = texture(aMrao, TexCoords).rgba;
     vec3 albedo = texture(aAlbedo, TexCoords).rgb;
-    float metallic = metallicRoughnessAoOpacity.r;
-    float roughness = metallicRoughnessAoOpacity.g;
-    float ao = metallicRoughnessAoOpacity.b;
-    float opacity = metallicRoughnessAoOpacity.a;
+    float metallic = mrao.r;
+    float roughness = mrao.g;
+    float ao = mrao.b;
+    float opacity = mrao.a;
 
     // albedo = vec3(1.00, 0.26, 0.27);
     // metallic = 1.0;
@@ -174,7 +174,7 @@ void main() {
         float NdotL = max(dot(N, L), 0.0);
         float bias = max(0.05 * (1.0 - NdotL), 0.0005);
         float shadow =
-            1.0 - directionalShadowCalculation(0.001, directionalShadowMap, light.space * vec4(fragPos, 1.0));
+            1.0 - directionalShadowCalculation(0.00001, directionalShadowMap, light.space * vec4(fragPos, 1.0));
 
         Lo += (kD * albedo / PI + specular) * radiance * NdotL * shadow;
     }
@@ -267,7 +267,7 @@ void main() {
     vec3 ambient = (kD * diffuse + specular) * ao;
 
     color = ambient + Lo;
-    // color = vec3(N);
+    // color = vec3(mrao);
     // color = vec3(albedo);
 
     FragColor = vec4(color, length(fragPos - viewPos));

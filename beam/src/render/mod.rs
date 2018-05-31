@@ -22,13 +22,78 @@ use mesh::{calculate_tangent_and_bitangent, Mesh};
 use misc::{v3, v4, Cacher, Mat4, P3, V3, V4, Vertex};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Material {
+pub struct MaterialBuilder {
     pub normal: TextureRef,
     pub albedo: TextureRef,
     pub metallic: TextureRef,
     pub roughness: TextureRef,
     pub ao: TextureRef,
     pub opacity: TextureRef,
+}
+
+impl MaterialBuilder {
+    pub fn bind<P>(&self, meshes: &MeshStore, program: &P)
+    where
+        P: ProgramBind,
+    {
+        program
+            .bind_texture("tex_metallic", meshes.get_texture(&self.metallic))
+            .bind_texture("tex_roughness", meshes.get_texture(&self.roughness))
+            .bind_texture("tex_ao", meshes.get_texture(&self.ao))
+            .bind_texture("tex_opacity", meshes.get_texture(&self.opacity));
+    }
+    pub fn bake<P, F>(
+        &self,
+        bake_material_program: &P,
+        meshes: &mut MeshStore,
+        mut draw_rect: F,
+    ) -> Material
+    where
+        F: FnMut(&FramebufferBinderReadDraw, &P),
+        P: ProgramBind,
+    {
+        const MAX_SIZE: u32 = 512;
+
+        let mut dimensions = (0, 0);
+        for d in &[
+            self.metallic.1,
+            self.roughness.1,
+            self.ao.1,
+            self.opacity.1,
+        ] {
+            if d.0 > dimensions.0 || d.1 > dimensions.1 {
+                dimensions = *d;
+            }
+        }
+
+        let mut render_target = RenderTarget::new_with_format(
+            dimensions.0.min(MAX_SIZE),
+            dimensions.1.min(MAX_SIZE),
+            TextureInternalFormat::Rgba8,
+            TextureFormat::Rgba,
+            GlType::UnsignedByte,
+        );
+        self.bind(meshes, bake_material_program);
+        render_target.set_viewport();
+        {
+            let fbo = render_target.bind();
+            fbo.clear(Mask::ColorDepth);
+            draw_rect(&fbo, bake_material_program);
+        }
+        let mrao = meshes.insert_texture(render_target.texture, dimensions);
+        Material {
+            normal: self.normal,
+            albedo: self.albedo,
+            mrao,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Material {
+    pub normal: TextureRef,
+    pub albedo: TextureRef,
+    pub mrao: TextureRef,
 }
 
 impl Material {
@@ -38,54 +103,13 @@ impl Material {
     {
         program
             .bind_texture("tex_albedo", meshes.get_texture(&self.albedo))
-            .bind_texture("tex_metallic", meshes.get_texture(&self.metallic))
-            .bind_texture("tex_roughness", meshes.get_texture(&self.roughness))
             .bind_texture("tex_normal", meshes.get_texture(&self.normal))
-            .bind_texture("tex_ao", meshes.get_texture(&self.ao))
-            .bind_texture("tex_opacity", meshes.get_texture(&self.opacity));
-    }
-
-    #[allow(unused)]
-    pub fn as_borrowed<'a>(&self, meshes: &'a MeshStore) -> MaterialBorrowed<'a> {
-        MaterialBorrowed {
-            normal: meshes.get_texture(&self.normal),
-            albedo: meshes.get_texture(&self.albedo),
-            metallic: meshes.get_texture(&self.metallic),
-            roughness: meshes.get_texture(&self.roughness),
-            ao: meshes.get_texture(&self.ao),
-            opacity: meshes.get_texture(&self.opacity),
-        }
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub struct MaterialBorrowed<'a> {
-    pub normal: &'a Texture,
-    pub albedo: &'a Texture,
-    pub metallic: &'a Texture,
-    pub roughness: &'a Texture,
-    pub ao: &'a Texture,
-    pub opacity: &'a Texture,
-}
-
-impl<'a> MaterialBorrowed<'a> {
-    #[allow(unused)]
-    pub fn bind<P>(&self, program: &P)
-    where
-        P: ProgramBind,
-    {
-        program
-            .bind_texture("tex_albedo", &self.albedo)
-            .bind_texture("tex_metallic", &self.metallic)
-            .bind_texture("tex_roughness", &self.roughness)
-            .bind_texture("tex_normal", &self.normal)
-            .bind_texture("tex_ao", &self.ao)
-            .bind_texture("tex_opacity", &self.opacity);
+            .bind_texture("tex_mrao", meshes.get_texture(&self.mrao));
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TextureRef(usize);
+pub struct TextureRef(usize, (u32, u32));
 
 #[derive(Default)]
 pub struct MeshStore {
@@ -106,7 +130,16 @@ pub struct MeshStore {
 pub struct MeshRef(usize);
 
 impl MeshStore {
-    pub fn load_collada(&mut self, path: impl AsRef<Path>) -> Result<RenderObject, Error> {
+    pub fn load_collada<F, P>(
+        &mut self,
+        path: impl AsRef<Path>,
+        bake_material_program: &P,
+        draw_rect: F,
+    ) -> Result<RenderObject, Error>
+    where
+        F: FnMut(&FramebufferBinderReadDraw, &P),
+        P: ProgramBind,
+    {
         let path = path.as_ref();
 
         let src = std::fs::read_to_string(path).context("collada src file not found")?;
@@ -135,7 +168,7 @@ impl MeshStore {
 
         let white3 = self.rgb_texture(v3(1.0, 1.0, 1.0));
 
-        let custom_material = Material {
+        let custom_material = MaterialBuilder {
             normal: normal_src
                 .map(|x| self.load_rgb(x))
                 .transpose()?
@@ -160,9 +193,9 @@ impl MeshStore {
                 .map(|x| self.load_rgb(x))
                 .transpose()?
                 .unwrap_or_else(|| white3),
-        };
+        }.bake(bake_material_program, self, draw_rect);
 
-        let mut mesh_ids: HashMap<usize, Vec<(MeshRef, Material)>> = HashMap::new();
+        let mut mesh_ids: HashMap<usize, Vec<MeshRef>> = HashMap::new();
 
         let mut render_objects = vec![];
         for node in &data.visual_scenes[0].nodes {
@@ -223,12 +256,12 @@ impl MeshStore {
                                     }
                                 }
 
-                                let material =
-                                    self.convert_collada_material(&path, &data, material)?;
+                                // let material =
+                                //     self.convert_collada_material(&path, &data, material)?;
                                 let mesh = Mesh::new(&verts);
                                 let mesh_ref = self.insert_mesh(mesh);
 
-                                meshes.push((mesh_ref, material));
+                                meshes.push(mesh_ref);
                             }
                             mesh_ids.insert(geom_instance.geometry.0, meshes.clone());
                             meshes
@@ -242,7 +275,7 @@ impl MeshStore {
 
                 let children = mesh_refs
                     .into_iter()
-                    .map(|(mesh_ref, _material)| {
+                    .map(|mesh_ref| {
                         RenderObject::mesh(mesh_ref).with_material(custom_material)
                     })
                     .collect();
@@ -258,48 +291,48 @@ impl MeshStore {
         Ok(RenderObject::with_children(render_objects))
     }
 
-    fn convert_collada_material(
-        &mut self,
-        path: &Path,
-        data: &collada::Collada,
-        material_ref: &collada::MaterialRef,
-    ) -> Result<Material, Error> {
-        let collada::Material::Effect(effect_ref) = data.materials[material_ref.0];
-        let collada::Effect::Phong {
-            diffuse,
-            ..
-        } = &data.effects[effect_ref.0];
+    // fn convert_collada_material(
+    //     &mut self,
+    //     path: &Path,
+    //     data: &collada::Collada,
+    //     material_ref: &collada::MaterialRef,
+    // ) -> Result<Material, Error> {
+    //     let collada::Material::Effect(effect_ref) = data.materials[material_ref.0];
+    //     let collada::Effect::Phong {
+    //         diffuse,
+    //         ..
+    //     } = &data.effects[effect_ref.0];
 
-        let white = self.rgb_texture(v3(1.0, 1.0, 1.0));
+    //     let white = self.rgb_texture(v3(1.0, 1.0, 1.0));
 
-        let convert = |c: &collada::PhongProperty| {
-            use collada::PhongProperty::*;
-            match c {
-                Color(color) => Ok(self.rgba_texture((*color).into())),
-                Float(f) => Ok(self.rgb_texture(v3(*f, *f, *f))),
-                Texture(image_ref) => {
-                    let img = &data.images[image_ref.0];
-                    // TODO: How do we determin what kind of file it is?
-                    self.load_srgb(path.with_file_name(&img.source))
-                }
-            }
-        };
+    //     let convert = |c: &collada::PhongProperty| {
+    //         use collada::PhongProperty::*;
+    //         match c {
+    //             Color(color) => Ok(self.rgba_texture((*color).into())),
+    //             Float(f) => Ok(self.rgb_texture(v3(*f, *f, *f))),
+    //             Texture(image_ref) => {
+    //                 let img = &data.images[image_ref.0];
+    //                 // TODO: How do we determin what kind of file it is?
+    //                 self.load_srgb(path.with_file_name(&img.source))
+    //             }
+    //         }
+    //     };
 
-        let albedo = diffuse
-            .as_ref()
-            .map(convert)
-            .transpose()?
-            .unwrap_or_else(|| white);
+    //     let albedo = diffuse
+    //         .as_ref()
+    //         .map(convert)
+    //         .transpose()?
+    //         .unwrap_or_else(|| white);
 
-        Ok(Material {
-            normal: self.rgb_texture(v3(0.5, 0.5, 1.0)),
-            albedo,
-            metallic: white,
-            roughness: self.rgb_texture(v3(0.5, 0.5, 0.5)),
-            ao: white,
-            opacity: white,
-        })
-    }
+    //     Ok(Material {
+    //         normal: self.rgb_texture(v3(0.5, 0.5, 1.0)),
+    //         albedo,
+    //         metallic: white,
+    //         roughness: self.rgb_texture(v3(0.5, 0.5, 0.5)),
+    //         ao: white,
+    //         opacity: white,
+    //     })
+    // }
 
     pub fn insert_mesh(&mut self, mesh: Mesh) -> MeshRef {
         let mesh_ref = MeshRef(self.meshes.len());
@@ -316,8 +349,8 @@ impl MeshStore {
         &mut self.meshes[mesh_ref.0]
     }
 
-    pub fn insert_texture(&mut self, texture: Texture) -> TextureRef {
-        let texture_ref = TextureRef(self.textures.len());
+    pub fn insert_texture(&mut self, texture: Texture, dimensions: (u32, u32)) -> TextureRef {
+        let texture_ref = TextureRef(self.textures.len(), dimensions);
         self.textures.push(texture);
         texture_ref
     }
@@ -354,9 +387,8 @@ impl MeshStore {
                     color,
                 );
         }
-        let id = TextureRef(self.textures.len());
-        self.textures.push(texture);
-        id
+        let dimensions = (1, 1);
+        self.insert_texture(texture, dimensions)
     }
 
     pub fn rgb_texture(&mut self, color: V3) -> TextureRef {
@@ -433,7 +465,7 @@ impl MeshStore {
                         &data,
                     );
             }
-            Ok(texture)
+            Ok((texture, (metadata.width, metadata.height)))
         })
     }
     pub fn load(
@@ -445,7 +477,9 @@ impl MeshStore {
         let path = path.as_ref();
 
         self.cache_or_load(path, move || {
+            use image::GenericImage;
             let img = image::open(&path).context(format!("could not load image at {:?}", path))?;
+            let dimensions = img.dimensions();
             let texture = Texture::new(TextureKind::Texture2d);
             texture
                 .bind()
@@ -454,13 +488,13 @@ impl MeshStore {
                 .parameter_int(TextureParameter::MinFilter, gl::LINEAR as i32)
                 .parameter_int(TextureParameter::MagFilter, gl::LINEAR as i32)
                 .load_image(TextureTarget::Texture2d, internal_format, format, &img);
-            Ok(texture)
+            Ok((texture, dimensions))
         })
     }
     fn cache_or_load(
         &mut self,
         path: impl AsRef<Path>,
-        f: impl FnOnce() -> Result<Texture, Error>,
+        f: impl FnOnce() -> Result<(Texture, (u32, u32)), Error>,
     ) -> Result<TextureRef, Error> {
         let path: &Path = path.as_ref();
         let path_str = path.to_str().unwrap();
@@ -468,22 +502,28 @@ impl MeshStore {
         if let Some(t) = self.fs_textures.get(path_str) {
             Ok(*t)
         } else {
-            let texture = f()?;
-            let texture_ref = self.insert_texture(texture);
+            let (texture, dimensions) = f()?;
+            let texture_ref = self.insert_texture(texture, dimensions);
             self.fs_textures.insert(path_str.to_owned(), texture_ref);
             Ok(texture_ref)
         }
     }
 
-    pub fn load_pbr_with_default_filenames(
+    pub fn load_pbr_with_default_filenames<F, P>(
         &mut self,
         path: impl AsRef<Path>,
         extension: &str,
-    ) -> Result<Material, Error> {
+        bake_material_program: &P,
+        mut draw_rect: F,
+    ) -> Result<Material, Error>
+    where
+        F: FnMut(&FramebufferBinderReadDraw, &P),
+        P: ProgramBind,
+    {
         let path = path.as_ref();
         let x = |map| path.join(map).with_extension(extension);
 
-        Ok(Material {
+        let builder = MaterialBuilder {
             albedo: self
                 .load_srgb(x("albedo"))
                 .context("failed to load pbr albedo")?,
@@ -500,7 +540,9 @@ impl MeshStore {
             opacity: self
                 .load_rgb(x("opacity"))
                 .context("failed to load pbr opacity")?,
-        })
+        };
+
+        Ok(builder.bake(bake_material_program, self, draw_rect))
     }
 }
 
@@ -622,7 +664,7 @@ pub struct GRenderPass {
     pub position: Texture,
     pub normal: Texture,
     pub albedo: Texture,
-    pub metallic_roughness_ao_opacity: Texture,
+    pub mrao: Texture,
 
     pub width: u32,
     pub height: u32,
@@ -635,7 +677,7 @@ impl GRenderPass {
             .bind()
             .storage(TextureInternalFormat::DepthComponent, w, h);
 
-        let (position, normal, albedo, metallic_roughness_ao_opacity) = {
+        let (position, normal, albedo, mrao) = {
             let buffer = fbo.bind();
 
             let create_texture = |internal, format, typ, attachment| {
@@ -666,7 +708,7 @@ impl GRenderPass {
                 GlType::UnsignedByte,
                 Attachment::Color2,
             );
-            let metallic_roughness_ao_opacity = create_texture(
+            let mrao = create_texture(
                 TextureInternalFormat::Rgba8,
                 TextureFormat::Rgba,
                 GlType::UnsignedByte,
@@ -682,7 +724,7 @@ impl GRenderPass {
                 ])
                 .renderbuffer(Attachment::Depth, &depth);
 
-            (position, normal, albedo, metallic_roughness_ao_opacity)
+            (position, normal, albedo, mrao)
         };
 
         GRenderPass {
@@ -691,7 +733,7 @@ impl GRenderPass {
             position,
             normal,
             albedo,
-            metallic_roughness_ao_opacity,
+            mrao,
 
             width: w,
             height: h,
@@ -707,7 +749,13 @@ pub struct RenderTarget {
 }
 
 impl RenderTarget {
-    pub fn new(width: u32, height: u32) -> RenderTarget {
+    pub fn new_with_format(
+        width: u32,
+        height: u32,
+        internal_format: TextureInternalFormat,
+        format: TextureFormat,
+        typ: GlType,
+    ) -> RenderTarget {
         let mut framebuffer = Framebuffer::new();
         let mut depth = Renderbuffer::new();
         let texture = Texture::new(TextureKind::Texture2d);
@@ -716,11 +764,11 @@ impl RenderTarget {
             .empty(
                 TextureTarget::Texture2d,
                 0,
-                TextureInternalFormat::Srgb,
+                internal_format,
                 width,
                 height,
-                TextureFormat::Rgb,
-                GlType::UnsignedByte,
+                format,
+                typ,
             )
             .parameter_int(TextureParameter::MinFilter, gl::LINEAR as i32)
             .parameter_int(TextureParameter::MagFilter, gl::LINEAR as i32)
@@ -744,6 +792,15 @@ impl RenderTarget {
             framebuffer,
             texture,
         }
+    }
+    pub fn new(width: u32, height: u32) -> RenderTarget {
+        RenderTarget::new_with_format(
+            width,
+            height,
+            TextureInternalFormat::Srgb,
+            TextureFormat::Rgb,
+            GlType::UnsignedByte,
+        )
     }
 
     pub fn set_viewport(&self) {

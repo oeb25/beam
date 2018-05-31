@@ -28,7 +28,7 @@ mod render;
 
 use misc::{v3, Mat4, P3};
 use pipeline::{Pipeline, RenderProps};
-use render::{hex, hsv, mesh, rgb, Camera, Material, RenderObject};
+use render::{hex, hsv, mesh, rgb, Camera, Material, MaterialBuilder, RenderObject};
 use std::collections::VecDeque;
 
 use render::lights::{DirectionalLight, PointLight, PointShadowMap, ShadowMap, SpotLight};
@@ -131,15 +131,14 @@ impl Scene {
             (screen_width as f32) / (screen_height as f32),
         );
     }
-    fn tick(&mut self, _t: f32, _dt: f32, inputs: &Input) {
+    fn tick(&mut self, _t: f32, dt: f32, inputs: &Input) {
         let pi = std::f32::consts::PI;
 
         let up = self.camera.up();
         let right = self.camera.front().cross(up).normalize();
         let front = up.cross(right).normalize();
 
-        let walk_speed = 0.1;
-        let walk_speed = walk_speed + 0.2 * inputs.shift;
+        let walk_speed = (0.1 + 0.2 * inputs.shift) * (dt.max(0.01) / 0.016);
         let sensitivity = 0.005;
 
         self.camera.pos += walk_speed
@@ -200,13 +199,10 @@ fn main() -> Result<(), Error> {
 
     let room_ibl = pipeline.load_ibl("assets/Newport_Loft/Newport_Loft_Ref.hdr")?;
     let _rust_material = pipeline
-        .meshes
         .load_pbr_with_default_filenames("assets/pbr/rusted_iron", "png")?;
-    let _plastic_material = pipeline
-        .meshes
+    let plastic_material = pipeline
         .load_pbr_with_default_filenames("assets/pbr/plastic", "png")?;
     let gold_material = pipeline
-        .meshes
         .load_pbr_with_default_filenames("assets/pbr/gold", "png")?;
 
     let white3 = pipeline.meshes.rgb_texture(v3(1.0, 1.0, 1.0));
@@ -215,19 +211,17 @@ fn main() -> Result<(), Error> {
     let blue3 = pipeline.meshes.rgb_texture(v3(0.0, 0.1, 1.0));
 
     let suzanne = pipeline
-        .meshes
         .load_collada("assets/suzanne/suzanne.dae")?
         .scale(1.0 / 2.0)
         .translate(v3(0.0, 20.0, 0.0));
 
     let owl = pipeline
-        .meshes
         .load_collada("assets/owl/owl.dae")?
         .translate(v3(0.0, 0.0, 0.0));
 
     let mut is = vec![];
 
-    for i in 1..5 {
+    for i in 1..0 {
         for n in 0..i {
             let x = i as f32 / 2.0;
             let v = v3(i as f32 / 2.0, -i as f32 - 5.0, n as f32 - x) * 2.0;
@@ -237,7 +231,6 @@ fn main() -> Result<(), Error> {
         }
     }
     let v = Mat4::from_angle_y(Rad(-1.5));
-    is.push(owl.transform(v));
 
     println!("drawing {} mankeys", is.len());
 
@@ -246,7 +239,7 @@ fn main() -> Result<(), Error> {
 
     let mut gradient_textures = vec![];
 
-    for i in 0..5 {
+    for i in 0..0 {
         let val = i as f32 / 4.0;
         let texture = pipeline.meshes.rgb_texture(v3(val, val, val));
         gradient_textures.push(texture);
@@ -255,14 +248,14 @@ fn main() -> Result<(), Error> {
     for (i, rough) in gradient_textures.iter().enumerate() {
         for (n, met) in gradient_textures.iter().enumerate() {
             let v = v3(i as f32 * 2.0, 10.0 - n as f32 * 2.0, -13.0);
-            let obj = sphere_mesh.translate(v).with_material(Material {
+            let obj = sphere_mesh.translate(v).with_material(pipeline.bake_material(MaterialBuilder {
                 albedo: blue3,
                 normal: normal3,
                 metallic: *met,
                 roughness: *rough,
                 ao: white3,
                 opacity: white3,
-            });
+            }));
             is.push(obj);
         }
     }
@@ -281,6 +274,23 @@ fn main() -> Result<(), Error> {
     let mut last_time = PreciseTime::now();
     let frame_time = 0.5;
     let mut timer = 0.0;
+
+    let logic_render_props = logic::RenderProps {
+        owl_mesh: &owl,
+        cube_mesh: &cube_mesh,
+        plastic_material,
+    };
+
+    let light_material = pipeline.bake_material(MaterialBuilder {
+        albedo: white3,
+        normal: normal3,
+        metallic: black3,
+        roughness: black3,
+        ao: white3,
+        opacity: white3,
+    });
+
+    let mut render_objects = vec![];
 
     while running {
         update_shadows = !update_shadows;
@@ -361,16 +371,38 @@ fn main() -> Result<(), Error> {
                             _ => {}
                         }
                         if input.state == glutin::ElementState::Pressed {
+                            use logic::{Direction, Action};
                             let use_wasd = false;
-                            let action = match keycode {
-                                Kc::W if use_wasd => Some(logic::Action::Up),
-                                Kc::Up => Some(logic::Action::Up),
-                                Kc::D if use_wasd => Some(logic::Action::Right),
-                                Kc::Right => Some(logic::Action::Right),
-                                Kc::S if use_wasd => Some(logic::Action::Down),
-                                Kc::Down => Some(logic::Action::Down),
-                                Kc::A if use_wasd => Some(logic::Action::Left),
-                                Kc::Left => Some(logic::Action::Left),
+                            // Determin forward according to camera direction
+                            let forward = {
+                                let cdir = scene.camera.front();
+                                let dotx = cdir.dot(v3(1.0, 0.0, 0.0));
+                                let doty = cdir.dot(v3(0.0, 0.0, 1.0));
+                                if dotx.abs() > 0.5 {
+                                    if dotx > 0.0 {
+                                        Direction::Left
+                                    } else {
+                                        Direction::Right
+                                    }
+                                } else {
+                                    if doty > 0.0 {
+                                        Direction::Up
+                                    } else {
+                                        Direction::Down
+                                    }
+                                }
+                            };
+                            let action = match (keycode, use_wasd) {
+                                (Kc::W, true) | (Kc::Up, _) =>
+                                    Some(Action::Move(forward)),
+                                (Kc::D, true) | (Kc::Right, _) =>
+                                    Some(Action::Move(forward.clockwise())),
+                                (Kc::S, true) | (Kc::Down, _) =>
+                                    Some(Action::Move(forward.opposite())),
+                                (Kc::A, true) | (Kc::Left, _) =>
+                                    Some(Action::Move(forward.couter_clockwise())),
+                                (Kc::Z, _) =>
+                                    Some(Action::Undo),
                                 _ => None,
                             };
                             if let Some(action) = action {
@@ -397,6 +429,7 @@ fn main() -> Result<(), Error> {
 
         if timer > frame_time {
             if let Some(action) = queued_actions.pop_front() {
+                println!("{:?}", action);
                 timer = 0.0;
                 scene.game = scene.game.action(action);
             }
@@ -406,70 +439,54 @@ fn main() -> Result<(), Error> {
 
         // Begin rendering!
         {
-            let mut objects: Vec<_> = [
-                (v3(0.0, -0.0, 0.0), v3(20.0, 0.1, 20.0)),
-                // (v3(10.0, -10.0, 0.0), v3(0.1, 20.0, 20.0)),
-                // (v3(-10.0, -10.0, 0.0), v3(0.1, 20.0, 20.0)),
-                // (v3(0.0, -10.0, -10.0), v3(20.0, 20.0, 0.1)),
-                // (v3(0.0, -10.0, 10.0), v3(20.0, 20.0, 0.1)),
-            ].into_iter()
-                .map(|(p, s)| {
-                    cube_mesh.transform(
-                        Mat4::from_translation(*p) * Mat4::from_nonuniform_scale(s.x, s.y, s.z),
-                    )
-                })
-                .collect();
+            render_objects.clear();
 
             for light in &scene.point_lights {
+                let mat = MaterialBuilder {
+                    albedo: pipeline.meshes.rgb_texture(light.color),
+                    normal: normal3,
+                    metallic: black3,
+                    roughness: white3,
+                    ao: white3,
+                    opacity: white3,
+                };
                 let mesh = sphere_mesh
                     .transform(Mat4::from_translation(light.position) * Mat4::from_scale(0.8))
-                    .with_material(Material {
-                        albedo: pipeline.meshes.rgb_texture(light.color),
-                        normal: normal3,
-                        metallic: black3,
-                        roughness: white3,
-                        ao: white3,
-                        opacity: white3,
-                    });
-                objects.push(mesh);
+                    .with_material(pipeline.bake_material(mat));
+                render_objects.push(mesh);
             }
 
             for light in &scene.spot_lights {
+                let mut mat = light_material.clone();
+                mat.albedo = pipeline.meshes.rgb_texture(light.color);
                 let mesh = suzanne
                     .transform(Mat4::from_translation(light.position) * Mat4::from_scale(0.8))
-                    .with_material(Material {
-                        albedo: pipeline.meshes.rgb_texture(light.color),
-                        normal: normal3,
-                        metallic: black3,
-                        roughness: black3,
-                        ao: white3,
-                        opacity: white3,
-                    });
-                objects.push(mesh);
+                    .with_material(mat);
+                render_objects.push(mesh);
             }
 
-            objects.append(&mut is.clone());
+            render_objects.append(&mut is.clone());
 
             let trace_scene = false;
             if trace_scene {
                 let ray = (scene.camera.pos, scene.camera.front());
                 let res =
-                    RenderObject::raymarch_many(objects.iter(), &pipeline.meshes, ray.0, ray.1);
+                    RenderObject::raymarch_many(render_objects.iter(), &pipeline.meshes, ray.0, ray.1);
                 if res.1 > 0.99 {
-                    objects[res.0] = objects[res.0].with_material(gold_material);
+                    render_objects[res.0] = render_objects[res.0].with_material(gold_material);
                 }
             }
 
             let game_calls =
                 scene
                     .game
-                    .render(&owl, &mut pipeline.meshes, (timer / frame_time).min(1.0));
+                    .render(&logic_render_props, timer / frame_time);
 
             let game_call = RenderObject::with_children(game_calls)
                 .translate(v3(-5.0, 0.0, -5.0))
                 .scale(2.0);
 
-            objects.push(game_call);
+            render_objects.push(game_call);
 
             pipeline.render(
                 update_shadows,
@@ -480,12 +497,14 @@ fn main() -> Result<(), Error> {
                     spot_lights: &mut scene.spot_lights,
                     time: t,
 
+                    default_material: None,
+
                     ibl: &room_ibl,
 
                     ambient_intensity: Some(1.0),
                     skybox_intensity: Some(1.0),
                 },
-                objects.iter(),
+                render_objects.iter(),
             );
         }
 

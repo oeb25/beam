@@ -1,3 +1,4 @@
+use std::ops;
 use cgmath::Rad;
 use misc::{v3, Mat4};
 use render;
@@ -21,10 +22,8 @@ impl Default for Tile {
 #[allow(unused)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
-    Up,
-    Right,
-    Down,
-    Left,
+    Move(Direction),
+    Undo
 }
 
 #[allow(unused)]
@@ -37,22 +36,45 @@ pub enum Direction {
 }
 
 impl Direction {
-    fn to_tuple(&self) -> (i32, i32) {
+    pub fn to_tuple(&self) -> (i32, i32) {
+        use self::Direction::*;
         match self {
-            Direction::Up => (0, 1),
-            Direction::Right => (1, 0),
-            Direction::Down => (0, -1),
-            Direction::Left => (-1, 0),
+            Up => (0, 1),
+            Right => (1, 0),
+            Down => (0, -1),
+            Left => (-1, 0),
         }
     }
-    fn to_rotation(&self) -> Mat4 {
+    pub fn to_rotation(&self) -> Mat4 {
+        use self::Direction::*;
         let frac = match self {
-            Direction::Left => 1.0 / 4.0,
-            Direction::Down => 2.0 / 4.0,
-            Direction::Right => 3.0 / 4.0,
-            Direction::Up => 4.0 / 4.0,
+            Left => 1.0 / 4.0,
+            Down => 2.0 / 4.0,
+            Right => 3.0 / 4.0,
+            Up => 4.0 / 4.0,
         };
         Mat4::from_angle_y(Rad(frac * 2.0 * PI))
+    }
+    pub fn clockwise(&self) -> Direction {
+        use self::Direction::*;
+        match self {
+            Up => Right,
+            Right => Down,
+            Down => Left,
+            Left => Up,
+        }
+    }
+    pub fn couter_clockwise(&self) -> Direction {
+        use self::Direction::*;
+        match self {
+            Up => Left,
+            Right => Up,
+            Down => Right,
+            Left => Down,
+        }
+    }
+    pub fn opposite(&self) -> Direction {
+        self.clockwise().clockwise()
     }
 }
 
@@ -74,27 +96,29 @@ pub struct LastEntityState {
     direction: Direction,
 }
 
+fn lerp<T>(a: T, t: f32, b: T) -> T
+where
+    T: ops::Add<Output = T> + ops::Sub<Output = T> + Copy,
+    f32: ops::Mul<T, Output = T>,
+{
+    a + t * (b - a)
+}
+
 impl Entity {
-    #[allow(unused)]
     fn animate(&self, last: &LastEntityState, t: f32) -> Mat4 {
+        let tt = t.min(1.0);
+
         match self.kind {
             EntityKind::Owl => {
-                let a = v3(
-                    MAP_SIZE.0 as f32 - 1.0 - (last.pos.0 as f32),
-                    0.5,
-                    last.pos.1 as f32,
-                );
-                let b = v3(
-                    MAP_SIZE.0 as f32 - 1.0 - (self.pos.0 as f32),
-                    0.5,
-                    self.pos.1 as f32,
-                );
+                let a = v3(last.pos.0 as f32, 0.5, last.pos.1 as f32);
+                let b = v3(self.pos.0 as f32, 0.5, self.pos.1 as f32);
 
-                let lerp = |a, t, b| a + t * (b - a);
+                let mut pos = lerp(a, tt, b);
 
-                let mut pos = lerp(a, t, b);
-
-                pos.y += (t * PI).sin();
+                pos.y += (tt * PI).sin();
+                if t > 1.0 {
+                    pos.y += (t * PI * 2.0).sin().abs() * (1.0 / (t + 0.5)).powf(4.0) * 1.5;
+                }
 
                 Mat4::from_translation(pos) * self.direction.to_rotation()
             }
@@ -133,6 +157,8 @@ impl Game {
             let is_on_y_bounds = y == 0 || y == MAP_SIZE.1 - 1;
             if is_on_x_bounds || is_on_y_bounds {
                 *tile = Tile::Wall;
+            } else if (x + 2 * y) % 4 == 0 {
+                *tile = Tile::Wall;
             }
         });
         game
@@ -140,26 +166,24 @@ impl Game {
     pub fn action(&self, action: Action) -> Game {
         let mut game = self.clone();
 
-        let direction = match action {
-            Action::Up => Direction::Up,
-            Action::Right => Direction::Right,
-            Action::Down => Direction::Down,
-            Action::Left => Direction::Left,
-        };
+        match action {
+            Action::Move(direction) => {
+                game.owl.1.direction = direction;
 
-        game.owl.1.direction = direction;
+                let move_by = direction.to_tuple();
 
-        let move_by = direction.to_tuple();
+                let new_pos = (self.owl.1.pos.0 + move_by.0, self.owl.1.pos.1 + move_by.1);
 
-        let new_pos = (self.owl.1.pos.0 + move_by.0, self.owl.1.pos.1 + move_by.1);
+                game.owl.0 = game.owl.1.clone().into();
 
-        game.owl.0 = game.owl.1.clone().into();
+                if game.map[new_pos.0 as usize][new_pos.1 as usize] == Tile::Empty {
+                    game.owl.1.pos = new_pos;
+                }
 
-        if game.map[new_pos.0 as usize][new_pos.1 as usize] == Tile::Empty {
-            game.owl.1.pos = new_pos;
+                game
+            },
+            Action::Undo => game,
         }
-
-        game
     }
     #[allow(unused)]
     pub fn map_all_tiles<F>(&self, f: F) -> Game
@@ -191,32 +215,44 @@ impl Game {
     }
     pub fn render(
         &self,
-        owl_mesh: &render::RenderObject,
-        meshes: &mut render::MeshStore,
+        props: &RenderProps,
         t: f32,
     ) -> Vec<render::RenderObject> {
         let mut calls = vec![];
-        let cube_mesh = meshes.get_cube();
-        let cube = render::RenderObject::mesh(cube_mesh);
 
         for (x, c) in self.map.iter().enumerate() {
             for (y, tile) in c.iter().enumerate() {
-                let pos = v3(x as f32, 0.0, y as f32);
+                let pos = v3(MAP_SIZE.0 as f32 - 1.0 - x as f32, 0.0, y as f32);
                 match tile {
                     Tile::Empty => {
-                        calls.push(cube.translate(pos));
+                        calls.push(props.cube_mesh.translate(pos));
                     }
                     Tile::Wall => {
-                        calls.push(cube.scale_nonuniformly(v3(1.0, 2.0, 1.0)).translate(pos))
+                        let wall = props
+                            .cube_mesh
+                            .scale_nonuniformly(v3(1.0, 2.0, 1.0))
+                            .translate(pos)
+                            .with_material(props.plastic_material);
+
+                        calls.push(wall)
                     }
                 }
             }
         }
 
-        let owl = owl_mesh.scale(0.3).transform(self.owl.1.animate(&self.owl.0, t));
+        let mut owl_pos = self.owl.1.animate(&self.owl.0, t);
+        owl_pos[3][0] = MAP_SIZE.0 as f32 - 1.0 - owl_pos[3][0];
+        let owl = props.owl_mesh.scale(0.3).transform(owl_pos);
 
         calls.push(owl);
 
         calls
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct RenderProps<'a> {
+    pub owl_mesh: &'a render::RenderObject,
+    pub cube_mesh: &'a render::RenderObject,
+    pub plastic_material: render::Material,
 }
