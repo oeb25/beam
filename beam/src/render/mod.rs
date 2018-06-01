@@ -111,7 +111,7 @@ impl Material {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TextureRef(usize, (u32, u32));
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct MeshStore {
     pub meshes: Vec<Mesh>,
     pub textures: Vec<Texture>,
@@ -229,7 +229,7 @@ impl MeshStore {
                             let mut meshes = vec![];
 
                             for triangles in triangles.iter() {
-                                let collada::MeshTriangles { vertices, material } = triangles;
+                                let collada::MeshTriangles { vertices, .. } = triangles;
 
                                 let mut verts: Vec<_> = vertices
                                     .iter()
@@ -402,6 +402,7 @@ impl MeshStore {
         }
     }
 
+    #[allow(unused)]
     pub fn rgba_texture(&mut self, color: V4) -> TextureRef {
         if let Some(texture_ref) = self.rgba_textures.get(&color) {
             *texture_ref
@@ -516,7 +517,7 @@ impl MeshStore {
         path: impl AsRef<Path>,
         extension: &str,
         bake_material_program: &P,
-        mut draw_rect: F,
+        draw_rect: F,
     ) -> Result<Material, Error>
     where
         F: FnMut(&FramebufferBinderReadDraw, &P),
@@ -551,7 +552,7 @@ impl MeshStore {
         &mut self,
         material_builder: MaterialBuilder,
         bake_material_program: &P,
-        mut draw_rect: F,
+        draw_rect: F,
     ) -> Material
     where
         F: FnMut(&FramebufferBinderReadDraw, &P),
@@ -565,6 +566,15 @@ impl MeshStore {
         }
     }
 }
+
+#[derive(Debug)]
+pub struct Ibl {
+    pub cubemap: Texture,
+    pub irradiance_map: Texture,
+    pub prefilter_map: Texture,
+    pub brdf_lut: Texture,
+}
+
 
 #[allow(unused)]
 #[derive(Debug, Clone)]

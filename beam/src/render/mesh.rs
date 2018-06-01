@@ -1,7 +1,8 @@
 use std::mem;
 
 use mg::{
-    DrawMode, FramebufferBinderDrawer, ProgramBind, VertexArray, VertexBuffer, VertexBufferBinder,
+    DrawMode, FramebufferBinderDrawer, ProgramBind, VertexArray, VertexArrayBinder, VertexBuffer,
+    VertexBufferBinder,
 };
 use misc::{Mat4, V3, Vertex};
 
@@ -23,6 +24,31 @@ macro_rules! size_of {
     };
 }
 
+macro_rules! implement_vertex {
+    ($s:ty, [ $($field:ident,)* ]) => {
+        #[allow(unused)]
+        impl $s {
+            fn vertex_attribs(vao: &mut VertexArrayBinder, vbo: &mut VertexBufferBinder<$s>) {
+                let float_size = mem::size_of::<f32>();
+
+                let mut i = 0;
+                $(
+                    vao.vbo_attrib(
+                        &vbo,
+                        i,
+                        size_of!($s, $field) / float_size,
+                        offset_of!($s, $field),
+                    );
+                    i += 1;
+                )*
+            }
+        }
+    }
+}
+
+implement_vertex!(Vertex, [pos, norm, tex, tangent,]);
+
+#[derive(Debug)]
 pub struct Mesh {
     vcount: usize,
     vao: VertexArray,
@@ -66,26 +92,30 @@ impl Mesh {
         }
     }
     pub fn bind(&mut self) -> MeshBinding {
-        MeshBinding(self)
+        MeshBinding {
+            vao: self.vao.bind(),
+            vcount: self.vcount,
+        }
     }
 }
 
-pub struct MeshBinding<'a>(&'a mut Mesh);
+pub struct MeshBinding<'a> {
+    vao: VertexArrayBinder<'a>,
+    vcount: usize,
+}
 impl<'a> MeshBinding<'a> {
-    pub fn draw<F, P>(&mut self, fbo: &F, program: &P)
+    pub fn draw<F, P>(&self, fbo: &F, program: &P)
     where
         F: FramebufferBinderDrawer,
         P: ProgramBind,
     {
         // self.bind_textures(program);
 
-        self.0
-            .vao
-            .bind()
-            .draw_arrays(fbo, program, DrawMode::Triangles, 0, self.0.vcount);
+        self.vao
+            .draw_arrays(fbo, program, DrawMode::Triangles, 0, self.vcount);
     }
     pub fn draw_geometry_instanced<F, P>(
-        &mut self,
+        &self,
         fbo: &F,
         _program: &P,
         transforms: &VertexBufferBinder<Mat4>,
@@ -93,19 +123,18 @@ impl<'a> MeshBinding<'a> {
         F: FramebufferBinderDrawer,
         P: ProgramBind,
     {
-        let mut vao = self.0.vao.bind();
         let offset = 5;
         let width = 4;
         for i in 0..width {
             let index = i + offset;
-            vao.vbo_attrib(&transforms, index, width, width * i * mem::size_of::<f32>())
+            self.vao.vbo_attrib(&transforms, index, width, width * i * mem::size_of::<f32>())
                 .attrib_divisor(index, 1);
         }
 
-        vao.draw_arrays_instanced(fbo, DrawMode::Triangles, 0, self.0.vcount, transforms.len());
+        self.vao.draw_arrays_instanced(fbo, DrawMode::Triangles, 0, self.vcount, transforms.len());
     }
     pub fn draw_instanced<F, P>(
-        &mut self,
+        &self,
         fbo: &F,
         program: &P,
         transforms: &VertexBufferBinder<Mat4>,

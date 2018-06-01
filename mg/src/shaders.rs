@@ -24,7 +24,7 @@ pub struct Shader {
 }
 impl Shader {
     pub fn new_from_path<T: AsRef<Path>>(path: T, kind: ShaderKind) -> Result<Shader, ()> {
-        let src = fs::read_to_string(path).expect("unable to load vertex shader");
+        let src = fs::read_to_string(path).expect("unable to load shader");
         Shader::new(&src, kind)
     }
     pub fn new(src: &str, kind: ShaderKind) -> Result<Shader, ()> {
@@ -125,10 +125,16 @@ impl UniformBlockIndex {
 }
 
 #[derive(Debug)]
+pub struct ProgramPin;
+
+#[derive(Debug)]
 pub struct Program {
     id: gl::types::GLuint,
 }
 impl Program {
+    pub unsafe fn get_pin() -> ProgramPin {
+        ProgramPin
+    }
     pub fn new(
         vs: &VertexShader,
         gs: Option<&GeometryShader>,
@@ -227,18 +233,9 @@ impl Program {
 
         Program::new(&vs, gs.as_ref(), &fs)
     }
-    pub fn bind(&mut self) -> ProgramBinding {
-        ProgramBinding::new(self)
+    pub fn bind<'a>(&'a self, pin: &'a mut ProgramPin) -> ProgramBinding<'a> {
+        ProgramBinding::new(self, pin)
     }
-    // pub fn hot_swap_vertex_shader(&self, vs_path: &str) {
-    //     let vs = VertexShader::new_from_path(vs_path).expect("unable to load vertex shader");
-    //     self.attach_shader(&vs.0);
-    // }
-    // pub fn hot_swap_fragment_shader(&self, fs_path: &str) {
-    //     let vs = FragmentShader::new_from_path(fs_path).expect("unable to load fragment shader");
-    //     self.attach_shader(&vs.0);
-    //     self.link();
-    // }
 }
 impl Drop for Program {
     fn drop(&mut self) {
@@ -278,17 +275,20 @@ impl Uloc for UniformLocation {
 }
 use std::cell::Cell;
 pub struct ProgramBinding<'a> {
-    program: &'a mut Program,
+    program: &'a Program,
+    #[allow(unused)]
+    pin: &'a mut ProgramPin,
     next_texture_slot: Cell<TextureSlot>,
 }
 impl<'a> ProgramBinding<'a> {
-    fn new(program: &mut Program) -> ProgramBinding {
+    fn new(program: &'a Program, pin: &'a mut ProgramPin) -> ProgramBinding<'a> {
         unsafe {
             gl::UseProgram(program.id);
         }
         let next_texture_slot = Cell::new(TextureSlot::Zero);
         ProgramBinding {
             program,
+            pin,
             next_texture_slot,
         }
     }
@@ -305,24 +305,27 @@ impl<'a> ProgramBind for ProgramBinding<'a> {
         self.program.id
     }
 }
-use std::cell::RefMut;
-pub struct ProgramBindingRefMut<'a> {
-    program: RefMut<'a, Program>,
+use std::cell::Ref;
+pub struct ProgramBindingRef<'a> {
+    program: Ref<'a, Program>,
+    #[allow(unused)]
+    pin: &'a mut ProgramPin,
     next_texture_slot: Cell<TextureSlot>,
 }
-impl<'a> ProgramBindingRefMut<'a> {
-    pub fn new(program: RefMut<Program>) -> ProgramBindingRefMut {
+impl<'a> ProgramBindingRef<'a> {
+    pub fn new(program: Ref<'a, Program>, pin: &'a mut ProgramPin) -> ProgramBindingRef<'a> {
         unsafe {
             gl::UseProgram(program.id);
         }
         let next_texture_slot = Cell::new(TextureSlot::Zero);
-        ProgramBindingRefMut {
+        ProgramBindingRef {
             program,
+            pin,
             next_texture_slot,
         }
     }
 }
-impl<'a> ProgramBind for ProgramBindingRefMut<'a> {
+impl<'a> ProgramBind for ProgramBindingRef<'a> {
     fn set_next_texture_slot(&self, slot: TextureSlot) -> &Self {
         self.next_texture_slot.set(slot);
         self
@@ -374,12 +377,7 @@ pub trait ProgramBind: Sized {
     fn bind_bool(&self, loc: impl Uloc, i: bool) -> &Self {
         self.bind_uint(loc, if i { 1 } else { 0 })
     }
-    fn bind_texture_to(
-        &self,
-        loc: impl Uloc,
-        texture: &Texture,
-        slot: TextureSlot,
-    ) -> &Self {
+    fn bind_texture_to(&self, loc: impl Uloc, texture: &Texture, slot: TextureSlot) -> &Self {
         texture.bind_to(slot);
         self.bind_int(loc, slot.into())
     }

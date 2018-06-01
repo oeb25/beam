@@ -192,6 +192,7 @@ impl Game {
             })
         })
     }
+    #[allow(unused)]
     pub fn tiles(&self) -> impl Iterator<Item = ((usize, usize), &Tile)> {
         self.map.iter().enumerate().flat_map(|(x, c)| {
             c.iter().enumerate().map(move |(y, tile)| {

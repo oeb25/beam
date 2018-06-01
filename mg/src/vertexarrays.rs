@@ -6,6 +6,7 @@ use framebuffers::FramebufferBinderDrawer;
 use shaders::ProgramBind;
 use types::{GlError, GlType};
 
+#[derive(Debug)]
 pub struct VertexArray(gl::types::GLuint);
 
 impl VertexArray {
@@ -57,7 +58,7 @@ impl<'a> VertexArrayBinder<'a> {
         VertexArrayBinder(vao)
     }
     pub fn draw_arrays<T, S>(
-        &mut self,
+        &self,
         _fbo: &T,
         _program: &S,
         mode: DrawMode,
@@ -74,7 +75,7 @@ impl<'a> VertexArrayBinder<'a> {
         self
     }
     pub fn draw_arrays_instanced<T>(
-        &mut self,
+        &self,
         _fbo: &T,
         mode: DrawMode,
         first: usize,
@@ -95,7 +96,7 @@ impl<'a> VertexArrayBinder<'a> {
         self
     }
     pub fn draw_elements<T, S>(
-        &mut self,
+        &self,
         _fbo: &T,
         mode: DrawMode,
         data: &ElementBufferBinder<S>,
@@ -115,7 +116,7 @@ impl<'a> VertexArrayBinder<'a> {
         self
     }
     pub fn draw_elements_instanced<T, S>(
-        &mut self,
+        &self,
         _fbo: &T,
         mode: DrawMode,
         data: &ElementBufferBinder<S>,

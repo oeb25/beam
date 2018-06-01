@@ -23,6 +23,7 @@ use time::{Duration, PreciseTime};
 mod hot;
 mod logic;
 mod misc;
+mod assets;
 mod pipeline;
 mod render;
 
@@ -184,6 +185,8 @@ fn main() -> Result<(), Error> {
 
     gl::load_with(|symbol| gl_window.get_proc_address(symbol) as *const _);
 
+    let mut ppin = unsafe { mg::Program::get_pin() };
+
     let mut t: f32 = 0.0;
 
     let (w, h) = gl_window.get_inner_size().unwrap();
@@ -195,27 +198,26 @@ fn main() -> Result<(), Error> {
     let mut running = true;
     // let mut last_pos = None;
 
-    let mut pipeline = Pipeline::new(w, h, hidpi_factor);
-
-    let room_ibl = pipeline.load_ibl("assets/Newport_Loft/Newport_Loft_Ref.hdr")?;
-    let _rust_material = pipeline
+    let mut assets = assets::AssetBuilder::new(&mut ppin)?;
+    let room_ibl = assets.load_ibl("assets/Newport_Loft/Newport_Loft_Ref.hdr")?;
+    let _rust_material = assets
         .load_pbr_with_default_filenames("assets/pbr/rusted_iron", "png")?;
-    let plastic_material = pipeline
+    let plastic_material = assets
         .load_pbr_with_default_filenames("assets/pbr/plastic", "png")?;
-    let gold_material = pipeline
+    let gold_material = assets
         .load_pbr_with_default_filenames("assets/pbr/gold", "png")?;
 
-    let white3 = pipeline.meshes.rgb_texture(v3(1.0, 1.0, 1.0));
-    let black3 = pipeline.meshes.rgb_texture(v3(0.0, 0.0, 0.0));
-    let normal3 = pipeline.meshes.rgb_texture(v3(0.5, 0.5, 1.0));
-    let blue3 = pipeline.meshes.rgb_texture(v3(0.0, 0.1, 1.0));
+    let white3 = assets.rgb_texture(v3(1.0, 1.0, 1.0));
+    let black3 = assets.rgb_texture(v3(0.0, 0.0, 0.0));
+    let normal3 = assets.rgb_texture(v3(0.5, 0.5, 1.0));
+    let blue3 = assets.rgb_texture(v3(0.0, 0.1, 1.0));
 
-    let suzanne = pipeline
+    let suzanne = assets
         .load_collada("assets/suzanne/suzanne.dae")?
         .scale(1.0 / 2.0)
         .translate(v3(0.0, 20.0, 0.0));
 
-    let owl = pipeline
+    let owl = assets
         .load_collada("assets/owl/owl.dae")?
         .translate(v3(0.0, 0.0, 0.0));
 
@@ -230,25 +232,24 @@ fn main() -> Result<(), Error> {
             is.push(obj);
         }
     }
-    let v = Mat4::from_angle_y(Rad(-1.5));
 
     println!("drawing {} mankeys", is.len());
 
-    let cube_mesh = RenderObject::mesh(pipeline.meshes.get_cube());
-    let sphere_mesh = RenderObject::mesh(pipeline.meshes.get_sphere(0.5));
+    let cube_mesh = RenderObject::mesh(assets.get_cube());
+    let sphere_mesh = RenderObject::mesh(assets.get_sphere(0.5));
 
     let mut gradient_textures = vec![];
 
     for i in 0..0 {
         let val = i as f32 / 4.0;
-        let texture = pipeline.meshes.rgb_texture(v3(val, val, val));
+        let texture = assets.rgb_texture(v3(val, val, val));
         gradient_textures.push(texture);
     }
 
     for (i, rough) in gradient_textures.iter().enumerate() {
         for (n, met) in gradient_textures.iter().enumerate() {
             let v = v3(i as f32 * 2.0, 10.0 - n as f32 * 2.0, -13.0);
-            let obj = sphere_mesh.translate(v).with_material(pipeline.bake_material(MaterialBuilder {
+            let obj = sphere_mesh.translate(v).with_material(assets.bake_material(MaterialBuilder {
                 albedo: blue3,
                 normal: normal3,
                 metallic: *met,
@@ -276,7 +277,7 @@ fn main() -> Result<(), Error> {
         plastic_material,
     };
 
-    let light_material = pipeline.bake_material(MaterialBuilder {
+    let light_material = assets.bake_material(MaterialBuilder {
         albedo: white3,
         normal: normal3,
         metallic: black3,
@@ -288,6 +289,8 @@ fn main() -> Result<(), Error> {
     let mut render_objects = vec![];
 
     let mut update_shadows = false;
+
+    let mut pipeline = assets.to_pipeline(w, h, hidpi_factor);
 
     while running {
         update_shadows = !update_shadows;
@@ -416,17 +419,11 @@ fn main() -> Result<(), Error> {
             render_objects.clear();
 
             for light in &scene.point_lights {
-                let mat = MaterialBuilder {
-                    albedo: pipeline.meshes.rgb_texture(light.color),
-                    normal: normal3,
-                    metallic: black3,
-                    roughness: white3,
-                    ao: white3,
-                    opacity: white3,
-                };
+                let mut mat = light_material.clone();
+                mat.albedo = pipeline.meshes.rgb_texture(light.color);
                 let mesh = sphere_mesh
                     .transform(Mat4::from_translation(light.position) * Mat4::from_scale(0.8))
-                    .with_material(pipeline.bake_material(mat));
+                    .with_material(mat);
                 render_objects.push(mesh);
             }
 
@@ -463,6 +460,7 @@ fn main() -> Result<(), Error> {
             render_objects.push(game_call);
 
             pipeline.render(
+                &mut ppin,
                 update_shadows,
                 RenderProps {
                     camera: &scene.camera,

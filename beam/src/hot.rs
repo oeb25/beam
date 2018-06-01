@@ -1,5 +1,5 @@
 use mg;
-use std;
+use std::{self, borrow::Cow};
 use warmy;
 
 fn rip<T, C>(e: warmy::load::StoreErrorOr<T, C>) -> T::Error
@@ -73,9 +73,9 @@ impl<C> warmy::Load<C> for FromFS {
 
 #[derive(Clone, Hash)]
 pub struct ShaderSrc<'a> {
-    pub vert: &'a str,
-    pub geom: Option<&'a str>,
-    pub frag: &'a str,
+    pub vert: Cow<'a, str>,
+    pub geom: Option<Cow<'a, str>>,
+    pub frag: Cow<'a, str>,
 }
 
 #[derive(Debug)]
