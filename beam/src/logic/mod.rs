@@ -192,7 +192,6 @@ impl Game {
             })
         })
     }
-    #[allow(unused)]
     pub fn tiles(&self) -> impl Iterator<Item = ((usize, usize), &Tile)> {
         self.map.iter().enumerate().flat_map(|(x, c)| {
             c.iter().enumerate().map(move |(y, tile)| {
@@ -207,21 +206,19 @@ impl Game {
     ) -> Vec<render::RenderObject> {
         let mut calls = vec![];
 
-        for (x, c) in self.map.iter().enumerate() {
-            for (y, tile) in c.iter().enumerate() {
-                let pos = v3(MAP_SIZE.0 as f32 - 1.0 - x as f32, 0.0, y as f32);
-                match tile {
-                    Tile::Empty => {
-                        calls.push(props.cube_mesh.translate(pos));
-                    }
-                    Tile::Wall => {
-                        let wall = props
-                            .cube_mesh
-                            .scale_nonuniformly(v3(1.0, 2.0, 1.0))
-                            .translate(pos).with_material(props.plastic_material);
+        for ((x, y), tile) in self.tiles() {
+            let pos = v3(MAP_SIZE.0 as f32 - 1.0 - x as f32, 0.0, y as f32);
+            match tile {
+                Tile::Empty => {
+                    calls.push(props.cube_mesh.translate(pos));
+                }
+                Tile::Wall => {
+                    let wall = props
+                        .cube_mesh
+                        .scale_nonuniformly(v3(1.0, 2.0, 1.0))
+                        .translate(pos).with_material(props.plastic_material);
 
-                        calls.push(wall)
-                    }
+                    calls.push(wall)
                 }
             }
         }
@@ -240,5 +237,5 @@ impl Game {
 pub struct RenderProps<'a> {
     pub owl_mesh: &'a render::RenderObject,
     pub cube_mesh: &'a render::RenderObject,
-    pub plastic_material: render::Material,
+    pub plastic_material: render::MaterialRef,
 }

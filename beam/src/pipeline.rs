@@ -6,6 +6,7 @@ use failure::Error;
 use mg::{
     DrawMode, Framebuffer, FramebufferBinderDrawer, FramebufferBinderReadDraw, GlError, Mask,
     ProgramBind, ProgramBindingRef, ProgramPin, Texture, TextureSlot, VertexArray, VertexBuffer,
+    VertexArrayPin,
 };
 
 use hot;
@@ -17,7 +18,7 @@ use render::{
     create_irradiance_map, create_prefiler_map, cubemap_from_equirectangular,
     lights::{DirectionalLight, PointLight, PointShadowMap, ShadowMap, SpotLight}, Camera,
     GRenderPass, Ibl, Material, MaterialBuilder, MeshRef, MeshStore, RenderObject,
-    RenderObjectChild, RenderTarget, Renderable,
+    RenderObjectChild, RenderTarget, Renderable, MaterialRef,
 };
 
 pub struct RenderProps<'a> {
@@ -44,7 +45,7 @@ impl HotShader {
     }
 }
 
-type DrawCalls = Cacher<(MeshRef, Option<Material>), Vec<Mat4>>;
+type DrawCalls = Cacher<(MeshRef, Option<MaterialRef>), Vec<Mat4>>;
 
 pub struct Pipeline {
     pub warmy_store: warmy::Store<()>,
@@ -65,7 +66,7 @@ pub struct Pipeline {
 
     pub vbo_cache: Vec<VertexBuffer<Mat4>>,
     pub draw_calls: DrawCalls,
-    pub meshes: MeshStore,
+    pub meshes: MeshStore<Material>,
 
     pub rect: VertexArray,
 
@@ -83,7 +84,8 @@ pub struct Pipeline {
 
 impl Pipeline {
     pub fn new(
-        meshes: MeshStore,
+        vpin: &mut VertexArrayPin,
+        meshes: MeshStore<Material>,
         default_material: Material,
         w: u32,
         h: u32,
@@ -130,7 +132,7 @@ impl Pipeline {
         let hdr_program = shader!(rect, "hdr.frag");
         let screen_program = shader!(rect, "screen.frag");
 
-        let rect = Pipeline::make_rect();
+        let rect = Pipeline::make_rect(vpin);
 
         let screen_target = RenderTarget::new(w, h);
         let window_fbo = unsafe { Framebuffer::window() };
@@ -188,10 +190,15 @@ impl Pipeline {
 
         blur_targets
     }
-    pub fn _bake_material(&mut self, ppin: &mut ProgramPin, material: MaterialBuilder) -> Material {
+    pub fn _bake_material(
+        &mut self,
+        ppin: &mut ProgramPin,
+        vpin: &mut VertexArrayPin,
+        material: MaterialBuilder,
+    ) -> Material {
         let draw_rect = |fbo: &FramebufferBinderReadDraw, program: &ProgramBindingRef| {
-            let mut rect = Pipeline::make_rect();
-            rect.bind()
+            let rect = Pipeline::make_rect(vpin);
+            rect.bind(vpin)
                 .draw_arrays(fbo, program, DrawMode::Points, 0, 1);
         };
         self.meshes.bake_material(
@@ -214,16 +221,16 @@ impl Pipeline {
         self.lighting_target = lighting_target;
         self.blur_targets = blur_targets;
     }
-    fn make_rect() -> VertexArray {
-        let mut rect_vao = VertexArray::new();
+    fn make_rect(vpin: &mut VertexArrayPin) -> VertexArray {
+        let rect_vao = VertexArray::new();
         let mut rect_vbo = VertexBuffer::from_data(&[v3(0.0, 0.0, 0.0)]);
-        rect_vao.bind().vbo_attrib(&rect_vbo.bind(), 0, 3, 0);
+        rect_vao.bind(vpin).vbo_attrib(&rect_vbo.bind(), 0, 3, 0);
         rect_vao
     }
     fn render_object(
         render_object: &RenderObject,
         transform: &Mat4,
-        material: Option<Material>,
+        material: Option<MaterialRef>,
         calls: &mut DrawCalls,
     ) {
         let transform = transform * render_object.transform;
@@ -268,6 +275,7 @@ impl Pipeline {
     pub fn render<'b, T>(
         &mut self,
         ppin: &mut ProgramPin,
+        vpin: &mut VertexArrayPin,
         update_shadows: bool,
         props: RenderProps,
         render_objects: T,
@@ -278,7 +286,7 @@ impl Pipeline {
         let view_pos = props.camera.pos;
         let projection = props.camera.get_projection();
 
-        let mut scene_draw_calls_meshes: Vec<(&MeshRef, &Option<Material>, usize)> = {
+        let mut scene_draw_calls_meshes: Vec<(&MeshRef, &Option<MaterialRef>, usize)> = {
             self.draw_calls.clear();
             for obj in render_objects {
                 Pipeline::render_object(obj, &Mat4::from_scale(1.0), None, &mut self.draw_calls);
@@ -312,16 +320,16 @@ impl Pipeline {
                 render_scene!($fbo, $program, draw_instanced)
             };
             ($fbo:expr, $program:expr, $func:ident) => {{
-                for (mesh_ref, material, transforms_i) in &mut scene_draw_calls_meshes {
+                for (mesh_ref, material_ref, transforms_i) in &mut scene_draw_calls_meshes {
                     let start_slot = $program.next_texture_slot();
-                    if let Some(material) = material {
-                        material.bind(&self.meshes, &$program);
+                    if let Some(material_ref) = material_ref {
+                        self.meshes.get_material(material_ref).bind(&self.meshes, &$program);
                     } else {
                         default_material.bind(&self.meshes, &$program);
                     }
-                    let mesh = self.meshes.get_mesh_mut(&mesh_ref);
+                    let mesh = self.meshes.get_mesh(&mesh_ref);
                     let vbo = &mut self.vbo_cache[*transforms_i];
-                    mesh.bind().draw_instanced(&$fbo, &$program, &vbo.bind());
+                    mesh.bind(vpin).draw_instanced(&$fbo, &$program, &vbo.bind());
                     $program.set_next_texture_slot(start_slot);
                 }
             }};
@@ -330,7 +338,7 @@ impl Pipeline {
         macro_rules! draw_rect {
             ($fbo:expr, $program:expr) => {
                 self.rect
-                    .bind()
+                    .bind(vpin)
                     .draw_arrays($fbo, $program, DrawMode::Points, 0, 1);
             };
         }
@@ -470,10 +478,10 @@ impl Pipeline {
                         .unwrap_or_else(|| props.ambient_intensity.unwrap_or(0.0)),
                 )
                 .bind_texture("skybox", &props.ibl.cubemap);
-            let cube_ref = self.meshes.get_cube();
+            let cube_ref = self.meshes.get_cube(vpin);
             self.meshes
-                .get_mesh_mut(&cube_ref)
-                .bind()
+                .get_mesh(&cube_ref)
+                .bind(vpin)
                 .draw(&fbo, &program);
             unsafe {
                 gl::DepthFunc(gl::LESS);

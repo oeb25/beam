@@ -7,6 +7,9 @@ use shaders::ProgramBind;
 use types::{GlError, GlType};
 
 #[derive(Debug)]
+pub struct VertexArrayPin;
+
+#[derive(Debug)]
 pub struct VertexArray(gl::types::GLuint);
 
 impl VertexArray {
@@ -17,8 +20,11 @@ impl VertexArray {
             VertexArray(vao)
         }
     }
-    pub fn bind(&mut self) -> VertexArrayBinder {
-        VertexArrayBinder::new(self)
+    pub unsafe fn get_pin() -> VertexArrayPin {
+        VertexArrayPin
+    }
+    pub fn bind<'a>(&'a self, vpin: &'a mut VertexArrayPin) -> VertexArrayBinder<'a> {
+        VertexArrayBinder::new(self, vpin)
     }
 }
 
@@ -48,14 +54,14 @@ impl Into<u32> for DrawMode {
     }
 }
 
-pub struct VertexArrayBinder<'a>(&'a mut VertexArray);
+pub struct VertexArrayBinder<'a>(&'a VertexArray, &'a mut VertexArrayPin);
 #[allow(unused)]
 impl<'a> VertexArrayBinder<'a> {
-    pub fn new(vao: &'a mut VertexArray) -> VertexArrayBinder<'a> {
+    pub fn new(vao: &'a VertexArray, vpin: &'a mut VertexArrayPin) -> VertexArrayBinder<'a> {
         unsafe {
             gl::BindVertexArray(vao.0);
         }
-        VertexArrayBinder(vao)
+        VertexArrayBinder(vao, vpin)
     }
     pub fn draw_arrays<T, S>(
         &self,

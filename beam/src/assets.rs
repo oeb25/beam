@@ -1,13 +1,13 @@
 use failure::Error;
 use mg::{
     DrawMode, FramebufferBinderDrawer, FramebufferBinderReadDraw, Mask, Program, ProgramBind,
-    ProgramBinding, ProgramPin, TextureSlot, VertexArray, VertexBuffer,
+    ProgramBinding, ProgramPin, TextureSlot, VertexArray, VertexBuffer, VertexArrayPin,
 };
 use misc::{v3, V3};
 use pipeline::Pipeline;
 use render::{
     create_irradiance_map, create_prefiler_map, cubemap_from_equirectangular, Ibl, Material,
-    MaterialBuilder, MeshRef, MeshStore, RenderObject, RenderTarget, TextureRef,
+    MaterialBuilder, MeshRef, MeshStore, RenderObject, RenderTarget, TextureRef, MaterialRef,
 };
 use std::{fs, path::Path};
 
@@ -72,67 +72,55 @@ impl AssetBuilderPrograms {
 #[derive(Debug)]
 pub struct AssetBuilder<'a> {
     ppin: &'a mut ProgramPin,
+    vpin: &'a mut VertexArrayPin,
     programs: AssetBuilderPrograms,
-    meshes: MeshStore,
+    meshes: MeshStore<MaterialBuilder>,
 }
 
 impl<'a> AssetBuilder<'a> {
-    pub fn new(ppin: &'a mut ProgramPin) -> Result<AssetBuilder<'a>, Error> {
+    pub fn new(ppin: &'a mut ProgramPin, vpin: &'a mut VertexArrayPin) -> Result<AssetBuilder<'a>, Error> {
         let programs = AssetBuilderPrograms::new()?;
-        let meshes = MeshStore::default();
+        let meshes = MeshStore::new();
 
         Ok(AssetBuilder {
             ppin,
+            vpin,
             programs,
             meshes,
         })
     }
-    fn make_rect() -> VertexArray {
-        let mut rect_vao = VertexArray::new();
+    fn make_rect(vpin: &mut VertexArrayPin) -> VertexArray {
+        let rect_vao = VertexArray::new();
         let mut rect_vbo = VertexBuffer::from_data(&[v3(0.0, 0.0, 0.0)]);
-        rect_vao.bind().vbo_attrib(&rect_vbo.bind(), 0, 3, 0);
+        rect_vao.bind(vpin).vbo_attrib(&rect_vbo.bind(), 0, 3, 0);
         rect_vao
     }
     pub fn load_collada(&mut self, path: impl AsRef<Path>) -> Result<RenderObject, Error> {
-        let mut rect = AssetBuilder::make_rect();
-        let draw_rect = |fbo: &FramebufferBinderReadDraw, program: &ProgramBinding| {
-            rect.bind()
-                .draw_arrays(fbo, program, DrawMode::Points, 0, 1);
-        };
-        self.meshes.load_collada(
-            path,
-            &self.programs.bake_material.bind(self.ppin),
-            draw_rect,
-        )
+        self.meshes.load_collada(self.vpin, path)
+    }
+    pub fn insert_material(&mut self, material: MaterialBuilder) -> MaterialRef {
+        self.meshes.insert_material(material)
     }
     pub fn load_pbr_with_default_filenames(
         &mut self,
         path: impl AsRef<Path>,
         extension: &str,
-    ) -> Result<Material, Error> {
-        let mut rect = AssetBuilder::make_rect();
-        let draw_rect = |fbo: &FramebufferBinderReadDraw, program: &ProgramBinding| {
-            rect.bind()
-                .draw_arrays(fbo, program, DrawMode::Points, 0, 1);
-        };
-        self.meshes.load_pbr_with_default_filenames(
-            path,
-            extension,
-            &self.programs.bake_material.bind(self.ppin),
-            draw_rect,
-        )
+    ) -> Result<MaterialRef, Error> {
+        self.meshes.load_pbr_with_default_filenames(path, extension)
     }
     pub fn load_ibl(&mut self, path: impl AsRef<Path>) -> Result<Ibl, Error> {
+        let vpin = &mut self.vpin;
+
         let ibl_raw_ref = self.meshes.load_hdr(path)?;
         let ibl_raw = self.meshes.get_texture(&ibl_raw_ref);
         // Borrow checker work around here, we could use the rect vao already define on the pipeline
         // if it were not for the overship issues, but this works, and I don't think it is all that
         // costly.
-        let mut rect = AssetBuilder::make_rect();
+        let rect = AssetBuilder::make_rect(vpin);
 
         let mut render_cube = |fbo: &FramebufferBinderReadDraw, program: &ProgramBinding| {
             program.bind_texture_to("equirectangularMap", &ibl_raw, TextureSlot::One);
-            rect.bind()
+            rect.bind(vpin)
                 .draw_arrays(fbo, program, DrawMode::Points, 0, 1);
         };
 
@@ -145,7 +133,7 @@ impl<'a> AssetBuilder<'a> {
 
         let mut render_cube = |fbo: &FramebufferBinderReadDraw, program: &ProgramBinding| {
             program.bind_texture_to("equirectangularMap", &cubemap, TextureSlot::One);
-            rect.bind()
+            rect.bind(vpin)
                 .draw_arrays(fbo, program, DrawMode::Points, 0, 1);
         };
         let irradiance_map = create_irradiance_map(
@@ -174,9 +162,10 @@ impl<'a> AssetBuilder<'a> {
         })
     }
     pub fn bake_material(&mut self, material: MaterialBuilder) -> Material {
+        let vpin = &mut self.vpin;
+        let rect = AssetBuilder::make_rect(vpin);
         let draw_rect = |fbo: &FramebufferBinderReadDraw, program: &ProgramBinding| {
-            let mut rect = AssetBuilder::make_rect();
-            rect.bind()
+            rect.bind(vpin)
                 .draw_arrays(fbo, program, DrawMode::Points, 0, 1);
         };
         self.meshes.bake_material(
@@ -190,11 +179,11 @@ impl<'a> AssetBuilder<'a> {
         self.meshes.rgb_texture(color)
     }
     pub fn get_cube(&mut self) -> MeshRef {
-        self.meshes.get_cube()
+        self.meshes.get_cube(self.vpin)
     }
 
     pub fn get_sphere(&mut self, radius: f32) -> MeshRef {
-        self.meshes.get_sphere(radius)
+        self.meshes.get_sphere(self.vpin, radius)
     }
 
     pub fn to_pipeline(mut self, w: u32, h: u32, hidpi_factor: f32) -> Pipeline {
@@ -214,6 +203,22 @@ impl<'a> AssetBuilder<'a> {
             })
         };
 
-        Pipeline::new(self.meshes, default_material, w, h, hidpi_factor)
+        let vpin = &mut self.vpin;
+        let rect = AssetBuilder::make_rect(vpin);
+        let draw_rect = |fbo: &FramebufferBinderReadDraw, program: &ProgramBinding| {
+            rect.bind(vpin)
+                .draw_arrays(fbo, program, DrawMode::Points, 0, 1);
+        };
+
+        let meshes = self.meshes.bake_all_materials(draw_rect, &self.programs.bake_material.bind(self.ppin));
+
+        Pipeline::new(
+            self.vpin,
+            meshes,
+            default_material,
+            w,
+            h,
+            hidpi_factor,
+        )
     }
 }

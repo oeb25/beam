@@ -2,7 +2,7 @@ use std::mem;
 
 use mg::{
     DrawMode, FramebufferBinderDrawer, ProgramBind, VertexArray, VertexArrayBinder, VertexBuffer,
-    VertexBufferBinder,
+    VertexBufferBinder, VertexArrayPin,
 };
 use misc::{Mat4, V3, Vertex};
 
@@ -56,15 +56,15 @@ pub struct Mesh {
 }
 
 impl Mesh {
-    pub fn new(vertices: &[Vertex]) -> Mesh {
+    pub fn new(vertices: &[Vertex], vpin: &mut VertexArrayPin) -> Mesh {
         let simple_verts = vertices.iter().map(|v| v.pos).collect();
 
-        let mut vao = VertexArray::new();
+        let vao = VertexArray::new();
         let mut vbo = VertexBuffer::from_data(vertices);
 
         {
             let float_size = mem::size_of::<f32>();
-            let vao_binder = vao.bind();
+            let vao_binder = vao.bind(vpin);
             let vbo_binder = vbo.bind();
 
             macro_rules! x {
@@ -91,9 +91,9 @@ impl Mesh {
             simple_verts,
         }
     }
-    pub fn bind(&mut self) -> MeshBinding {
+    pub fn bind<'a>(&'a self, vpin: &'a mut VertexArrayPin) -> MeshBinding<'a> {
         MeshBinding {
-            vao: self.vao.bind(),
+            vao: self.vao.bind(vpin),
             vcount: self.vcount,
         }
     }

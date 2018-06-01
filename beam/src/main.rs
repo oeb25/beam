@@ -186,6 +186,7 @@ fn main() -> Result<(), Error> {
     gl::load_with(|symbol| gl_window.get_proc_address(symbol) as *const _);
 
     let mut ppin = unsafe { mg::Program::get_pin() };
+    let mut vpin = unsafe { mg::VertexArray::get_pin() };
 
     let mut t: f32 = 0.0;
 
@@ -198,7 +199,7 @@ fn main() -> Result<(), Error> {
     let mut running = true;
     // let mut last_pos = None;
 
-    let mut assets = assets::AssetBuilder::new(&mut ppin)?;
+    let mut assets = assets::AssetBuilder::new(&mut ppin, &mut vpin)?;
     let room_ibl = assets.load_ibl("assets/Newport_Loft/Newport_Loft_Ref.hdr")?;
     let _rust_material = assets
         .load_pbr_with_default_filenames("assets/pbr/rusted_iron", "png")?;
@@ -249,7 +250,7 @@ fn main() -> Result<(), Error> {
     for (i, rough) in gradient_textures.iter().enumerate() {
         for (n, met) in gradient_textures.iter().enumerate() {
             let v = v3(i as f32 * 2.0, 10.0 - n as f32 * 2.0, -13.0);
-            let obj = sphere_mesh.translate(v).with_material(assets.bake_material(MaterialBuilder {
+            let obj = sphere_mesh.translate(v).with_material(assets.insert_material(MaterialBuilder {
                 albedo: blue3,
                 normal: normal3,
                 metallic: *met,
@@ -419,20 +420,20 @@ fn main() -> Result<(), Error> {
             render_objects.clear();
 
             for light in &scene.point_lights {
-                let mut mat = light_material.clone();
-                mat.albedo = pipeline.meshes.rgb_texture(light.color);
+                // let mut mat = light_material.clone();
+                // mat.albedo = pipeline.meshes.rgb_texture(light.color);
                 let mesh = sphere_mesh
-                    .transform(Mat4::from_translation(light.position) * Mat4::from_scale(0.8))
-                    .with_material(mat);
+                    .transform(Mat4::from_translation(light.position) * Mat4::from_scale(0.8));
+                    // .with_material(mat);
                 render_objects.push(mesh);
             }
 
             for light in &scene.spot_lights {
-                let mut mat = light_material.clone();
-                mat.albedo = pipeline.meshes.rgb_texture(light.color);
+                // let mut mat = light_material.clone();
+                // mat.albedo = pipeline.meshes.rgb_texture(light.color);
                 let mesh = suzanne
-                    .transform(Mat4::from_translation(light.position) * Mat4::from_scale(0.8))
-                    .with_material(mat);
+                    .transform(Mat4::from_translation(light.position) * Mat4::from_scale(0.8));
+                    // .with_material(mat);
                 render_objects.push(mesh);
             }
 
@@ -461,6 +462,7 @@ fn main() -> Result<(), Error> {
 
             pipeline.render(
                 &mut ppin,
+                &mut vpin,
                 update_shadows,
                 RenderProps {
                     camera: &scene.camera,
