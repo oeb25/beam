@@ -193,7 +193,7 @@ fn main() -> Result<(), Error> {
     let mut inputs = Input::default();
 
     let mut running = true;
-    let mut last_pos = None;
+    // let mut last_pos = None;
 
     let mut pipeline = Pipeline::new(w, h, hidpi_factor);
 
@@ -264,11 +264,6 @@ fn main() -> Result<(), Error> {
     let fps_step = Duration::seconds(1);
     let mut fps_number_of_frames = 0;
 
-    let mut shadows_last_time = PreciseTime::now();
-    let shadows_step = Duration::milliseconds(16 * 1);
-
-    let mut update_shadows = false;
-
     let mut queued_actions = VecDeque::new();
 
     let mut last_time = PreciseTime::now();
@@ -292,6 +287,8 @@ fn main() -> Result<(), Error> {
 
     let mut render_objects = vec![];
 
+    let mut update_shadows = false;
+
     while running {
         update_shadows = !update_shadows;
 
@@ -308,14 +305,6 @@ fn main() -> Result<(), Error> {
                 fps_number_of_frames = 0;
             }
         }
-        {
-            // update_shadows = false;
-            let delta = shadows_last_time.to(now);
-            if delta > shadows_step {
-                shadows_last_time = now;
-                // update_shadows = true;
-            }
-        }
 
         inputs.mouse_delta = (0.0, 0.0);
 
@@ -326,24 +315,6 @@ fn main() -> Result<(), Error> {
                     scene.resize(w, h);
                     gl_window.resize(w, h);
                     pipeline.resize(w, h);
-                }
-                glutin::WindowEvent::CursorMoved { position, .. } => {
-                    match last_pos {
-                        None => {
-                            last_pos = Some(position);
-                        }
-                        Some(lp) => {
-                            last_pos = Some(position);
-                            inputs.mouse_delta = (
-                                position.0 as f32 - lp.0 as f32,
-                                position.1 as f32 - lp.1 as f32,
-                            );
-                        }
-                    }
-                    // let (w, h) = gl_window.get_outer_size().unwrap();
-                    // let (x, y) = gl_window.get_position().unwrap();
-                    // ignore_next_mouse_move = true;
-                    // gl_window.set_cursor_position(x + w as i32 / 2, y + h as i32 / 2).unwrap();
                 }
                 glutin::WindowEvent::KeyboardInput { input, .. } => {
                     if let Some(keycode) = input.virtual_keycode {
@@ -356,7 +327,10 @@ fn main() -> Result<(), Error> {
                         };
 
                         match keycode {
-                            Kc::Escape => running = false,
+                            Kc::Escape => {
+                                println!("quitting...");
+                                running = false;
+                            },
                             Kc::W => inputs.w = value,
                             Kc::A => inputs.a = value,
                             Kc::S => inputs.s = value,
@@ -509,16 +483,9 @@ fn main() -> Result<(), Error> {
         }
 
         gl_window.swap_buffers().unwrap();
-
-        // let report = timings.end();
-        // report_cache.push_front(report);
-        // if report_cache.len() > 60 {
-        //     report_cache.truncate(30);
-        // }
-        // Report::averange(report_cache.iter()).print();
     }
 
-    // flame::dump_html(&mut std::fs::File::create("flame-graph.html").unwrap()).unwrap();
+    println!("Complete");
 
     Ok(())
 }

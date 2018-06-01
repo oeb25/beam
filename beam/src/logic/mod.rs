@@ -144,7 +144,7 @@ pub struct Game {
 impl Game {
     pub fn new() -> Game {
         let owl = Entity {
-            pos: (4, 4),
+            pos: (5, 4),
             kind: EntityKind::Owl,
             direction: Direction::Up,
         };
@@ -152,7 +152,7 @@ impl Game {
             map: Default::default(),
             owl: (owl.clone().into(), owl),
         };
-        game.map_all_tiles_mut(|(x, y), tile| {
+        for ((x, y), tile) in game.tiles_mut() {
             let is_on_x_bounds = x == 0 || x == MAP_SIZE.0 - 1;
             let is_on_y_bounds = y == 0 || y == MAP_SIZE.1 - 1;
             if is_on_x_bounds || is_on_y_bounds {
@@ -160,7 +160,7 @@ impl Game {
             } else if (x + 2 * y) % 4 == 0 {
                 *tile = Tile::Wall;
             }
-        });
+        }
         game
     }
     pub fn action(&self, action: Action) -> Game {
@@ -185,33 +185,19 @@ impl Game {
             Action::Undo => game,
         }
     }
-    #[allow(unused)]
-    pub fn map_all_tiles<F>(&self, f: F) -> Game
-    where
-        F: Fn((usize, usize), &Tile) -> Tile,
-    {
-        let mut new_map: Map = Default::default();
-
-        for (x, c) in self.map.iter().enumerate() {
-            for (y, tile) in c.iter().enumerate() {
-                new_map[x][y] = f((x, y), tile);
-            }
-        }
-
-        Game {
-            map: new_map,
-            owl: self.owl.clone(),
-        }
+    pub fn tiles_mut(&mut self) -> impl Iterator<Item = ((usize, usize), &mut Tile)> {
+        self.map.iter_mut().enumerate().flat_map(|(x, c)| {
+            c.iter_mut().enumerate().map(move |(y, tile)| {
+                ((x, y), tile)
+            })
+        })
     }
-    pub fn map_all_tiles_mut<F>(&mut self, f: F)
-    where
-        F: Fn((usize, usize), &mut Tile),
-    {
-        for (x, c) in self.map.iter_mut().enumerate() {
-            for (y, tile) in c.iter_mut().enumerate() {
-                f((x, y), tile);
-            }
-        }
+    pub fn tiles(&self) -> impl Iterator<Item = ((usize, usize), &Tile)> {
+        self.map.iter().enumerate().flat_map(|(x, c)| {
+            c.iter().enumerate().map(move |(y, tile)| {
+                ((x, y), tile)
+            })
+        })
     }
     pub fn render(
         &self,

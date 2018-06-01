@@ -75,6 +75,7 @@ pub struct Pipeline {
 
     pub default_material: Option<Material>,
 
+    pub vbo_cache: Vec<VertexBuffer<Mat4>>,
     pub draw_calls: DrawCalls,
     pub meshes: MeshStore,
 
@@ -226,6 +227,8 @@ impl Pipeline {
             rect,
 
             meshes,
+
+            vbo_cache: vec![],
             draw_calls: DrawCalls::new(),
 
             hidpi_factor,
@@ -405,18 +408,29 @@ impl Pipeline {
         let view_pos = props.camera.pos;
         let projection = props.camera.get_projection();
 
-        let mut scene_draw_calls_meshes: Vec<_> = {
+        let mut scene_draw_calls_meshes: Vec<(&MeshRef, &Option<Material>, usize)> = {
             self.draw_calls.clear();
             for obj in render_objects {
                 Pipeline::render_object(obj, &Mat4::from_scale(1.0), None, &mut self.draw_calls);
             }
 
-            self.draw_calls
-                .iter()
-                .map(|((mesh_ref, material), transforms)| {
-                    (mesh_ref, material, VertexBuffer::from_data(&transforms))
-                })
-                .collect()
+            self.vbo_cache.reserve(self.draw_calls.len());
+
+            let mut scene_draw_calls_meshes = Vec::with_capacity(self.draw_calls.len());
+
+            for (i, ((mesh_ref, material), transforms)) in self.draw_calls.iter().enumerate() {
+                if i >= self.vbo_cache.len() {
+                    let vbo = VertexBuffer::new();
+                    self.vbo_cache.push(vbo);
+                }
+
+                let vbo = &mut self.vbo_cache[i];
+                vbo.bind().buffer_data(&transforms);
+
+                scene_draw_calls_meshes.push((mesh_ref, material, i));
+            }
+
+            scene_draw_calls_meshes
         };
 
         let default_material = props.default_material.unwrap_or(self.default_material.unwrap());
@@ -426,7 +440,7 @@ impl Pipeline {
                 render_scene!($fbo, $program, draw_instanced)
             };
             ($fbo:expr, $program:expr, $func:ident) => {{
-                for (mesh_ref, material, transforms) in &mut scene_draw_calls_meshes {
+                for (mesh_ref, material, transforms_i) in &mut scene_draw_calls_meshes {
                     let start_slot = $program.next_texture_slot();
                     if let Some(material) = material {
                         material.bind(&self.meshes, &$program);
@@ -434,8 +448,9 @@ impl Pipeline {
                         default_material.bind(&self.meshes, &$program);
                     }
                     let mesh = self.meshes.get_mesh_mut(&mesh_ref);
+                    let vbo = &mut self.vbo_cache[*transforms_i];
                     mesh.bind()
-                        .draw_instanced(&$fbo, &$program, &transforms.bind());
+                        .draw_instanced(&$fbo, &$program, &vbo.bind());
                     &$program.set_next_texture_slot(start_slot);
                 }
             }};
@@ -599,7 +614,7 @@ impl Pipeline {
         }
 
         // Blur passes
-        {
+        if false {
             let passes = self.blur_targets.iter_mut();
             let size = self.lighting_target.width as f32;
             let mut prev = &self.lighting_target;
