@@ -1,5 +1,6 @@
 #![feature(fs_read_write, stmt_expr_attributes, transpose_result, box_syntax, box_patterns)]
-#![feature(custom_attribute, nll, iterator_flatten)]
+#![feature(custom_attribute, nll, iterator_flatten, concat_idents)]
+
 #![allow(unused_imports)]
 #[macro_use]
 extern crate failure;
@@ -11,6 +12,8 @@ extern crate image;
 extern crate mg;
 extern crate time;
 extern crate warmy;
+
+use std::collections::VecDeque;
 
 use failure::Error;
 
@@ -29,8 +32,7 @@ mod render;
 
 use misc::{v3, Mat4, P3};
 use pipeline::{Pipeline, RenderProps};
-use render::{hex, hsv, mesh, rgb, Camera, Material, MaterialBuilder, RenderObject};
-use std::collections::VecDeque;
+use render::{hex, hsv, mesh, rgb, Camera, Material, RenderObject};
 
 use render::lights::{DirectionalLight, PointLight, PointShadowMap, ShadowMap, SpotLight};
 
@@ -208,10 +210,10 @@ fn main() -> Result<(), Error> {
     let gold_material = assets
         .load_pbr_with_default_filenames("assets/pbr/gold", "png")?;
 
-    let white3 = assets.rgb_texture(v3(1.0, 1.0, 1.0));
-    let black3 = assets.rgb_texture(v3(0.0, 0.0, 0.0));
-    let normal3 = assets.rgb_texture(v3(0.5, 0.5, 1.0));
-    let blue3 = assets.rgb_texture(v3(0.0, 0.1, 1.0));
+    let white3 = v3(1.0, 1.0, 1.0);
+    let black3 = v3(0.0, 0.0, 0.0);
+    let normal3 = v3(0.5, 0.5, 1.0);
+    let blue3 = v3(0.0, 0.1, 1.0);
 
     let suzanne = assets
         .load_collada("assets/suzanne/suzanne.dae")?
@@ -243,21 +245,21 @@ fn main() -> Result<(), Error> {
 
     for i in 0..0 {
         let val = i as f32 / 4.0;
-        let texture = assets.rgb_texture(v3(val, val, val));
+        let texture = val;
         gradient_textures.push(texture);
     }
 
     for (i, rough) in gradient_textures.iter().enumerate() {
         for (n, met) in gradient_textures.iter().enumerate() {
             let v = v3(i as f32 * 2.0, 10.0 - n as f32 * 2.0, -13.0);
-            let obj = sphere_mesh.translate(v).with_material(assets.insert_material(MaterialBuilder {
-                albedo: blue3,
-                normal: normal3,
-                metallic: *met,
-                roughness: *rough,
-                ao: white3,
-                opacity: white3,
-            }));
+            let obj = sphere_mesh.translate(v).with_material(Material {
+                albedo: blue3.into(),
+                normal: normal3.into(),
+                metallic: (*met).into(),
+                roughness: (*rough).into(),
+                ao: 1.0.into(),
+                opacity: 1.0.into(),
+            });
             is.push(obj);
         }
     }
@@ -278,14 +280,14 @@ fn main() -> Result<(), Error> {
         plastic_material,
     };
 
-    let light_material = assets.bake_material(MaterialBuilder {
-        albedo: white3,
-        normal: normal3,
-        metallic: black3,
-        roughness: black3,
-        ao: white3,
-        opacity: white3,
-    });
+    let light_material = Material {
+        albedo: white3.into(),
+        normal: normal3.into(),
+        metallic: 0.0.into(),
+        roughness: 0.0.into(),
+        ao: 1.0.into(),
+        opacity: 1.0.into(),
+    };
 
     let mut render_objects = vec![];
 
@@ -420,20 +422,20 @@ fn main() -> Result<(), Error> {
             render_objects.clear();
 
             for light in &scene.point_lights {
-                // let mut mat = light_material.clone();
-                // mat.albedo = pipeline.meshes.rgb_texture(light.color);
+                let mut mat = light_material.clone();
+                mat.albedo = light.color.into();
                 let mesh = sphere_mesh
-                    .transform(Mat4::from_translation(light.position) * Mat4::from_scale(0.8));
-                    // .with_material(mat);
+                    .transform(Mat4::from_translation(light.position) * Mat4::from_scale(0.8))
+                    .with_material(mat);
                 render_objects.push(mesh);
             }
 
             for light in &scene.spot_lights {
-                // let mut mat = light_material.clone();
-                // mat.albedo = pipeline.meshes.rgb_texture(light.color);
+                let mut mat = light_material.clone();
+                mat.albedo = light.color.into();
                 let mesh = suzanne
-                    .transform(Mat4::from_translation(light.position) * Mat4::from_scale(0.8));
-                    // .with_material(mat);
+                    .transform(Mat4::from_translation(light.position) * Mat4::from_scale(0.8))
+                    .with_material(mat);
                 render_objects.push(mesh);
             }
 
@@ -445,7 +447,7 @@ fn main() -> Result<(), Error> {
                 let res =
                     RenderObject::raymarch_many(render_objects.iter(), &pipeline.meshes, ray.0, ray.1);
                 if res.1 > 0.99 {
-                    render_objects[res.0] = render_objects[res.0].with_material(gold_material);
+                    render_objects[res.0] = render_objects[res.0].with_material(gold_material.clone());
                 }
             }
 

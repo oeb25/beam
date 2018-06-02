@@ -11,19 +11,37 @@ in VS_OUT {
     mat3 TBN;
 } fs_in;
 
-uniform sampler2D tex_normal;
-uniform sampler2D tex_albedo;
-uniform sampler2D tex_mrao;
+#define use_mrao 0
+
+#define def_mat(typ, name) \
+    uniform bool use_mat_##name; \
+    uniform typ mat_##name; \
+    uniform sampler2D tex_##name
+
+def_mat(vec3, albedo);
+def_mat(vec3, normal);
+def_mat(float, metallic);
+def_mat(float, roughness);
+def_mat(float, ao);
+def_mat(float, opacity);
 
 uniform vec3 viewPos;
 
 void main() {
-    vec3 norm = texture(tex_normal, fs_in.TexCoords).rgb;
+    #define tex(name, fn) (use_mat_##name ? mat_##name : fn(texture(tex_##name, fs_in.TexCoords)))
+
+    vec3 norm = tex(normal, vec3);
     norm = normalize(norm * 2.0 - 1.0);
     norm = normalize(fs_in.TBN * norm);
 
-    vec3 albedo = texture(tex_albedo, fs_in.TexCoords).rgb;
-    vec4 mrao = texture(tex_mrao, fs_in.TexCoords).rgba;
+    vec3 albedo = tex(albedo, vec3);
+
+    float m = tex(metallic, float);
+    float r = tex(roughness, float);
+    float a = tex(ao, float);
+    float o = tex(opacity, float);
+
+    vec4 mrao = vec4(m, r, a, o);
 
     if (mrao.a < 0.1) {
         discard;

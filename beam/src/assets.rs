@@ -7,13 +7,12 @@ use misc::{v3, V3};
 use pipeline::Pipeline;
 use render::{
     create_irradiance_map, create_prefiler_map, cubemap_from_equirectangular, Ibl, Material,
-    MaterialBuilder, MeshRef, MeshStore, RenderObject, RenderTarget, TextureRef, MaterialRef,
+    MeshRef, MeshStore, RenderObject, RenderTarget, TextureRef,
 };
-use std::{fs, path::Path};
+use std::{fs, path::Path, cell::RefCell};
 
 #[derive(Debug)]
 struct AssetBuilderPrograms {
-    bake_material: Program,
     equirectangular: Program,
     convolute_cubemap: Program,
     prefilter_cubemap: Program,
@@ -60,7 +59,6 @@ impl AssetBuilderPrograms {
         }
 
         Ok(AssetBuilderPrograms {
-            bake_material: fshader!("shaders/bake_material.frag"),
             equirectangular: cshader!("shaders/equirectangular.frag"),
             convolute_cubemap: cshader!("shaders/convolute_cubemap.frag"),
             prefilter_cubemap: cshader!("shaders/prefilter_cubemap.frag"),
@@ -74,7 +72,7 @@ pub struct AssetBuilder<'a> {
     ppin: &'a mut ProgramPin,
     vpin: &'a mut VertexArrayPin,
     programs: AssetBuilderPrograms,
-    meshes: MeshStore<MaterialBuilder>,
+    meshes: MeshStore,
 }
 
 impl<'a> AssetBuilder<'a> {
@@ -98,14 +96,11 @@ impl<'a> AssetBuilder<'a> {
     pub fn load_collada(&mut self, path: impl AsRef<Path>) -> Result<RenderObject, Error> {
         self.meshes.load_collada(self.vpin, path)
     }
-    pub fn insert_material(&mut self, material: MaterialBuilder) -> MaterialRef {
-        self.meshes.insert_material(material)
-    }
     pub fn load_pbr_with_default_filenames(
         &mut self,
         path: impl AsRef<Path>,
         extension: &str,
-    ) -> Result<MaterialRef, Error> {
+    ) -> Result<Material, Error> {
         self.meshes.load_pbr_with_default_filenames(path, extension)
     }
     pub fn load_ibl(&mut self, path: impl AsRef<Path>) -> Result<Ibl, Error> {
@@ -161,23 +156,7 @@ impl<'a> AssetBuilder<'a> {
             brdf_lut: brdf_lut_render_target.texture,
         })
     }
-    pub fn bake_material(&mut self, material: MaterialBuilder) -> Material {
-        let vpin = &mut self.vpin;
-        let rect = AssetBuilder::make_rect(vpin);
-        let draw_rect = |fbo: &FramebufferBinderReadDraw, program: &ProgramBinding| {
-            rect.bind(vpin)
-                .draw_arrays(fbo, program, DrawMode::Points, 0, 1);
-        };
-        self.meshes.bake_material(
-            material,
-            &self.programs.bake_material.bind(self.ppin),
-            draw_rect,
-        )
-    }
     // Proxies
-    pub fn rgb_texture(&mut self, color: V3) -> TextureRef {
-        self.meshes.rgb_texture(color)
-    }
     pub fn get_cube(&mut self) -> MeshRef {
         self.meshes.get_cube(self.vpin)
     }
@@ -186,21 +165,20 @@ impl<'a> AssetBuilder<'a> {
         self.meshes.get_sphere(self.vpin, radius)
     }
 
+
     pub fn to_pipeline(mut self, w: u32, h: u32, hidpi_factor: f32) -> Pipeline {
         let default_material = {
-            let white3 = self.rgb_texture(v3(1.0, 1.0, 1.0));
-            let whiteish3 = self.rgb_texture(v3(0.2, 0.2, 0.2));
-            let normal3 = self.rgb_texture(v3(0.5, 0.5, 1.0));
-            let black3 = self.rgb_texture(v3(0.0, 0.0, 0.0));
+            let whiteish3 = v3(0.2, 0.2, 0.2);
+            let normal3 = v3(0.5, 0.5, 1.0);
 
-            self.bake_material(MaterialBuilder {
-                normal: normal3,
-                albedo: whiteish3,
-                metallic: black3,
-                roughness: whiteish3,
-                ao: white3,
-                opacity: white3,
-            })
+            Material {
+                normal: normal3.into(),
+                albedo: whiteish3.into(),
+                metallic: 0.0.into(),
+                roughness: 0.2.into(),
+                ao: 1.0.into(),
+                opacity: 1.0.into(),
+            }
         };
 
         let vpin = &mut self.vpin;
@@ -210,11 +188,9 @@ impl<'a> AssetBuilder<'a> {
                 .draw_arrays(fbo, program, DrawMode::Points, 0, 1);
         };
 
-        let meshes = self.meshes.bake_all_materials(draw_rect, &self.programs.bake_material.bind(self.ppin));
-
         Pipeline::new(
             self.vpin,
-            meshes,
+            self.meshes,
             default_material,
             w,
             h,

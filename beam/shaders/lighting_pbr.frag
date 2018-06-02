@@ -267,7 +267,7 @@ void main() {
     vec3 ambient = (kD * diffuse + specular) * ao;
 
     color = ambient + Lo;
-    // color = vec3(mrao);
+    // color = vec3(mrao.r);
     // color = vec3(albedo);
 
     FragColor = vec4(color, length(fragPos - viewPos));

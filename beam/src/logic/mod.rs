@@ -216,7 +216,7 @@ impl Game {
                     let wall = props
                         .cube_mesh
                         .scale_nonuniformly(v3(1.0, 2.0, 1.0))
-                        .translate(pos).with_material(props.plastic_material);
+                        .translate(pos);
 
                     calls.push(wall)
                 }
@@ -237,5 +237,5 @@ impl Game {
 pub struct RenderProps<'a> {
     pub owl_mesh: &'a render::RenderObject,
     pub cube_mesh: &'a render::RenderObject,
-    pub plastic_material: render::MaterialRef,
+    pub plastic_material: render::Material,
 }

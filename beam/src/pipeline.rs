@@ -17,8 +17,8 @@ use misc::{v3, v4, Cacher, Mat4, V3, V4};
 use render::{
     create_irradiance_map, create_prefiler_map, cubemap_from_equirectangular,
     lights::{DirectionalLight, PointLight, PointShadowMap, ShadowMap, SpotLight}, Camera,
-    GRenderPass, Ibl, Material, MaterialBuilder, MeshRef, MeshStore, RenderObject,
-    RenderObjectChild, RenderTarget, Renderable, MaterialRef,
+    GRenderPass, Ibl, Material, MeshRef, MeshStore, RenderObject, RenderObjectChild,
+    RenderTarget, Renderable,
 };
 
 pub struct RenderProps<'a> {
@@ -45,7 +45,7 @@ impl HotShader {
     }
 }
 
-type DrawCalls = Cacher<(MeshRef, Option<MaterialRef>), Vec<Mat4>>;
+type DrawCalls = Cacher<(MeshRef, Option<Material>), Vec<Mat4>>;
 
 pub struct Pipeline {
     pub warmy_store: warmy::Store<()>,
@@ -66,7 +66,7 @@ pub struct Pipeline {
 
     pub vbo_cache: Vec<VertexBuffer<Mat4>>,
     pub draw_calls: DrawCalls,
-    pub meshes: MeshStore<Material>,
+    pub meshes: MeshStore,
 
     pub rect: VertexArray,
 
@@ -85,7 +85,7 @@ pub struct Pipeline {
 impl Pipeline {
     pub fn new(
         vpin: &mut VertexArrayPin,
-        meshes: MeshStore<Material>,
+        meshes: MeshStore,
         default_material: Material,
         w: u32,
         h: u32,
@@ -190,23 +190,6 @@ impl Pipeline {
 
         blur_targets
     }
-    pub fn _bake_material(
-        &mut self,
-        ppin: &mut ProgramPin,
-        vpin: &mut VertexArrayPin,
-        material: MaterialBuilder,
-    ) -> Material {
-        let draw_rect = |fbo: &FramebufferBinderReadDraw, program: &ProgramBindingRef| {
-            let rect = Pipeline::make_rect(vpin);
-            rect.bind(vpin)
-                .draw_arrays(fbo, program, DrawMode::Points, 0, 1);
-        };
-        self.meshes.bake_material(
-            material,
-            &self.bake_material_program.bind(ppin),
-            draw_rect,
-        )
-    }
     pub fn resize(&mut self, w: u32, h: u32) {
         let screen_target = RenderTarget::new(w, h);
 
@@ -230,16 +213,16 @@ impl Pipeline {
     fn render_object(
         render_object: &RenderObject,
         transform: &Mat4,
-        material: Option<MaterialRef>,
+        material: Option<&Material>,
         calls: &mut DrawCalls,
     ) {
         let transform = transform * render_object.transform;
         // if a material is passed as a prop, use that over the one bound to the mesh
-        let material = material.or(render_object.material);
+        let material = material.or(render_object.material.as_ref());
 
         match &render_object.child {
             RenderObjectChild::Mesh(mesh_ref) => {
-                calls.push_into((*mesh_ref, material), transform);
+                calls.push_into((*mesh_ref, material.cloned()), transform);
             }
             RenderObjectChild::RenderObjects(render_objects) => {
                 for obj in render_objects.iter() {
@@ -286,7 +269,7 @@ impl Pipeline {
         let view_pos = props.camera.pos;
         let projection = props.camera.get_projection();
 
-        let mut scene_draw_calls_meshes: Vec<(&MeshRef, &Option<MaterialRef>, usize)> = {
+        let mut scene_draw_calls_meshes: Vec<(&MeshRef, Option<&Material>, usize)> = {
             self.draw_calls.clear();
             for obj in render_objects {
                 Pipeline::render_object(obj, &Mat4::from_scale(1.0), None, &mut self.draw_calls);
@@ -305,7 +288,7 @@ impl Pipeline {
                 let vbo = &mut self.vbo_cache[i];
                 vbo.bind().buffer_data(&transforms);
 
-                scene_draw_calls_meshes.push((mesh_ref, material, i));
+                scene_draw_calls_meshes.push((mesh_ref, material.as_ref(), i));
             }
 
             scene_draw_calls_meshes
@@ -313,17 +296,18 @@ impl Pipeline {
 
         let default_material = props
             .default_material
-            .unwrap_or(self.default_material);
+            .as_ref()
+            .unwrap_or(&self.default_material);
 
         macro_rules! render_scene {
             ($fbo:expr, $program:expr) => {
                 render_scene!($fbo, $program, draw_instanced)
             };
             ($fbo:expr, $program:expr, $func:ident) => {{
-                for (mesh_ref, material_ref, transforms_i) in &mut scene_draw_calls_meshes {
+                for (mesh_ref, material, transforms_i) in &mut scene_draw_calls_meshes {
                     let start_slot = $program.next_texture_slot();
-                    if let Some(material_ref) = material_ref {
-                        self.meshes.get_material(material_ref).bind(&self.meshes, &$program);
+                    if let Some(material) = material {
+                        material.bind(&self.meshes, &$program);
                     } else {
                         default_material.bind(&self.meshes, &$program);
                     }
