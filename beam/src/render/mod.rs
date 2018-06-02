@@ -9,13 +9,15 @@ use image;
 
 use failure::{Error, ResultExt};
 
-use std::{self, cell::RefCell, collections::{BTreeMap, HashMap}, path::Path};
+use std::{
+    self, cell::RefCell, collections::{BTreeMap, HashMap}, path::Path,
+};
 
 use mg::{
     Attachment, Framebuffer, FramebufferBinderBase, FramebufferBinderDraw, FramebufferBinderDrawer,
-    FramebufferBinderRead, FramebufferBinderReadDraw, GlError, GlType, Mask, ProgramBind,
-    Renderbuffer, Texture, TextureFormat, TextureInternalFormat, TextureKind, TextureParameter,
-    TextureTarget, VertexArrayPin, Program, ProgramPin,
+    FramebufferBinderRead, FramebufferBinderReadDraw, GlError, GlType, Mask, Program, ProgramBind,
+    ProgramPin, Renderbuffer, Texture, TextureFormat, TextureInternalFormat, TextureKind,
+    TextureParameter, TextureTarget, VertexArrayPin,
 };
 
 use mesh::{calculate_tangent_and_bitangent, Mesh};
@@ -45,21 +47,72 @@ impl Into<MaterialProp<f32>> for f32 {
     }
 }
 
+impl<'a> Into<MaterialProp<f32>> for &'a f32 {
+    fn into(self) -> MaterialProp<f32> {
+        MaterialProp::Value(*self)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Material {
-    pub normal: MaterialProp<V3>,
-    pub albedo: MaterialProp<V3>,
-    pub metallic: MaterialProp<f32>,
-    pub roughness: MaterialProp<f32>,
-    pub ao: MaterialProp<f32>,
-    pub opacity: MaterialProp<f32>,
+    normal_: MaterialProp<V3>,
+    albedo_: MaterialProp<V3>,
+    metallic_: MaterialProp<f32>,
+    roughness_: MaterialProp<f32>,
+    ao_: MaterialProp<f32>,
+    opacity_: MaterialProp<f32>,
 }
 
 impl Material {
+    pub fn new() -> Material {
+        Material {
+            normal_: v3(0.5, 0.5, 1.0).into(),
+            albedo_: v3(1.0, 1.0, 1.0).into(),
+            metallic_: 1.0.into(),
+            roughness_: 1.0.into(),
+            ao_: 1.0.into(),
+            opacity_: 1.0.into(),
+        }
+    }
+
+    pub fn normal<T: Into<MaterialProp<V3>>>(&self, normal: T) -> Material {
+        let mut new = self.clone();
+        new.normal_ = normal.into();
+        new
+    }
+    pub fn albedo<T: Into<MaterialProp<V3>>>(&self, albedo: T) -> Material {
+        let mut new = self.clone();
+        new.albedo_ = albedo.into();
+        new
+    }
+    pub fn metallic<T: Into<MaterialProp<f32>>>(&self, metallic: T) -> Material {
+        let mut new = self.clone();
+        new.metallic_ = metallic.into();
+        new
+    }
+    pub fn roughness<T: Into<MaterialProp<f32>>>(&self, roughness: T) -> Material {
+        let mut new = self.clone();
+        new.roughness_ = roughness.into();
+        new
+    }
+    pub fn ao<T: Into<MaterialProp<f32>>>(&self, ao: T) -> Material {
+        let mut new = self.clone();
+        new.ao_ = ao.into();
+        new
+    }
+    pub fn opacity<T: Into<MaterialProp<f32>>>(&self, opacity: T) -> Material {
+        let mut new = self.clone();
+        new.opacity_ = opacity.into();
+        new
+    }
+
     pub fn bind<P: ProgramBind>(&self, meshes: &MeshStore, program: &P) {
         macro_rules! prop {
-            ($name:ident, $fun:ident) => {{
-                match &self.$name {
+            // ($name:ident, $fun:ident) => {{
+            //     prop!($name, concat_idents!($name, _), $fun)
+            // }};
+            ($name:ident, $field:ident, $fun:ident) => {{
+                match &self.$field {
                     MaterialProp::Texture(texture_ref) => {
                         let texture = meshes.get_texture(&texture_ref);
                         program.bind_bool(concat!("use_mat_", stringify!($name)), false);
@@ -73,12 +126,12 @@ impl Material {
             }};
         }
 
-        prop!(normal, bind_vec3);
-        prop!(albedo, bind_vec3);
-        prop!(metallic, bind_float);
-        prop!(roughness, bind_float);
-        prop!(ao, bind_float);
-        prop!(opacity, bind_float);
+        prop!(normal, normal_, bind_vec3);
+        prop!(albedo, albedo_, bind_vec3);
+        prop!(metallic, metallic_, bind_float);
+        prop!(roughness, roughness_, bind_float);
+        prop!(ao, ao_, bind_float);
+        prop!(opacity, opacity_, bind_float);
     }
 }
 
@@ -150,38 +203,49 @@ impl MeshStore {
         let white3 = v3(1.0, 1.0, 1.0);
         let normal3 = v3(0.5, 0.5, 1.0);
 
-        let custom_material = Material {
-            normal: normal_src
-                .map(|x| self.load_rgb(x))
-                .transpose()?
-                .map(|x| x.into())
-                .unwrap_or_else(|| normal3.into()),
-            albedo: albedo_src
-                .map(|x| self.load_srgb(x))
-                .transpose()?
-                .map(|x| x.into())
-                .unwrap_or_else(|| white3.into()),
-            metallic: metallic_src
-                .map(|x| self.load_rgb(x))
-                .transpose()?
-                .map(|x| x.into())
-                .unwrap_or_else(|| 1.0.into()),
-            roughness: roughness_src
-                .map(|x| self.load_rgb(x))
-                .transpose()?
-                .map(|x| x.into())
-                .unwrap_or_else(|| 1.0.into()),
-            ao: ao_src
-                .map(|x| self.load_rgb(x))
-                .transpose()?
-                .map(|x| x.into())
-                .unwrap_or_else(|| 1.0.into()),
-            opacity: opacity_src
-                .map(|x| self.load_rgb(x))
-                .transpose()?
-                .map(|x| x.into())
-                .unwrap_or_else(|| 1.0.into()),
-        };
+        let custom_material = Material::new()
+            .normal::<MaterialProp<_>>(
+                normal_src
+                    .map(|x| self.load_rgb(x))
+                    .transpose()?
+                    .map(|x| x.into())
+                    .unwrap_or_else(|| normal3.into()),
+            )
+            .albedo::<MaterialProp<_>>(
+                albedo_src
+                    .map(|x| self.load_srgb(x))
+                    .transpose()?
+                    .map(|x| x.into())
+                    .unwrap_or_else(|| white3.into()),
+            )
+            .metallic::<MaterialProp<_>>(
+                metallic_src
+                    .map(|x| self.load_rgb(x))
+                    .transpose()?
+                    .map(|x| x.into())
+                    .unwrap_or_else(|| 1.0.into()),
+            )
+            .roughness::<MaterialProp<_>>(
+                roughness_src
+                    .map(|x| self.load_rgb(x))
+                    .transpose()?
+                    .map(|x| x.into())
+                    .unwrap_or_else(|| 1.0.into()),
+            )
+            .ao::<MaterialProp<_>>(
+                ao_src
+                    .map(|x| self.load_rgb(x))
+                    .transpose()?
+                    .map(|x| x.into())
+                    .unwrap_or_else(|| 1.0.into()),
+            )
+            .opacity::<MaterialProp<_>>(
+                opacity_src
+                    .map(|x| self.load_rgb(x))
+                    .transpose()?
+                    .map(|x| x.into())
+                    .unwrap_or_else(|| 1.0.into()),
+            );
 
         let mut mesh_ids: HashMap<usize, Vec<MeshRef>> = HashMap::new();
 
@@ -287,24 +351,28 @@ impl MeshStore {
         let path = path.as_ref();
         let x = |map| path.join(map).with_extension(extension);
 
-        let builder = Material {
-            albedo: self
-                .load_srgb(x("albedo"))
-                .context("failed to load pbr albedo")?.into(),
-            metallic: self
-                .load_rgb(x("metallic"))
-                .context("failed to load pbr metallic")?.into(),
-            roughness: self
-                .load_rgb(x("roughness"))
-                .context("failed to load pbr roughness")?.into(),
-            normal: self
-                .load_rgb(x("normal"))
-                .context("failed to load pbr normal")?.into(),
-            ao: self.load_rgb(x("ao")).context("failed to load pbr ao")?.into(),
-            opacity: self
-                .load_rgb(x("opacity"))
-                .context("failed to load pbr opacity")?.into(),
-        };
+        let builder = Material::new()
+            .albedo(
+                self.load_srgb(x("albedo"))
+                    .context("failed to load pbr albedo")?,
+            )
+            .metallic(
+                self.load_rgb(x("metallic"))
+                    .context("failed to load pbr metallic")?,
+            )
+            .roughness(
+                self.load_rgb(x("roughness"))
+                    .context("failed to load pbr roughness")?,
+            )
+            .normal(
+                self.load_rgb(x("normal"))
+                    .context("failed to load pbr normal")?,
+            )
+            .ao(self.load_rgb(x("ao")).context("failed to load pbr ao")?)
+            .opacity(
+                self.load_rgb(x("opacity"))
+                    .context("failed to load pbr opacity")?,
+            );
 
         Ok(builder)
     }
@@ -328,38 +396,6 @@ impl MeshStore {
 
     pub fn get_texture(&self, texture_ref: &TextureRef) -> &Texture {
         &self.textures[texture_ref.0]
-    }
-
-    fn color_texture(&mut self, color: &[f32]) -> TextureRef {
-        let texture = Texture::new(TextureKind::Texture2d);
-        let is_rgb = color.len() == 3;
-        unsafe {
-            texture
-                .bind()
-                .parameter_int(TextureParameter::WrapS, gl::REPEAT as i32)
-                .parameter_int(TextureParameter::WrapT, gl::REPEAT as i32)
-                .parameter_int(TextureParameter::MinFilter, gl::LINEAR as i32)
-                .parameter_int(TextureParameter::MagFilter, gl::LINEAR as i32)
-                .image_2d(
-                    TextureTarget::Texture2d,
-                    0,
-                    if is_rgb {
-                        TextureInternalFormat::Rgb
-                    } else {
-                        TextureInternalFormat::Rgba
-                    },
-                    1,
-                    1,
-                    if is_rgb {
-                        TextureFormat::Rgb
-                    } else {
-                        TextureFormat::Rgba
-                    },
-                    color,
-                );
-        }
-        let dimensions = (1, 1);
-        self.insert_texture(texture, dimensions)
     }
 
     pub fn get_cube(&mut self, vpin: &mut VertexArrayPin) -> MeshRef {
@@ -470,7 +506,6 @@ pub struct Ibl {
     pub prefilter_map: Texture,
     pub brdf_lut: Texture,
 }
-
 
 #[allow(unused)]
 #[derive(Debug, Clone)]
@@ -977,7 +1012,8 @@ where
     P: ProgramBind,
 {
     let tex = map_cubemap(size, 1, program, render_cube);
-    tex.bind().parameter_int(TextureParameter::MinFilter, gl::LINEAR_MIPMAP_LINEAR as i32);
+    tex.bind()
+        .parameter_int(TextureParameter::MinFilter, gl::LINEAR_MIPMAP_LINEAR as i32);
     tex
 }
 pub fn create_prefiler_map<F, P>(size: u32, program: &P, render_cube: F) -> Texture

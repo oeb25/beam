@@ -1,8 +1,8 @@
 use std::mem;
 
 use mg::{
-    DrawMode, FramebufferBinderDrawer, ProgramBind, VertexArray, VertexArrayBinder, VertexBuffer,
-    VertexBufferBinder, VertexArrayPin,
+    DrawMode, FramebufferBinderDrawer, ProgramBind, VertexArray, VertexArrayBinder, VertexArrayPin,
+    VertexBuffer, VertexBufferBinder,
 };
 use misc::{Mat4, V3, Vertex};
 
@@ -127,18 +127,16 @@ impl<'a> MeshBinding<'a> {
         let width = 4;
         for i in 0..width {
             let index = i + offset;
-            self.vao.vbo_attrib(&transforms, index, width, width * i * mem::size_of::<f32>())
+            self.vao
+                .vbo_attrib(&transforms, index, width, width * i * mem::size_of::<f32>())
                 .attrib_divisor(index, 1);
         }
 
-        self.vao.draw_arrays_instanced(fbo, DrawMode::Triangles, 0, self.vcount, transforms.len());
+        self.vao
+            .draw_arrays_instanced(fbo, DrawMode::Triangles, 0, self.vcount, transforms.len());
     }
-    pub fn draw_instanced<F, P>(
-        &self,
-        fbo: &F,
-        program: &P,
-        transforms: &VertexBufferBinder<Mat4>,
-    ) where
+    pub fn draw_instanced<F, P>(&self, fbo: &F, program: &P, transforms: &VertexBufferBinder<Mat4>)
+    where
         F: FramebufferBinderDrawer,
         P: ProgramBind,
     {

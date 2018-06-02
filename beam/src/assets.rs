@@ -1,7 +1,7 @@
 use failure::Error;
 use mg::{
     DrawMode, FramebufferBinderDrawer, FramebufferBinderReadDraw, Mask, Program, ProgramBind,
-    ProgramBinding, ProgramPin, TextureSlot, VertexArray, VertexBuffer, VertexArrayPin,
+    ProgramBinding, ProgramPin, TextureSlot, VertexArray, VertexArrayPin, VertexBuffer,
 };
 use misc::{v3, V3};
 use pipeline::Pipeline;
@@ -9,7 +9,7 @@ use render::{
     create_irradiance_map, create_prefiler_map, cubemap_from_equirectangular, Ibl, Material,
     MeshRef, MeshStore, RenderObject, RenderTarget, TextureRef,
 };
-use std::{fs, path::Path, cell::RefCell};
+use std::{cell::RefCell, fs, path::Path};
 
 #[derive(Debug)]
 struct AssetBuilderPrograms {
@@ -76,7 +76,10 @@ pub struct AssetBuilder<'a> {
 }
 
 impl<'a> AssetBuilder<'a> {
-    pub fn new(ppin: &'a mut ProgramPin, vpin: &'a mut VertexArrayPin) -> Result<AssetBuilder<'a>, Error> {
+    pub fn new(
+        ppin: &'a mut ProgramPin,
+        vpin: &'a mut VertexArrayPin,
+    ) -> Result<AssetBuilder<'a>, Error> {
         let programs = AssetBuilderPrograms::new()?;
         let meshes = MeshStore::new();
 
@@ -165,36 +168,12 @@ impl<'a> AssetBuilder<'a> {
         self.meshes.get_sphere(self.vpin, radius)
     }
 
+    pub fn to_pipeline(self, w: u32, h: u32, hidpi_factor: f32) -> Pipeline {
+        let default_material = Material::new()
+            .albedo(v3(0.2, 0.2, 0.2))
+            .metallic(0.0)
+            .roughness(0.2);
 
-    pub fn to_pipeline(mut self, w: u32, h: u32, hidpi_factor: f32) -> Pipeline {
-        let default_material = {
-            let whiteish3 = v3(0.2, 0.2, 0.2);
-            let normal3 = v3(0.5, 0.5, 1.0);
-
-            Material {
-                normal: normal3.into(),
-                albedo: whiteish3.into(),
-                metallic: 0.0.into(),
-                roughness: 0.2.into(),
-                ao: 1.0.into(),
-                opacity: 1.0.into(),
-            }
-        };
-
-        let vpin = &mut self.vpin;
-        let rect = AssetBuilder::make_rect(vpin);
-        let draw_rect = |fbo: &FramebufferBinderReadDraw, program: &ProgramBinding| {
-            rect.bind(vpin)
-                .draw_arrays(fbo, program, DrawMode::Points, 0, 1);
-        };
-
-        Pipeline::new(
-            self.vpin,
-            self.meshes,
-            default_material,
-            w,
-            h,
-            hidpi_factor,
-        )
+        Pipeline::new(self.vpin, self.meshes, default_material, w, h, hidpi_factor)
     }
 }

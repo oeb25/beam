@@ -1,8 +1,8 @@
-use std::ops;
 use cgmath::Rad;
 use misc::{v3, Mat4};
 use render;
 use std::f32::consts::PI;
+use std::ops;
 
 const MAP_SIZE: (usize, usize) = (10, 10);
 type Map = [[Tile; MAP_SIZE.1]; MAP_SIZE.0];
@@ -23,7 +23,7 @@ impl Default for Tile {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     Move(Direction),
-    Undo
+    Undo,
 }
 
 #[allow(unused)]
@@ -181,29 +181,24 @@ impl Game {
                 }
 
                 game
-            },
+            }
             Action::Undo => game,
         }
     }
     pub fn tiles_mut(&mut self) -> impl Iterator<Item = ((usize, usize), &mut Tile)> {
         self.map.iter_mut().enumerate().flat_map(|(x, c)| {
-            c.iter_mut().enumerate().map(move |(y, tile)| {
-                ((x, y), tile)
-            })
+            c.iter_mut()
+                .enumerate()
+                .map(move |(y, tile)| ((x, y), tile))
         })
     }
     pub fn tiles(&self) -> impl Iterator<Item = ((usize, usize), &Tile)> {
-        self.map.iter().enumerate().flat_map(|(x, c)| {
-            c.iter().enumerate().map(move |(y, tile)| {
-                ((x, y), tile)
-            })
-        })
+        self.map
+            .iter()
+            .enumerate()
+            .flat_map(|(x, c)| c.iter().enumerate().map(move |(y, tile)| ((x, y), tile)))
     }
-    pub fn render(
-        &self,
-        props: &RenderProps,
-        t: f32,
-    ) -> Vec<render::RenderObject> {
+    pub fn render(&self, props: &RenderProps, t: f32) -> Vec<render::RenderObject> {
         let mut calls = vec![];
 
         for ((x, y), tile) in self.tiles() {

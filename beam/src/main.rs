@@ -1,6 +1,5 @@
 #![feature(fs_read_write, stmt_expr_attributes, transpose_result, box_syntax, box_patterns)]
 #![feature(custom_attribute, nll, iterator_flatten, concat_idents)]
-
 #![allow(unused_imports)]
 #[macro_use]
 extern crate failure;
@@ -23,12 +22,12 @@ use glutin::GlContext;
 
 use time::{Duration, PreciseTime};
 
-mod hot;
-mod logic;
-mod misc;
-mod assets;
-mod pipeline;
-mod render;
+pub mod assets;
+pub mod hot;
+pub mod logic;
+pub mod misc;
+pub mod pipeline;
+pub mod render;
 
 use misc::{v3, Mat4, P3};
 use pipeline::{Pipeline, RenderProps};
@@ -203,17 +202,9 @@ fn main() -> Result<(), Error> {
 
     let mut assets = assets::AssetBuilder::new(&mut ppin, &mut vpin)?;
     let room_ibl = assets.load_ibl("assets/Newport_Loft/Newport_Loft_Ref.hdr")?;
-    let _rust_material = assets
-        .load_pbr_with_default_filenames("assets/pbr/rusted_iron", "png")?;
-    let plastic_material = assets
-        .load_pbr_with_default_filenames("assets/pbr/plastic", "png")?;
-    let gold_material = assets
-        .load_pbr_with_default_filenames("assets/pbr/gold", "png")?;
-
-    let white3 = v3(1.0, 1.0, 1.0);
-    let black3 = v3(0.0, 0.0, 0.0);
-    let normal3 = v3(0.5, 0.5, 1.0);
-    let blue3 = v3(0.0, 0.1, 1.0);
+    let _rust_material = assets.load_pbr_with_default_filenames("assets/pbr/rusted_iron", "png")?;
+    let plastic_material = assets.load_pbr_with_default_filenames("assets/pbr/plastic", "png")?;
+    let gold_material = assets.load_pbr_with_default_filenames("assets/pbr/gold", "png")?;
 
     let suzanne = assets
         .load_collada("assets/suzanne/suzanne.dae")?
@@ -226,18 +217,6 @@ fn main() -> Result<(), Error> {
 
     let mut is = vec![];
 
-    for i in 1..0 {
-        for n in 0..i {
-            let x = i as f32 / 2.0;
-            let v = v3(i as f32 / 2.0, -i as f32 - 5.0, n as f32 - x) * 2.0;
-            let v = Mat4::from_translation(v) * Mat4::from_angle_y(Rad(i as f32 - 1.0));
-            let obj = suzanne.transform(v); // .with_material(pbr_materials[m % nr_pbr_materials]);
-            is.push(obj);
-        }
-    }
-
-    println!("drawing {} mankeys", is.len());
-
     let cube_mesh = RenderObject::mesh(assets.get_cube());
     let sphere_mesh = RenderObject::mesh(assets.get_sphere(0.5));
 
@@ -249,17 +228,14 @@ fn main() -> Result<(), Error> {
         gradient_textures.push(texture);
     }
 
+    let sphere_material = Material::new().albedo(v3(0.0, 0.1, 1.0));
+
     for (i, rough) in gradient_textures.iter().enumerate() {
         for (n, met) in gradient_textures.iter().enumerate() {
             let v = v3(i as f32 * 2.0, 10.0 - n as f32 * 2.0, -13.0);
-            let obj = sphere_mesh.translate(v).with_material(Material {
-                albedo: blue3.into(),
-                normal: normal3.into(),
-                metallic: (*met).into(),
-                roughness: (*rough).into(),
-                ao: 1.0.into(),
-                opacity: 1.0.into(),
-            });
+            let obj = sphere_mesh
+                .translate(v)
+                .with_material(sphere_material.metallic(met).roughness(rough));
             is.push(obj);
         }
     }
@@ -280,14 +256,7 @@ fn main() -> Result<(), Error> {
         plastic_material,
     };
 
-    let light_material = Material {
-        albedo: white3.into(),
-        normal: normal3.into(),
-        metallic: 0.0.into(),
-        roughness: 0.0.into(),
-        ao: 1.0.into(),
-        opacity: 1.0.into(),
-    };
+    let light_material = Material::new().metallic(0.0).roughness(0.0);
 
     let mut render_objects = vec![];
 
@@ -336,7 +305,7 @@ fn main() -> Result<(), Error> {
                             Kc::Escape => {
                                 println!("quitting...");
                                 running = false;
-                            },
+                            }
                             Kc::W => inputs.w = value,
                             Kc::A => inputs.a = value,
                             Kc::S => inputs.s = value,
@@ -351,7 +320,7 @@ fn main() -> Result<(), Error> {
                             _ => {}
                         }
                         if input.state == glutin::ElementState::Pressed {
-                            use logic::{Direction, Action};
+                            use logic::{Action, Direction};
                             let use_wasd = false;
                             // Determin forward according to camera direction
                             let forward = {
@@ -373,16 +342,17 @@ fn main() -> Result<(), Error> {
                                 }
                             };
                             let action = match (keycode, use_wasd) {
-                                (Kc::W, true) | (Kc::Up, _) =>
-                                    Some(Action::Move(forward)),
-                                (Kc::D, true) | (Kc::Right, _) =>
-                                    Some(Action::Move(forward.clockwise())),
-                                (Kc::S, true) | (Kc::Down, _) =>
-                                    Some(Action::Move(forward.opposite())),
-                                (Kc::A, true) | (Kc::Left, _) =>
-                                    Some(Action::Move(forward.couter_clockwise())),
-                                (Kc::Z, _) =>
-                                    Some(Action::Undo),
+                                (Kc::W, true) | (Kc::Up, _) => Some(Action::Move(forward)),
+                                (Kc::D, true) | (Kc::Right, _) => {
+                                    Some(Action::Move(forward.clockwise()))
+                                }
+                                (Kc::S, true) | (Kc::Down, _) => {
+                                    Some(Action::Move(forward.opposite()))
+                                }
+                                (Kc::A, true) | (Kc::Left, _) => {
+                                    Some(Action::Move(forward.couter_clockwise()))
+                                }
+                                (Kc::Z, _) => Some(Action::Undo),
                                 _ => None,
                             };
                             if let Some(action) = action {
@@ -422,20 +392,16 @@ fn main() -> Result<(), Error> {
             render_objects.clear();
 
             for light in &scene.point_lights {
-                let mut mat = light_material.clone();
-                mat.albedo = light.color.into();
                 let mesh = sphere_mesh
                     .transform(Mat4::from_translation(light.position) * Mat4::from_scale(0.8))
-                    .with_material(mat);
+                    .with_material(light_material.albedo(light.color));
                 render_objects.push(mesh);
             }
 
             for light in &scene.spot_lights {
-                let mut mat = light_material.clone();
-                mat.albedo = light.color.into();
                 let mesh = suzanne
                     .transform(Mat4::from_translation(light.position) * Mat4::from_scale(0.8))
-                    .with_material(mat);
+                    .with_material(light_material.albedo(light.color));
                 render_objects.push(mesh);
             }
 
@@ -444,17 +410,19 @@ fn main() -> Result<(), Error> {
             let trace_scene = false;
             if trace_scene {
                 let ray = (scene.camera.pos, scene.camera.front());
-                let res =
-                    RenderObject::raymarch_many(render_objects.iter(), &pipeline.meshes, ray.0, ray.1);
+                let res = RenderObject::raymarch_many(
+                    render_objects.iter(),
+                    &pipeline.meshes,
+                    ray.0,
+                    ray.1,
+                );
                 if res.1 > 0.99 {
-                    render_objects[res.0] = render_objects[res.0].with_material(gold_material.clone());
+                    render_objects[res.0] =
+                        render_objects[res.0].with_material(gold_material.clone());
                 }
             }
 
-            let game_calls =
-                scene
-                    .game
-                    .render(&logic_render_props, timer / frame_time);
+            let game_calls = scene.game.render(&logic_render_props, timer / frame_time);
 
             let game_call = RenderObject::with_children(game_calls)
                 .translate(v3(-5.0, 0.0, -5.0))

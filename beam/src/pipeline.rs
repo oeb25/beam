@@ -5,8 +5,8 @@ use failure::Error;
 
 use mg::{
     DrawMode, Framebuffer, FramebufferBinderDrawer, FramebufferBinderReadDraw, GlError, Mask,
-    ProgramBind, ProgramBindingRef, ProgramPin, Texture, TextureSlot, VertexArray, VertexBuffer,
-    VertexArrayPin,
+    ProgramBind, ProgramBindingRef, ProgramPin, Texture, TextureSlot, VertexArray, VertexArrayPin,
+    VertexBuffer,
 };
 
 use hot;
@@ -17,8 +17,8 @@ use misc::{v3, v4, Cacher, Mat4, V3, V4};
 use render::{
     create_irradiance_map, create_prefiler_map, cubemap_from_equirectangular,
     lights::{DirectionalLight, PointLight, PointShadowMap, ShadowMap, SpotLight}, Camera,
-    GRenderPass, Ibl, Material, MeshRef, MeshStore, RenderObject, RenderObjectChild,
-    RenderTarget, Renderable,
+    GRenderPass, Ibl, Material, MeshRef, MeshStore, RenderObject, RenderObjectChild, RenderTarget,
+    Renderable,
 };
 
 pub struct RenderProps<'a> {
@@ -127,7 +127,11 @@ impl Pipeline {
         let skybox_program = shader!("skybox.vert", "skybox.frag");
         let blur_program = shader!(rect, "blur.frag");
         let directional_shadow_program = shader!("shadow.vert", "shadow.frag");
-        let point_shadow_program = shader!("point_shadow.vert", "point_shadow.geom", "point_shadow.frag");
+        let point_shadow_program = shader!(
+            "point_shadow.vert",
+            "point_shadow.geom",
+            "point_shadow.frag"
+        );
         let lighting_pbr_program = shader!(rect, "lighting_pbr.frag");
         let hdr_program = shader!(rect, "hdr.frag");
         let screen_program = shader!(rect, "screen.frag");
@@ -313,7 +317,8 @@ impl Pipeline {
                     }
                     let mesh = self.meshes.get_mesh(&mesh_ref);
                     let vbo = &mut self.vbo_cache[*transforms_i];
-                    mesh.bind(vpin).draw_instanced(&$fbo, &$program, &vbo.bind());
+                    mesh.bind(vpin)
+                        .draw_instanced(&$fbo, &$program, &vbo.bind());
                     $program.set_next_texture_slot(start_slot);
                 }
             }};
