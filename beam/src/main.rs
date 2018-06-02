@@ -218,11 +218,11 @@ fn main() -> Result<(), Error> {
     let mut is = vec![];
 
     let cube_mesh = RenderObject::mesh(assets.get_cube());
-    let sphere_mesh = RenderObject::mesh(assets.get_sphere(0.5));
+    let sphere_mesh = RenderObject::mesh(assets.get_sphere());
 
     let mut gradient_textures = vec![];
 
-    for i in 0..0 {
+    for i in 0..5 {
         let val = i as f32 / 4.0;
         let texture = val;
         gradient_textures.push(texture);

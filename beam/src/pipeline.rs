@@ -50,7 +50,6 @@ type DrawCalls = Cacher<(MeshRef, Option<Material>), Vec<Mat4>>;
 pub struct Pipeline {
     pub warmy_store: warmy::Store<()>,
 
-    pub bake_material_program: HotShader,
     pub pbr_program: HotShader,
     pub directional_shadow_program: HotShader,
     pub point_shadow_program: HotShader,
@@ -122,7 +121,6 @@ impl Pipeline {
             };
         }
 
-        let bake_material_program = shader!(rect, "bake_material.frag");
         let pbr_program = shader!("shader.vert", "shader_pbr.frag");
         let skybox_program = shader!("skybox.vert", "skybox.frag");
         let blur_program = shader!(rect, "blur.frag");
@@ -150,7 +148,6 @@ impl Pipeline {
         Pipeline {
             warmy_store,
 
-            bake_material_program,
             pbr_program,
             directional_shadow_program,
             point_shadow_program,

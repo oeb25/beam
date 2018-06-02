@@ -63,6 +63,16 @@ pub struct Material {
     opacity_: MaterialProp<f32>,
 }
 
+macro_rules! setter {
+    ($name:ident, $field:ident, $typ:ty) => {
+        pub fn $name<T: Into<MaterialProp<$typ>>>(&self, $name: T) -> Material {
+            let mut new = self.clone();
+            new.$field = $name.into();
+            new
+        }
+    }
+}
+
 impl Material {
     pub fn new() -> Material {
         Material {
@@ -75,42 +85,15 @@ impl Material {
         }
     }
 
-    pub fn normal<T: Into<MaterialProp<V3>>>(&self, normal: T) -> Material {
-        let mut new = self.clone();
-        new.normal_ = normal.into();
-        new
-    }
-    pub fn albedo<T: Into<MaterialProp<V3>>>(&self, albedo: T) -> Material {
-        let mut new = self.clone();
-        new.albedo_ = albedo.into();
-        new
-    }
-    pub fn metallic<T: Into<MaterialProp<f32>>>(&self, metallic: T) -> Material {
-        let mut new = self.clone();
-        new.metallic_ = metallic.into();
-        new
-    }
-    pub fn roughness<T: Into<MaterialProp<f32>>>(&self, roughness: T) -> Material {
-        let mut new = self.clone();
-        new.roughness_ = roughness.into();
-        new
-    }
-    pub fn ao<T: Into<MaterialProp<f32>>>(&self, ao: T) -> Material {
-        let mut new = self.clone();
-        new.ao_ = ao.into();
-        new
-    }
-    pub fn opacity<T: Into<MaterialProp<f32>>>(&self, opacity: T) -> Material {
-        let mut new = self.clone();
-        new.opacity_ = opacity.into();
-        new
-    }
+    setter!(albedo, albedo_, V3);
+    setter!(normal, normal_, V3);
+    setter!(metallic, metallic_, f32);
+    setter!(roughness, roughness_, f32);
+    setter!(ao, ao_, f32);
+    setter!(opacity, opacity_, f32);
 
     pub fn bind<P: ProgramBind>(&self, meshes: &MeshStore, program: &P) {
         macro_rules! prop {
-            // ($name:ident, $fun:ident) => {{
-            //     prop!($name, concat_idents!($name, _), $fun)
-            // }};
             ($name:ident, $field:ident, $fun:ident) => {{
                 match &self.$field {
                     MaterialProp::Texture(texture_ref) => {
@@ -148,7 +131,7 @@ pub struct MeshStore {
 
     // primitive cache
     pub cube: Option<MeshRef>,
-    pub spheres: Cacher<f32, MeshRef>,
+    pub sphere: Option<MeshRef>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -165,7 +148,7 @@ impl MeshStore {
 
             // primitive cache
             cube: Default::default(),
-            spheres: Default::default(),
+            sphere: Default::default(),
         }
     }
 
@@ -343,40 +326,6 @@ impl MeshStore {
         Ok(RenderObject::with_children(render_objects))
     }
 
-    pub fn load_pbr_with_default_filenames(
-        &mut self,
-        path: impl AsRef<Path>,
-        extension: &str,
-    ) -> Result<Material, Error> {
-        let path = path.as_ref();
-        let x = |map| path.join(map).with_extension(extension);
-
-        let builder = Material::new()
-            .albedo(
-                self.load_srgb(x("albedo"))
-                    .context("failed to load pbr albedo")?,
-            )
-            .metallic(
-                self.load_rgb(x("metallic"))
-                    .context("failed to load pbr metallic")?,
-            )
-            .roughness(
-                self.load_rgb(x("roughness"))
-                    .context("failed to load pbr roughness")?,
-            )
-            .normal(
-                self.load_rgb(x("normal"))
-                    .context("failed to load pbr normal")?,
-            )
-            .ao(self.load_rgb(x("ao")).context("failed to load pbr ao")?)
-            .opacity(
-                self.load_rgb(x("opacity"))
-                    .context("failed to load pbr opacity")?,
-            );
-
-        Ok(builder)
-    }
-
     pub fn insert_mesh(&mut self, mesh: Mesh) -> MeshRef {
         let mesh_ref = MeshRef(self.meshes.len());
         self.meshes.push(mesh);
@@ -410,16 +359,16 @@ impl MeshStore {
         mesh_ref
     }
 
-    pub fn get_sphere(&mut self, vpin: &mut VertexArrayPin, radius: f32) -> MeshRef {
-        if let Some(cached) = self.spheres.get(&radius) {
+    pub fn get_sphere(&mut self, vpin: &mut VertexArrayPin) -> MeshRef {
+        if let Some(cached) = &self.sphere {
             return *cached;
         }
 
-        let verts = primitives::sphere_verticies(radius, 24, 16);
+        let verts = primitives::sphere_verticies(0.5, 24, 16);
         let mesh = Mesh::new(&verts, vpin);
-        let mesh_ref = self.insert_mesh(mesh);
-        self.spheres.insert(radius, mesh_ref);
-        mesh_ref
+        let sphere_ref = self.insert_mesh(mesh);
+        self.sphere = Some(sphere_ref);
+        sphere_ref
     }
 
     pub fn load_srgb(&mut self, path: impl AsRef<Path>) -> Result<TextureRef, Error> {

@@ -1,4 +1,4 @@
-use failure::Error;
+use failure::{Error, ResultExt};
 use mg::{
     DrawMode, FramebufferBinderDrawer, FramebufferBinderReadDraw, Mask, Program, ProgramBind,
     ProgramBinding, ProgramPin, TextureSlot, VertexArray, VertexArrayPin, VertexBuffer,
@@ -104,7 +104,33 @@ impl<'a> AssetBuilder<'a> {
         path: impl AsRef<Path>,
         extension: &str,
     ) -> Result<Material, Error> {
-        self.meshes.load_pbr_with_default_filenames(path, extension)
+        let path = path.as_ref();
+        let x = |map| path.join(map).with_extension(extension);
+
+        let builder = Material::new()
+            .albedo(
+                self.meshes.load_srgb(x("albedo"))
+                    .context("failed to load pbr albedo")?,
+            )
+            .metallic(
+                self.meshes.load_rgb(x("metallic"))
+                    .context("failed to load pbr metallic")?,
+            )
+            .roughness(
+                self.meshes.load_rgb(x("roughness"))
+                    .context("failed to load pbr roughness")?,
+            )
+            .normal(
+                self.meshes.load_rgb(x("normal"))
+                    .context("failed to load pbr normal")?,
+            )
+            .ao(self.meshes.load_rgb(x("ao")).context("failed to load pbr ao")?)
+            .opacity(
+                self.meshes.load_rgb(x("opacity"))
+                    .context("failed to load pbr opacity")?,
+            );
+
+        Ok(builder)
     }
     pub fn load_ibl(&mut self, path: impl AsRef<Path>) -> Result<Ibl, Error> {
         let vpin = &mut self.vpin;
@@ -164,8 +190,8 @@ impl<'a> AssetBuilder<'a> {
         self.meshes.get_cube(self.vpin)
     }
 
-    pub fn get_sphere(&mut self, radius: f32) -> MeshRef {
-        self.meshes.get_sphere(self.vpin, radius)
+    pub fn get_sphere(&mut self) -> MeshRef {
+        self.meshes.get_sphere(self.vpin)
     }
 
     pub fn to_pipeline(self, w: u32, h: u32, hidpi_factor: f32) -> Pipeline {
