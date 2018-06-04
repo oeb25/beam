@@ -4,12 +4,97 @@ use render;
 use std::f32::consts::PI;
 use std::ops;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Pos(pub i32, pub i32);
+
+impl ops::Add for Pos {
+    type Output = Pos;
+    fn add(self, other: Pos) -> Pos {
+        Pos(self.0 + other.0, self.1 + other.1)
+    }
+}
+
+impl ops::AddAssign for Pos {
+    fn add_assign(&mut self, other: Pos) {
+        self.0 += other.0;
+        self.1 += other.1;
+    }
+}
+
+impl ops::Mul<i32> for Pos {
+    type Output = Pos;
+    fn mul(self, scalar: i32) -> Pos {
+        Pos(self.0 * scalar, self.1 * scalar)
+    }
+}
+
+impl ops::Mul<Pos> for i32 {
+    type Output = Pos;
+    fn mul(self, pos: Pos) -> Pos {
+        Pos(self * pos.0, self * pos.1)
+    }
+}
+
 const MAP_SIZE: (usize, usize) = (10, 10);
-type Map = [[Tile; MAP_SIZE.1]; MAP_SIZE.0];
+
+#[derive(Debug, Clone)]
+pub struct MapRow([Tile; MAP_SIZE.1]);
+
+#[derive(Debug, Clone)]
+pub struct Map([MapRow; MAP_SIZE.0]);
+
+lazy_static! {
+    static ref EMPTY_ROW: MapRow = MapRow::default();
+}
+
+impl ops::Index<Pos> for Map {
+    type Output = Tile;
+
+    fn index(&self, i: Pos) -> &Tile {
+        &self[i.0][i.1]
+    }
+}
+
+impl ops::Index<i32> for Map {
+    type Output = MapRow;
+
+    fn index(&self, i: i32) -> &MapRow {
+        if (i as usize) < self.0.len() && i > 0 {
+            return &self.0[i as usize];
+        }
+
+        &EMPTY_ROW
+    }
+}
+
+impl Default for Map {
+    fn default() -> Map {
+        Map(Default::default())
+    }
+}
+
+impl ops::Index<i32> for MapRow {
+    type Output = Tile;
+
+    fn index(&self, i: i32) -> &Tile {
+        if (i as usize) < self.0.len() && i > 0 {
+            return &self.0[i as usize];
+        }
+
+        &Tile::Empty
+    }
+}
+
+impl Default for MapRow {
+    fn default() -> MapRow {
+        MapRow(Default::default())
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Tile {
     Empty,
+    Floor,
     Wall,
 }
 
@@ -36,13 +121,13 @@ pub enum Direction {
 }
 
 impl Direction {
-    pub fn to_tuple(&self) -> (i32, i32) {
+    pub fn to_pos(&self) -> Pos {
         use self::Direction::*;
         match self {
-            Up => (0, 1),
-            Right => (1, 0),
-            Down => (0, -1),
-            Left => (-1, 0),
+            Up => Pos(0, 1),
+            Right => Pos(1, 0),
+            Down => Pos(0, -1),
+            Left => Pos(-1, 0),
         }
     }
     pub fn to_rotation(&self) -> Mat4 {
@@ -81,18 +166,20 @@ impl Direction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EntityKind {
     Owl,
+    Kangaroo,
+    Penguin,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Entity {
-    pub pos: (i32, i32),
+    pub pos: Pos,
     pub kind: EntityKind,
     pub direction: Direction,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LastEntityState {
-    pos: (i32, i32),
+    pos: Pos,
     direction: Direction,
 }
 
@@ -122,11 +209,34 @@ impl Entity {
 
                 Mat4::from_translation(pos) * self.direction.to_rotation()
             }
+            EntityKind::Kangaroo => {
+                let a = v3(last.pos.0 as f32, 0.5, last.pos.1 as f32);
+                let b = v3(self.pos.0 as f32, 0.5, self.pos.1 as f32);
+
+                let mut pos = lerp(a, tt, b);
+
+                pos.y += (tt * PI).sin() * 1.5;
+                if t > 1.0 {
+                    pos.y += (t * PI * 2.0).sin().abs() * (1.0 / (t + 0.5)).powf(4.0) * 1.5;
+                }
+
+                Mat4::from_translation(pos) * self.direction.to_rotation()
+            }
+            EntityKind::Penguin => {
+                let a = v3(last.pos.0 as f32, 0.5, last.pos.1 as f32);
+                let b = v3(self.pos.0 as f32, 0.5, self.pos.1 as f32);
+
+                let mut pos = lerp(a, tt * tt, b);
+
+                pos.y += (tt * PI).sin() * -0.2;
+
+                Mat4::from_translation(pos) * self.direction.to_rotation()
+            }
         }
     }
 }
 
-impl<'a> Into<LastEntityState> for Entity {
+impl Into<LastEntityState> for Entity {
     fn into(self) -> LastEntityState {
         LastEntityState {
             pos: self.pos,
@@ -138,19 +248,19 @@ impl<'a> Into<LastEntityState> for Entity {
 #[derive(Debug, Clone)]
 pub struct Game {
     pub map: Map,
-    pub owl: (LastEntityState, Entity),
+    pub entities: Vec<(LastEntityState, Entity)>,
 }
 
 impl Game {
     pub fn new() -> Game {
         let owl = Entity {
-            pos: (5, 4),
+            pos: Pos(5, 4),
             kind: EntityKind::Owl,
             direction: Direction::Up,
         };
         let mut game = Game {
             map: Default::default(),
-            owl: (owl.clone().into(), owl),
+            entities: vec![(owl.clone().into(), owl)],
         };
         for ((x, y), tile) in game.tiles_mut() {
             let is_on_x_bounds = x == 0 || x == MAP_SIZE.0 - 1;
@@ -159,6 +269,8 @@ impl Game {
                 *tile = Tile::Wall;
             } else if (x + 2 * y) % 4 == 0 {
                 *tile = Tile::Wall;
+            } else {
+                *tile = Tile::Floor;
             }
         }
         game
@@ -168,16 +280,44 @@ impl Game {
 
         match action {
             Action::Move(direction) => {
-                game.owl.1.direction = direction;
+                for subject in &mut game.entities {
+                    subject.1.direction = direction;
 
-                let move_by = direction.to_tuple();
+                    subject.0 = subject.1.clone().into();
 
-                let new_pos = (self.owl.1.pos.0 + move_by.0, self.owl.1.pos.1 + move_by.1);
+                    let entity = &mut subject.1;
 
-                game.owl.0 = game.owl.1.clone().into();
+                    let move_by = direction.to_pos();
 
-                if game.map[new_pos.0 as usize][new_pos.1 as usize] == Tile::Empty {
-                    game.owl.1.pos = new_pos;
+                    match entity.kind {
+                        EntityKind::Owl => {
+                            let new_pos = entity.pos + move_by;
+
+                            if game.map[new_pos] == Tile::Floor {
+                                entity.pos = new_pos;
+                            }
+                        }
+                        EntityKind::Kangaroo => {
+                            for i in (1..=2).rev() {
+                                let new_pos = entity.pos + i * move_by;
+                                if game.map[new_pos] == Tile::Floor {
+                                    entity.pos = new_pos;
+                                    break;
+                                }
+                            }
+                        }
+                        EntityKind::Penguin => {
+                            for i in 1..10 {
+                                let new_pos = entity.pos + i * move_by;
+
+                                if game.map[new_pos] != Tile::Floor {
+                                    entity.pos += (i - 1) * move_by;
+
+                                    break;
+                                }
+                            }
+                        }
+                    }
                 }
 
                 game
@@ -186,17 +326,19 @@ impl Game {
         }
     }
     pub fn tiles_mut(&mut self) -> impl Iterator<Item = ((usize, usize), &mut Tile)> {
-        self.map.iter_mut().enumerate().flat_map(|(x, c)| {
-            c.iter_mut()
+        self.map.0.iter_mut().enumerate().flat_map(|(x, c)| {
+            c.0
+                .iter_mut()
                 .enumerate()
                 .map(move |(y, tile)| ((x, y), tile))
         })
     }
     pub fn tiles(&self) -> impl Iterator<Item = ((usize, usize), &Tile)> {
         self.map
+            .0
             .iter()
             .enumerate()
-            .flat_map(|(x, c)| c.iter().enumerate().map(move |(y, tile)| ((x, y), tile)))
+            .flat_map(|(x, c)| c.0.iter().enumerate().map(move |(y, tile)| ((x, y), tile)))
     }
     pub fn render(&self, props: &RenderProps, t: f32) -> Vec<render::RenderObject> {
         let mut calls = vec![];
@@ -204,7 +346,8 @@ impl Game {
         for ((x, y), tile) in self.tiles() {
             let pos = v3(MAP_SIZE.0 as f32 - 1.0 - x as f32, 0.0, y as f32);
             match tile {
-                Tile::Empty => {
+                Tile::Empty => {}
+                Tile::Floor => {
                     calls.push(props.cube_mesh.translate(pos));
                 }
                 Tile::Wall => {
@@ -218,11 +361,37 @@ impl Game {
             }
         }
 
-        let mut owl_pos = self.owl.1.animate(&self.owl.0, t);
-        owl_pos[3][0] = MAP_SIZE.0 as f32 - 1.0 - owl_pos[3][0];
-        let owl = props.owl_mesh.scale(0.3).transform(owl_pos);
-
-        calls.push(owl);
+        for entity in &self.entities {
+            let mut position = entity.1.animate(&entity.0, t);
+            position[3][0] = MAP_SIZE.0 as f32 - 1.0 - position[3][0];
+            match entity.1.kind {
+                EntityKind::Owl => {
+                    let draw_call = props.owl_mesh.scale(0.3).transform(position);
+                    calls.push(draw_call);
+                }
+                EntityKind::Kangaroo => {
+                    let new_material = render::Material::new().albedo(v3(0.6, 0.2, 0.3));
+                    let draw_call = props
+                        .owl_mesh
+                        .with_material(new_material)
+                        .scale(0.3)
+                        .transform(position);
+                    calls.push(draw_call);
+                }
+                EntityKind::Penguin => {
+                    let new_material = render::Material::new()
+                        .albedo(v3(0.3, 0.3, 0.9))
+                        .roughness(0.2)
+                        .metallic(0.5);
+                    let draw_call = props
+                        .owl_mesh
+                        .with_material(new_material)
+                        .scale(0.3)
+                        .transform(position);
+                    calls.push(draw_call);
+                }
+            }
+        }
 
         calls
     }

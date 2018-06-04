@@ -16,9 +16,9 @@ use misc::{v3, v4, Cacher, Mat4, V3, V4};
 
 use render::{
     create_irradiance_map, create_prefiler_map, cubemap_from_equirectangular,
-    lights::{DirectionalLight, PointLight, PointShadowMap, ShadowMap, SpotLight}, Camera,
-    GRenderPass, Ibl, Material, MeshRef, MeshStore, RenderObject, RenderObjectChild, RenderTarget,
-    Renderable,
+    lights::{DirectionalLight, PointLight, PointShadowMap, ShadowMap, SpotLight},
+    store::{MeshRef, MeshStore}, Camera, GRenderPass, Ibl, Material, RenderObject,
+    RenderObjectChild, RenderTarget, Renderable,
 };
 
 pub struct RenderProps<'a> {

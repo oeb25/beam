@@ -11,6 +11,8 @@ image = "0.19"
 time = "0.1"
 warmy = "0.7.2"
 failure = "0.1"
+lazy_static = "1.0"
+glsl-layout = { version = "0.1", features = ["cgmath"] }
 
 [dependencies.mg]
 path = "../mg"

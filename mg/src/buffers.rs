@@ -2,7 +2,7 @@ use gl;
 
 use types::GlError;
 
-use std::{mem, os, ptr, marker::PhantomData};
+use std::{self, mem, os, ptr, marker::PhantomData};
 
 #[derive(Debug, Clone, Copy)]
 pub enum BufferKind {
@@ -21,6 +21,7 @@ impl Into<u32> for BufferKind {
     }
 }
 
+#[derive(Debug)]
 pub struct Buffer {
     kind: BufferKind,
     id: gl::types::GLuint,
@@ -55,6 +56,7 @@ impl Drop for Buffer {
     }
 }
 
+#[derive(Debug)]
 pub struct BufferBinder<'a>(&'a mut Buffer);
 impl<'a> BufferBinder<'a> {
     pub fn new(buffer: &mut Buffer) -> BufferBinder {
@@ -94,11 +96,19 @@ impl<'a> BufferBinder<'a> {
         }
         self
     }
-    pub fn buffer_data<T>(&mut self, data: &[T]) {
+    pub fn buffer_array<T>(&mut self, data: &[T]) {
         let size = data.len() * mem::size_of::<T>();
         if size > 0 {
             unsafe {
                 self.buffer_raw_data(size, data.as_ptr() as *const _);
+            }
+        }
+    }
+    pub fn buffer_data<T>(&mut self, data: &T) {
+        let size = mem::size_of::<T>();
+        if size > 0 {
+            unsafe {
+                self.buffer_raw_data(size, data as *const _ as *const _);
             }
         }
     }
@@ -109,11 +119,6 @@ impl<'a> Drop for BufferBinder<'a> {
             gl::BindBuffer(self.0.kind.into(), 0);
         }
     }
-}
-
-pub struct VertexBuffer<T> {
-    buffer: Buffer,
-    phantom: PhantomData<T>,
 }
 pub trait ElementKind {
     fn gl() -> u32;
@@ -133,7 +138,53 @@ impl ElementKind for u32 {
         gl::UNSIGNED_INT
     }
 }
+#[derive(Debug)]
 pub struct ElementBuffer<T: ElementKind> {
+    buffer: Buffer,
+    phantom: PhantomData<T>,
+}
+
+impl<T: ElementKind> ElementBuffer<T> {
+    pub fn new() -> ElementBuffer<T> {
+        ElementBuffer {
+            buffer: Buffer::new(BufferKind::ElementArray),
+            phantom: PhantomData,
+        }
+    }
+    pub fn from_data(data: &[T]) -> ElementBuffer<T> {
+        let mut vbo = ElementBuffer::new();
+        vbo.bind().buffer_data(data);
+        vbo
+    }
+    pub fn bind(&mut self) -> ElementBufferBinder<T> {
+        ElementBufferBinder::new(self)
+    }
+}
+
+#[derive(Debug)]
+pub struct ElementBufferBinder<'a, T: ElementKind>(BufferBinder<'a>, PhantomData<T>);
+#[allow(unused)]
+impl<'a, T: ElementKind> ElementBufferBinder<'a, T> {
+    pub fn new(vbo: &'a mut ElementBuffer<T>) -> ElementBufferBinder<'a, T> {
+        ElementBufferBinder(vbo.buffer.bind(), PhantomData)
+    }
+    pub fn len(&self) -> usize {
+        self.0.size() / mem::size_of::<T>()
+    }
+    pub fn alloc(&mut self, size: usize) {
+        self.0.alloc(size)
+    }
+    pub fn buffer_sub_data<V>(&mut self, offset: usize, data: &[V]) -> &mut Self {
+        self.0.buffer_sub_data(offset, data);
+        self
+    }
+    pub fn buffer_data<V>(&mut self, data: &[V]) {
+        self.0.buffer_array(data)
+    }
+}
+
+#[derive(Debug)]
+pub struct VertexBuffer<T> {
     buffer: Buffer,
     phantom: PhantomData<T>,
 }
@@ -160,6 +211,7 @@ impl<T> VertexBuffer<T> {
     }
 }
 
+#[derive(Debug)]
 pub struct VertexBufferBinder<'a, T>(BufferBinder<'a>, PhantomData<T>);
 impl<'a, T> VertexBufferBinder<'a, T> {
     pub fn new(vbo: &'a mut VertexBuffer<T>) -> VertexBufferBinder<'a, T> {
@@ -176,44 +228,53 @@ impl<'a, T> VertexBufferBinder<'a, T> {
         self
     }
     pub fn buffer_data<V>(&mut self, data: &[V]) {
-        self.0.buffer_data(data)
+        self.0.buffer_array(data)
     }
 }
 
-impl<T: ElementKind> ElementBuffer<T> {
-    pub fn new() -> ElementBuffer<T> {
-        ElementBuffer {
-            buffer: Buffer::new(BufferKind::ElementArray),
+use glsl_layout;
+
+#[derive(Debug)]
+pub struct UniformBuffer<T: glsl_layout::Uniform> {
+    buffer: Buffer,
+    phantom: PhantomData<T>,
+}
+
+impl<T> UniformBuffer<T>
+where
+    T: glsl_layout::Uniform,
+    <T as glsl_layout::Uniform>::Std140: std::fmt::Debug
+{
+    pub fn new(data: &T) -> UniformBuffer<T> {
+        let mut ubo = UniformBuffer {
+            buffer: Buffer::new(BufferKind::Uniform),
             phantom: PhantomData,
+        };
+        ubo.bind().buffer_data(data);
+        ubo
+    }
+    pub fn bind_buffer_base(&self, index: u32) {
+        unsafe {
+            gl::BindBufferBase(BufferKind::Uniform.into(), index, self.buffer.id)
         }
     }
-    pub fn from_data(data: &[T]) -> ElementBuffer<T> {
-        let mut vbo = ElementBuffer::new();
-        vbo.bind().buffer_data(data);
-        vbo
-    }
-    pub fn bind(&mut self) -> ElementBufferBinder<T> {
-        ElementBufferBinder::new(self)
+    pub fn bind(&mut self) -> UniformBufferBinder<T> {
+        UniformBufferBinder::new(self)
     }
 }
 
-pub struct ElementBufferBinder<'a, T: ElementKind>(BufferBinder<'a>, PhantomData<T>);
-#[allow(unused)]
-impl<'a, T: ElementKind> ElementBufferBinder<'a, T> {
-    pub fn new(vbo: &'a mut ElementBuffer<T>) -> ElementBufferBinder<'a, T> {
-        ElementBufferBinder(vbo.buffer.bind(), PhantomData)
+#[derive(Debug)]
+pub struct UniformBufferBinder<'a, T: glsl_layout::Uniform>(BufferBinder<'a>, PhantomData<T>);
+impl<'a, T> UniformBufferBinder<'a, T>
+where
+    T: glsl_layout::Uniform,
+    <T as glsl_layout::Uniform>::Std140: std::fmt::Debug
+{
+    pub fn new(ubo: &'a mut UniformBuffer<T>) -> UniformBufferBinder<'a, T> {
+        UniformBufferBinder(ubo.buffer.bind(), PhantomData)
     }
-    pub fn len(&self) -> usize {
-        self.0.size() / mem::size_of::<T>()
-    }
-    pub fn alloc(&mut self, size: usize) {
-        self.0.alloc(size)
-    }
-    pub fn buffer_sub_data<V>(&mut self, offset: usize, data: &[V]) -> &mut Self {
-        self.0.buffer_sub_data(offset, data);
-        self
-    }
-    pub fn buffer_data<V>(&mut self, data: &[V]) {
-        self.0.buffer_data(data)
+    pub fn buffer_data(&mut self, data: &T) {
+        let std140 = data.std140();
+        self.0.buffer_data(&std140)
     }
 }

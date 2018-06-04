@@ -52,12 +52,12 @@ implement_vertex!(Vertex, [pos, norm, tex, tangent,]);
 pub struct Mesh {
     vcount: usize,
     vao: VertexArray,
-    pub simple_verts: Vec<V3>,
+    // pub simple_verts: Vec<V3>,
 }
 
 impl Mesh {
     pub fn new(vertices: &[Vertex], vpin: &mut VertexArrayPin) -> Mesh {
-        let simple_verts = vertices.iter().map(|v| v.pos).collect();
+        // let simple_verts = vertices.iter().map(|v| v.pos).collect();
 
         let vao = VertexArray::new();
         let mut vbo = VertexBuffer::from_data(vertices);
@@ -88,7 +88,7 @@ impl Mesh {
         Mesh {
             vcount: vertices.len(),
             vao,
-            simple_verts,
+            // simple_verts,
         }
     }
     pub fn bind<'a>(&'a self, vpin: &'a mut VertexArrayPin) -> MeshBinding<'a> {

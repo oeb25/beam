@@ -1,6 +1,7 @@
 #![feature(transpose_result)]
 
 extern crate gl;
+extern crate glsl_layout;
 extern crate image;
 
 pub mod types;

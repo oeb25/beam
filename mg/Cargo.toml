@@ -6,3 +6,4 @@ authors = ["Oliver Bøving <oliverboving@gmail.com>"]
 [dependencies]
 gl = "0.10"
 image = "0.19"
+glsl-layout = "0.1"

@@ -1,11 +1,14 @@
 pub mod lights;
+pub mod materials;
 pub mod mesh;
 mod primitives;
+pub mod store;
 
 use cgmath::{self, InnerSpace, Rad};
 use collada;
 use gl;
 use image;
+pub use render::materials::*;
 
 use failure::{Error, ResultExt};
 
@@ -22,439 +25,7 @@ use mg::{
 
 use mesh::{calculate_tangent_and_bitangent, Mesh};
 use misc::{v3, v4, Cacher, Mat4, P3, V3, V4, Vertex};
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum MaterialProp<T> {
-    Texture(TextureRef),
-    Value(T),
-}
-
-impl<T> Into<MaterialProp<T>> for TextureRef {
-    fn into(self) -> MaterialProp<T> {
-        MaterialProp::Texture(self)
-    }
-}
-
-impl Into<MaterialProp<V3>> for V3 {
-    fn into(self) -> MaterialProp<V3> {
-        MaterialProp::Value(self)
-    }
-}
-
-impl Into<MaterialProp<f32>> for f32 {
-    fn into(self) -> MaterialProp<f32> {
-        MaterialProp::Value(self)
-    }
-}
-
-impl<'a> Into<MaterialProp<f32>> for &'a f32 {
-    fn into(self) -> MaterialProp<f32> {
-        MaterialProp::Value(*self)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Material {
-    normal_: MaterialProp<V3>,
-    albedo_: MaterialProp<V3>,
-    metallic_: MaterialProp<f32>,
-    roughness_: MaterialProp<f32>,
-    ao_: MaterialProp<f32>,
-    opacity_: MaterialProp<f32>,
-}
-
-macro_rules! setter {
-    ($name:ident, $field:ident, $typ:ty) => {
-        pub fn $name<T: Into<MaterialProp<$typ>>>(&self, $name: T) -> Material {
-            let mut new = self.clone();
-            new.$field = $name.into();
-            new
-        }
-    }
-}
-
-impl Material {
-    pub fn new() -> Material {
-        Material {
-            normal_: v3(0.5, 0.5, 1.0).into(),
-            albedo_: v3(1.0, 1.0, 1.0).into(),
-            metallic_: 1.0.into(),
-            roughness_: 1.0.into(),
-            ao_: 1.0.into(),
-            opacity_: 1.0.into(),
-        }
-    }
-
-    setter!(albedo, albedo_, V3);
-    setter!(normal, normal_, V3);
-    setter!(metallic, metallic_, f32);
-    setter!(roughness, roughness_, f32);
-    setter!(ao, ao_, f32);
-    setter!(opacity, opacity_, f32);
-
-    pub fn bind<P: ProgramBind>(&self, meshes: &MeshStore, program: &P) {
-        macro_rules! prop {
-            ($name:ident, $field:ident, $fun:ident) => {{
-                match &self.$field {
-                    MaterialProp::Texture(texture_ref) => {
-                        let texture = meshes.get_texture(&texture_ref);
-                        program.bind_bool(concat!("use_mat_", stringify!($name)), false);
-                        program.bind_texture(concat!("tex_", stringify!($name)), &texture);
-                    }
-                    MaterialProp::Value(value) => {
-                        program.bind_bool(concat!("use_mat_", stringify!($name)), true);
-                        program.$fun(concat!("mat_", stringify!($name)), *value);
-                    }
-                }
-            }};
-        }
-
-        prop!(normal, normal_, bind_vec3);
-        prop!(albedo, albedo_, bind_vec3);
-        prop!(metallic, metallic_, bind_float);
-        prop!(roughness, roughness_, bind_float);
-        prop!(ao, ao_, bind_float);
-        prop!(opacity, opacity_, bind_float);
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct TextureRef(usize, (u32, u32));
-
-#[derive(Debug)]
-pub struct MeshStore {
-    pub meshes: Vec<Mesh>,
-    pub textures: Vec<Texture>,
-    pub materials: Vec<Material>,
-
-    pub fs_textures: HashMap<String, TextureRef>,
-
-    // primitive cache
-    pub cube: Option<MeshRef>,
-    pub sphere: Option<MeshRef>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct MeshRef(usize);
-
-impl MeshStore {
-    pub fn new() -> MeshStore {
-        MeshStore {
-            meshes: Default::default(),
-            textures: Default::default(),
-            materials: Default::default(),
-
-            fs_textures: Default::default(),
-
-            // primitive cache
-            cube: Default::default(),
-            sphere: Default::default(),
-        }
-    }
-
-    pub fn load_collada(
-        &mut self,
-        vpin: &mut VertexArrayPin,
-        path: impl AsRef<Path>,
-    ) -> Result<RenderObject, Error> {
-        let path = path.as_ref();
-
-        let src = std::fs::read_to_string(path).context("collada src file not found")?;
-        let data: collada::Collada =
-            collada::Collada::parse(&src).context("failed to parse collada")?;
-
-        let mut normal_src = None;
-        let mut albedo_src = None;
-        let mut metallic_src = None;
-        let mut roughness_src = None;
-        let mut ao_src = None;
-        let mut opacity_src = None;
-
-        for image in &data.images {
-            let x = |x| Some(path.with_file_name(x));
-            match image.source.as_str() {
-                "DIFF.png" => albedo_src = x(&image.source),
-                "NRM.png" => normal_src = x(&image.source),
-                "MET.png" => metallic_src = x(&image.source),
-                "ROUGH.png" => roughness_src = x(&image.source),
-                "AO.png" => ao_src = x(&image.source),
-                "OPAC.png" => opacity_src = x(&image.source),
-                _ => {}
-            }
-        }
-
-        let white3 = v3(1.0, 1.0, 1.0);
-        let normal3 = v3(0.5, 0.5, 1.0);
-
-        let custom_material = Material::new()
-            .normal::<MaterialProp<_>>(
-                normal_src
-                    .map(|x| self.load_rgb(x))
-                    .transpose()?
-                    .map(|x| x.into())
-                    .unwrap_or_else(|| normal3.into()),
-            )
-            .albedo::<MaterialProp<_>>(
-                albedo_src
-                    .map(|x| self.load_srgb(x))
-                    .transpose()?
-                    .map(|x| x.into())
-                    .unwrap_or_else(|| white3.into()),
-            )
-            .metallic::<MaterialProp<_>>(
-                metallic_src
-                    .map(|x| self.load_rgb(x))
-                    .transpose()?
-                    .map(|x| x.into())
-                    .unwrap_or_else(|| 1.0.into()),
-            )
-            .roughness::<MaterialProp<_>>(
-                roughness_src
-                    .map(|x| self.load_rgb(x))
-                    .transpose()?
-                    .map(|x| x.into())
-                    .unwrap_or_else(|| 1.0.into()),
-            )
-            .ao::<MaterialProp<_>>(
-                ao_src
-                    .map(|x| self.load_rgb(x))
-                    .transpose()?
-                    .map(|x| x.into())
-                    .unwrap_or_else(|| 1.0.into()),
-            )
-            .opacity::<MaterialProp<_>>(
-                opacity_src
-                    .map(|x| self.load_rgb(x))
-                    .transpose()?
-                    .map(|x| x.into())
-                    .unwrap_or_else(|| 1.0.into()),
-            );
-
-        let mut mesh_ids: HashMap<usize, Vec<MeshRef>> = HashMap::new();
-
-        let mut render_objects = vec![];
-        for node in &data.visual_scenes[0].nodes {
-            use cgmath::Matrix;
-            let mut transform = node.transformations.iter().fold(
-                Mat4::from_scale(1.0),
-                |acc, t| {
-                    let t: Mat4 = match t {
-                        collada::Transform::Matrix(a) => unsafe {
-                            std::mem::transmute::<[f32; 16], [[f32; 4]; 4]>(*a).into()
-                        },
-                        _ => unimplemented!(),
-                    };
-
-                    t * acc
-                },
-            );
-            transform.swap_rows(1, 2);
-            transform = transform.transpose();
-            transform.swap_rows(1, 2);
-            assert_eq!(node.geometry.len(), 1);
-            for geom_instance in &node.geometry {
-                let mesh_refs = if let Some(mesh_cache) = mesh_ids.get(&geom_instance.geometry.0) {
-                    mesh_cache.clone()
-                } else {
-                    let geom = &data.geometry[geom_instance.geometry.0];
-                    match geom {
-                        collada::Geometry::Mesh { triangles } => {
-                            let mut meshes = vec![];
-
-                            for triangles in triangles.iter() {
-                                let collada::MeshTriangles { vertices, .. } = triangles;
-
-                                let mut verts: Vec<_> = vertices
-                                    .iter()
-                                    .map(|v| {
-                                        let pos = v4(v.pos[0], v.pos[1], v.pos[2], 1.0);
-                                        Vertex {
-                                            // orient y up instead of z, which is default in blender
-                                            pos: v3(pos[0], pos[2], pos[1]),
-                                            norm: v3(v.nor[0], v.nor[2], v.nor[1]),
-                                            tex: v.tex.into(),
-                                            tangent: v3(0.0, 0.0, 0.0),
-                                            // bitangent: v3(0.0, 0.0, 0.0),
-                                        }
-                                    })
-                                    .collect();
-
-                                for vs in verts.chunks_mut(3) {
-                                    // flip vertex clockwise direction
-                                    vs.swap(1, 2);
-
-                                    let x: *mut _ = &mut vs[0];
-                                    let y: *mut _ = &mut vs[1];
-                                    let z: *mut _ = &mut vs[2];
-                                    unsafe {
-                                        calculate_tangent_and_bitangent(&mut *x, &mut *y, &mut *z);
-                                    }
-                                }
-
-                                // let material =
-                                //     self.convert_collada_material(&path, &data, material)?;
-                                let mesh = Mesh::new(&verts, vpin);
-                                let mesh_ref = self.insert_mesh(mesh);
-
-                                meshes.push(mesh_ref);
-                            }
-                            mesh_ids.insert(geom_instance.geometry.0, meshes.clone());
-                            meshes
-                        }
-                        _ => unimplemented!(),
-                    }
-                };
-
-                // let material = geom_instance.material
-                //     .map(|material_ref| self.convert_collada_material(&path, &data, material_ref));
-
-                let children = mesh_refs
-                    .into_iter()
-                    .map(|mesh_ref| {
-                        RenderObject::mesh(mesh_ref).with_material(custom_material.clone())
-                    })
-                    .collect();
-
-                render_objects.push(RenderObject {
-                    transform,
-                    material: None,
-                    child: RenderObjectChild::RenderObjects(children),
-                });
-            }
-        }
-
-        Ok(RenderObject::with_children(render_objects))
-    }
-
-    pub fn insert_mesh(&mut self, mesh: Mesh) -> MeshRef {
-        let mesh_ref = MeshRef(self.meshes.len());
-        self.meshes.push(mesh);
-        mesh_ref
-    }
-
-    #[allow(unused)]
-    pub fn get_mesh(&self, mesh_ref: &MeshRef) -> &Mesh {
-        &self.meshes[mesh_ref.0]
-    }
-
-    pub fn insert_texture(&mut self, texture: Texture, dimensions: (u32, u32)) -> TextureRef {
-        let texture_ref = TextureRef(self.textures.len(), dimensions);
-        self.textures.push(texture);
-        texture_ref
-    }
-
-    pub fn get_texture(&self, texture_ref: &TextureRef) -> &Texture {
-        &self.textures[texture_ref.0]
-    }
-
-    pub fn get_cube(&mut self, vpin: &mut VertexArrayPin) -> MeshRef {
-        if let Some(mesh_ref) = self.cube {
-            return mesh_ref;
-        }
-
-        let verts = primitives::cube_vertices();
-        let mesh = Mesh::new(&verts, vpin);
-        let mesh_ref = self.insert_mesh(mesh);
-        self.cube = Some(mesh_ref);
-        mesh_ref
-    }
-
-    pub fn get_sphere(&mut self, vpin: &mut VertexArrayPin) -> MeshRef {
-        if let Some(cached) = &self.sphere {
-            return *cached;
-        }
-
-        let verts = primitives::sphere_verticies(0.5, 24, 16);
-        let mesh = Mesh::new(&verts, vpin);
-        let sphere_ref = self.insert_mesh(mesh);
-        self.sphere = Some(sphere_ref);
-        sphere_ref
-    }
-
-    pub fn load_srgb(&mut self, path: impl AsRef<Path>) -> Result<TextureRef, Error> {
-        self.load(path, TextureInternalFormat::Srgb, TextureFormat::Rgb)
-    }
-    pub fn load_rgb(&mut self, path: impl AsRef<Path>) -> Result<TextureRef, Error> {
-        self.load(path, TextureInternalFormat::Rgb, TextureFormat::Rgb)
-    }
-    pub fn load_hdr(&mut self, path: impl AsRef<Path>) -> Result<TextureRef, Error> {
-        let path = path.as_ref();
-
-        self.cache_or_load(path, || {
-            use std::{fs::File, io::BufReader};
-            let decoder = image::hdr::HDRDecoder::new(BufReader::new(File::open(path)?))?;
-            let metadata = decoder.metadata();
-            let data = decoder.read_image_hdr()?;
-            let texture = Texture::new(TextureKind::Texture2d);
-            unsafe {
-                texture
-                    .bind()
-                    .parameter_int(TextureParameter::WrapS, gl::REPEAT as i32)
-                    .parameter_int(TextureParameter::WrapT, gl::REPEAT as i32)
-                    .parameter_int(TextureParameter::MinFilter, gl::LINEAR as i32)
-                    .parameter_int(TextureParameter::MagFilter, gl::LINEAR as i32)
-                    .image_2d(
-                        TextureTarget::Texture2d,
-                        0,
-                        TextureInternalFormat::Rgba16,
-                        metadata.width,
-                        metadata.height,
-                        TextureFormat::Rgb,
-                        &data,
-                    );
-            }
-            Ok((texture, (metadata.width, metadata.height)))
-        })
-    }
-    pub fn load(
-        &mut self,
-        path: impl AsRef<Path>,
-        internal_format: TextureInternalFormat,
-        format: TextureFormat,
-    ) -> Result<TextureRef, Error> {
-        let path = path.as_ref();
-
-        self.cache_or_load(path, move || {
-            use image::GenericImage;
-            let img = image::open(&path).context(format!("could not load image at {:?}", path))?;
-            let dimensions = img.dimensions();
-            let texture = Texture::new(TextureKind::Texture2d);
-            texture
-                .bind()
-                .parameter_int(TextureParameter::WrapS, gl::REPEAT as i32)
-                .parameter_int(TextureParameter::WrapT, gl::REPEAT as i32)
-                .parameter_int(TextureParameter::MinFilter, gl::LINEAR as i32)
-                .parameter_int(TextureParameter::MagFilter, gl::LINEAR as i32)
-                .load_image(TextureTarget::Texture2d, internal_format, format, &img);
-            Ok((texture, dimensions))
-        })
-    }
-    fn cache_or_load(
-        &mut self,
-        path: impl AsRef<Path>,
-        f: impl FnOnce() -> Result<(Texture, (u32, u32)), Error>,
-    ) -> Result<TextureRef, Error> {
-        let path: &Path = path.as_ref();
-        let path_str = path.to_str().unwrap();
-
-        if let Some(t) = self.fs_textures.get(path_str) {
-            Ok(*t)
-        } else {
-            let (texture, dimensions) = f()?;
-            let texture_ref = self.insert_texture(texture, dimensions);
-            self.fs_textures.insert(path_str.to_owned(), texture_ref);
-            Ok(texture_ref)
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct Ibl {
-    pub cubemap: Texture,
-    pub irradiance_map: Texture,
-    pub prefilter_map: Texture,
-    pub brdf_lut: Texture,
-}
+use render::store::MeshRef;
 
 #[allow(unused)]
 #[derive(Debug, Clone)]
@@ -523,50 +94,50 @@ impl RenderObject {
         new
     }
 
-    pub fn combined_transformed_verts(&self, meshes: &MeshStore, transform: &Mat4) -> Vec<V3> {
-        let apply = |v: &V3, t: &Mat4| {
-            let w = t * v4(v.x, v.y, v.z, 1.0);
-            v3(w.x, w.y, w.z)
-        };
+    // pub fn combined_transformed_verts(&self, meshes: &MeshStore, transform: &Mat4) -> Vec<V3> {
+    //     let apply = |v: &V3, t: &Mat4| {
+    //         let w = t * v4(v.x, v.y, v.z, 1.0);
+    //         v3(w.x, w.y, w.z)
+    //     };
 
-        let transform = self.transform * transform;
-        match &self.child {
-            RenderObjectChild::Mesh(mesh_ref) => {
-                let mesh = meshes.get_mesh(mesh_ref);
-                mesh.simple_verts
-                    .iter()
-                    .map(|v| apply(v, &transform))
-                    .collect()
-            }
-            RenderObjectChild::RenderObjects(children) => children
-                .iter()
-                .flat_map(|child| child.combined_transformed_verts(meshes, &transform))
-                .collect(),
-        }
-    }
-    pub fn raymarch_many<'a, I>(objs: I, meshes: &MeshStore, p: V3, r: V3) -> (usize, f32)
-    where
-        I: Iterator<Item = &'a RenderObject>,
-    {
-        let verts: Vec<(usize, V3)> = objs
-            .enumerate()
-            .flat_map::<Vec<_>, _>(|(i, obj)| {
-                obj.combined_transformed_verts(meshes, &Mat4::from_scale(1.0))
-                    .into_iter()
-                    .map(|v| (i, v))
-                    .collect()
-            })
-            .collect();
+    //     let transform = self.transform * transform;
+    //     match &self.child {
+    //         RenderObjectChild::Mesh(mesh_ref) => {
+    //             let mesh = meshes.get_mesh(mesh_ref);
+    //             mesh.simple_verts
+    //                 .iter()
+    //                 .map(|v| apply(v, &transform))
+    //                 .collect()
+    //         }
+    //         RenderObjectChild::RenderObjects(children) => children
+    //             .iter()
+    //             .flat_map(|child| child.combined_transformed_verts(meshes, &transform))
+    //             .collect(),
+    //     }
+    // }
+    // pub fn raymarch_many<'a, I>(objs: I, meshes: &MeshStore, p: V3, r: V3) -> (usize, f32)
+    // where
+    //     I: Iterator<Item = &'a RenderObject>,
+    // {
+    //     let verts: Vec<(usize, V3)> = objs
+    //         .enumerate()
+    //         .flat_map::<Vec<_>, _>(|(i, obj)| {
+    //             obj.combined_transformed_verts(meshes, &Mat4::from_scale(1.0))
+    //                 .into_iter()
+    //                 .map(|v| (i, v))
+    //                 .collect()
+    //         })
+    //         .collect();
 
-        verts.iter().fold((0, -1.0), |(j, d), (i, v)| {
-            let vd = (v - p).normalize().dot(r);
-            if vd > d {
-                (*i, vd)
-            } else {
-                (j, d)
-            }
-        })
-    }
+    //     verts.iter().fold((0, -1.0), |(j, d), (i, v)| {
+    //         let vd = (v - p).normalize().dot(r);
+    //         if vd > d {
+    //             (*i, vd)
+    //         } else {
+    //             (j, d)
+    //         }
+    //     })
+    // }
 }
 
 pub struct GRenderPass {

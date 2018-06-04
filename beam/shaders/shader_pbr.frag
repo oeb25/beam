@@ -13,33 +13,41 @@ in VS_OUT {
 
 #define use_mrao 0
 
-#define def_mat(typ, name) \
-    uniform bool use_mat_##name; \
-    uniform typ mat_##name; \
-    uniform sampler2D tex_##name
+uniform bool use_mat_albedo;
+uniform vec3 mat_albedo;
+uniform bool use_mat_normal;
+uniform vec3 mat_normal;
+uniform bool use_mat_metallic;
+uniform float mat_metallic;
+uniform bool use_mat_roughness;
+uniform float mat_roughness;
+uniform bool use_mat_ao;
+uniform float mat_ao;
+uniform bool use_mat_opacity;
+uniform float mat_opacity;
 
-def_mat(vec3, albedo);
-def_mat(vec3, normal);
-def_mat(float, metallic);
-def_mat(float, roughness);
-def_mat(float, ao);
-def_mat(float, opacity);
+uniform sampler2D tex_albedo;
+uniform sampler2D tex_normal;
+uniform sampler2D tex_metallic;
+uniform sampler2D tex_roughness;
+uniform sampler2D tex_ao;
+uniform sampler2D tex_opacity;
 
 uniform vec3 viewPos;
 
 void main() {
-    #define tex(name, fn) (use_mat_##name ? mat_##name : fn(texture(tex_##name, fs_in.TexCoords)))
+    #define tex(fn, name) (use_mat_##name ? mat_##name : fn(texture(tex_##name, fs_in.TexCoords)))
 
-    vec3 norm = tex(normal, vec3);
+    vec3 norm = tex(vec3, normal);
     norm = normalize(norm * 2.0 - 1.0);
     norm = normalize(fs_in.TBN * norm);
 
-    vec3 albedo = tex(albedo, vec3);
+    vec3 albedo = tex(vec3, albedo);
 
-    float m = tex(metallic, float);
-    float r = tex(roughness, float);
-    float a = tex(ao, float);
-    float o = tex(opacity, float);
+    float m = tex(float, metallic);
+    float r = tex(float, roughness);
+    float a = tex(float, ao);
+    float o = tex(float, opacity);
 
     vec4 mrao = vec4(m, r, a, o);
 

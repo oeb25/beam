@@ -3,6 +3,10 @@
 #![allow(unused_imports)]
 #[macro_use]
 extern crate failure;
+#[macro_use]
+extern crate lazy_static;
+#[macro_use]
+extern crate glsl_layout;
 extern crate cgmath;
 extern crate collada;
 extern crate gl;
@@ -407,20 +411,20 @@ fn main() -> Result<(), Error> {
 
             render_objects.append(&mut is.clone());
 
-            let trace_scene = false;
-            if trace_scene {
-                let ray = (scene.camera.pos, scene.camera.front());
-                let res = RenderObject::raymarch_many(
-                    render_objects.iter(),
-                    &pipeline.meshes,
-                    ray.0,
-                    ray.1,
-                );
-                if res.1 > 0.99 {
-                    render_objects[res.0] =
-                        render_objects[res.0].with_material(gold_material.clone());
-                }
-            }
+            // let trace_scene = false;
+            // if trace_scene {
+            //     let ray = (scene.camera.pos, scene.camera.front());
+            //     let res = RenderObject::raymarch_many(
+            //         render_objects.iter(),
+            //         &pipeline.meshes,
+            //         ray.0,
+            //         ray.1,
+            //     );
+            //     if res.1 > 0.99 {
+            //         render_objects[res.0] =
+            //             render_objects[res.0].with_material(gold_material.clone());
+            //     }
+            // }
 
             let game_calls = scene.game.render(&logic_render_props, timer / frame_time);
 
