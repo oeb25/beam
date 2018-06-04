@@ -36,6 +36,7 @@ impl<'a> Into<MaterialProp<f32>> for &'a f32 {
 pub struct Material {
     normal_: MaterialProp<V3>,
     albedo_: MaterialProp<V3>,
+    emission_: MaterialProp<V3>,
     metallic_: MaterialProp<f32>,
     roughness_: MaterialProp<f32>,
     ao_: MaterialProp<f32>,
@@ -57,6 +58,7 @@ impl Material {
         Material {
             normal_: v3(0.5, 0.5, 1.0).into(),
             albedo_: v3(1.0, 1.0, 1.0).into(),
+            emission_: v3(0.0, 0.0, 0.0).into(),
             metallic_: 1.0.into(),
             roughness_: 1.0.into(),
             ao_: 1.0.into(),
@@ -66,6 +68,7 @@ impl Material {
 
     setter!(albedo, albedo_, V3);
     setter!(normal, normal_, V3);
+    setter!(emission, emission_, V3);
     setter!(metallic, metallic_, f32);
     setter!(roughness, roughness_, f32);
     setter!(ao, ao_, f32);
@@ -88,8 +91,9 @@ impl Material {
             }};
         }
 
-        prop!(normal, normal_, use_mat_normal, mat_normal, bind_vec3);
         prop!(albedo, albedo_, use_mat_albedo, mat_albedo, bind_vec3);
+        prop!(normal, normal_, use_mat_normal, mat_normal, bind_vec3);
+        prop!(emission, emission_, use_mat_emission, mat_emission, bind_vec3);
         prop!(metallic, metallic_, use_mat_metallic, mat_metallic, bind_float);
         prop!(roughness, roughness_, use_mat_roughness, mat_roughness, bind_float);
         prop!(ao, ao_, use_mat_ao, mat_ao, bind_float);

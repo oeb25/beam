@@ -5,6 +5,7 @@ in vec2 TexCoords;
 uniform sampler2D aPosition;
 uniform sampler2D aNormal;
 uniform sampler2D aAlbedo;
+uniform sampler2D aEmission;
 uniform sampler2D aMrao;
 
 uniform float ambientIntensity = 1.0;
@@ -132,6 +133,7 @@ void main() {
     vec3 N = normalize(texture(aNormal, TexCoords).rgb);
     vec4 mrao = texture(aMrao, TexCoords).rgba;
     vec3 albedo = texture(aAlbedo, TexCoords).rgb;
+    vec3 emission = texture(aEmission, TexCoords).rgb;
     float metallic = mrao.r;
     float roughness = mrao.g;
     float ao = mrao.b;
@@ -266,7 +268,7 @@ void main() {
 
     vec3 ambient = (kD * diffuse + specular) * ao;
 
-    color = ambient + Lo;
+    color = ambient + Lo + emission;
     // color = vec3(mrao.r);
     // color = vec3(albedo);
 

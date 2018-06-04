@@ -145,6 +145,7 @@ pub struct GRenderPass {
     pub position: Texture,
     pub normal: Texture,
     pub albedo: Texture,
+    pub emission: Texture,
     pub mrao: Texture,
 
     pub width: u32,
@@ -158,7 +159,7 @@ impl GRenderPass {
             .bind()
             .storage(TextureInternalFormat::DepthComponent, w, h);
 
-        let (position, normal, albedo, mrao) = {
+        let (position, normal, albedo, emission, mrao) = {
             let buffer = fbo.bind();
 
             let create_texture = |internal, format, typ, attachment| {
@@ -189,11 +190,17 @@ impl GRenderPass {
                 GlType::UnsignedByte,
                 Attachment::Color2,
             );
+            let emission = create_texture(
+                TextureInternalFormat::Srgb8,
+                TextureFormat::Rgb,
+                GlType::UnsignedByte,
+                Attachment::Color3,
+            );
             let mrao = create_texture(
                 TextureInternalFormat::Rgba8,
                 TextureFormat::Rgba,
                 GlType::UnsignedByte,
-                Attachment::Color3,
+                Attachment::Color4,
             );
 
             buffer
@@ -202,10 +209,11 @@ impl GRenderPass {
                     Attachment::Color1,
                     Attachment::Color2,
                     Attachment::Color3,
+                    Attachment::Color4,
                 ])
                 .renderbuffer(Attachment::Depth, &depth);
 
-            (position, normal, albedo, mrao)
+            (position, normal, albedo, emission, mrao)
         };
 
         GRenderPass {
@@ -214,6 +222,7 @@ impl GRenderPass {
             position,
             normal,
             albedo,
+            emission,
             mrao,
 
             width: w,

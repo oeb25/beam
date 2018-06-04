@@ -206,9 +206,9 @@ fn main() -> Result<(), Error> {
 
     let mut assets = assets::AssetBuilder::new(&mut ppin, &mut vpin)?;
     let room_ibl = assets.load_ibl("assets/Newport_Loft/Newport_Loft_Ref.hdr")?;
-    let _rust_material = assets.load_pbr_with_default_filenames("assets/pbr/rusted_iron", "png")?;
+    // let rust_material = assets.load_pbr_with_default_filenames("assets/pbr/rusted_iron", "png")?;
     let plastic_material = assets.load_pbr_with_default_filenames("assets/pbr/plastic", "png")?;
-    let gold_material = assets.load_pbr_with_default_filenames("assets/pbr/gold", "png")?;
+    // let gold_material = assets.load_pbr_with_default_filenames("assets/pbr/gold", "png")?;
 
     let suzanne = assets
         .load_collada("assets/suzanne/suzanne.dae")?
@@ -398,14 +398,14 @@ fn main() -> Result<(), Error> {
             for light in &scene.point_lights {
                 let mesh = sphere_mesh
                     .transform(Mat4::from_translation(light.position) * Mat4::from_scale(0.8))
-                    .with_material(light_material.albedo(light.color));
+                    .with_material(light_material.albedo(light.color).emission(light.color * 0.8));
                 render_objects.push(mesh);
             }
 
             for light in &scene.spot_lights {
                 let mesh = suzanne
                     .transform(Mat4::from_translation(light.position) * Mat4::from_scale(0.8))
-                    .with_material(light_material.albedo(light.color));
+                    .with_material(light_material.albedo(light.color).emission(light.color * 0.8));
                 render_objects.push(mesh);
             }
 

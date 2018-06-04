@@ -23,7 +23,7 @@ void main() {
     // color += blur(2);
     // color += blur(3);
     // color += blur(4);
-    // color += blur(5);
+    color += blur(5);
 #endif
 
     color = color / (vec3(1.0) + color);

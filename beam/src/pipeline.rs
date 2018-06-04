@@ -407,7 +407,7 @@ impl Pipeline {
             g.bind_texture("aPosition", &self.g.position)
                 .bind_texture("aNormal", &self.g.normal)
                 .bind_texture("aAlbedo", &self.g.albedo)
-                .bind_texture("aAlbedo", &self.g.albedo)
+                .bind_texture("aEmission", &self.g.emission)
                 .bind_texture("aMrao", &self.g.mrao)
                 .bind_float(
                     "ambientIntensity",
@@ -476,7 +476,7 @@ impl Pipeline {
         }
 
         // Blur passes
-        if false {
+        {
             let passes = self.blur_targets.iter_mut();
             let size = self.lighting_target.width as f32;
             let mut prev = &self.lighting_target;

@@ -1,7 +1,8 @@
 layout (location = 0) out vec3 aPosition;
 layout (location = 1) out vec4 aNormal;
 layout (location = 2) out vec4 aAlbedo;
-layout (location = 3) out vec4 aMrao;
+layout (location = 3) out vec4 aEmission;
+layout (location = 4) out vec4 aMrao;
 
 in VS_OUT {
     vec3 Normal;
@@ -11,12 +12,12 @@ in VS_OUT {
     mat3 TBN;
 } fs_in;
 
-#define use_mrao 0
-
 uniform bool use_mat_albedo;
 uniform vec3 mat_albedo;
 uniform bool use_mat_normal;
 uniform vec3 mat_normal;
+uniform bool use_mat_emission;
+uniform vec3 mat_emission;
 uniform bool use_mat_metallic;
 uniform float mat_metallic;
 uniform bool use_mat_roughness;
@@ -28,6 +29,7 @@ uniform float mat_opacity;
 
 uniform sampler2D tex_albedo;
 uniform sampler2D tex_normal;
+uniform sampler2D tex_emission;
 uniform sampler2D tex_metallic;
 uniform sampler2D tex_roughness;
 uniform sampler2D tex_ao;
@@ -43,6 +45,7 @@ void main() {
     norm = normalize(fs_in.TBN * norm);
 
     vec3 albedo = tex(vec3, albedo);
+    vec3 emission = tex(vec3, emission);
 
     float m = tex(float, metallic);
     float r = tex(float, roughness);
@@ -58,5 +61,6 @@ void main() {
     aPosition = fs_in.FragPos;
     aNormal.rgb = norm;
     aAlbedo.rgb = albedo;
+    aEmission.rgb = emission;
     aMrao.rgba = mrao;
 }
