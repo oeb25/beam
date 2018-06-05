@@ -173,7 +173,7 @@ fn main() -> Result<(), Error> {
         .with_title("Hello, world!")
         .with_dimensions(screen_width, screen_height);
     let context = glutin::ContextBuilder::new()
-        .with_vsync(true)
+        .with_vsync(false)
         .with_gl_profile(glutin::GlProfile::Core)
         .with_srgb(true);
     let gl_window = glutin::GlWindow::new(window, context, &events_loop).unwrap();
@@ -204,6 +204,11 @@ fn main() -> Result<(), Error> {
     let mut running = true;
     // let mut last_pos = None;
 
+    let cube_mesh = {
+        let verts = render::primitives::cube_vertices();
+        render::mesh::Mesh::new(&verts, &mut vpin)
+    };
+
     let mut assets = assets::AssetBuilder::new(&mut ppin, &mut vpin)?;
     let room_ibl = assets.load_ibl("assets/Newport_Loft/Newport_Loft_Ref.hdr")?;
     // let rust_material = assets.load_pbr_with_default_filenames("assets/pbr/rusted_iron", "png")?;
@@ -221,7 +226,7 @@ fn main() -> Result<(), Error> {
 
     let mut is = vec![];
 
-    let cube_mesh = RenderObject::mesh(assets.get_cube());
+    let cube_mesh_ref = RenderObject::mesh(assets.get_cube());
     let sphere_mesh = RenderObject::mesh(assets.get_sphere());
 
     let mut gradient_textures = vec![];
@@ -256,7 +261,7 @@ fn main() -> Result<(), Error> {
 
     let logic_render_props = logic::RenderProps {
         owl_mesh: &owl,
-        cube_mesh: &cube_mesh,
+        cube_mesh: &cube_mesh_ref,
         plastic_material,
     };
 
@@ -269,6 +274,16 @@ fn main() -> Result<(), Error> {
     let mut pipeline = assets.to_pipeline(w, h, hidpi_factor);
 
     while running {
+        let mut timings = vec![];
+
+        macro_rules! marker {
+            ($m:expr) => {
+                timings.push(($m, PreciseTime::now()))
+            };
+        }
+
+        marker!("start");
+
         update_shadows = !update_shadows;
 
         let now = PreciseTime::now();
@@ -287,6 +302,7 @@ fn main() -> Result<(), Error> {
 
         inputs.mouse_delta = (0.0, 0.0);
 
+        marker!("events");
         events_loop.poll_events(|event| match event {
             glutin::Event::WindowEvent { event, .. } => match event {
                 glutin::WindowEvent::CloseRequested => running = false,
@@ -377,6 +393,8 @@ fn main() -> Result<(), Error> {
             _ => (),
         });
 
+        marker!("game stuff");
+
         t += 1.0;
 
         timer += dt;
@@ -392,20 +410,29 @@ fn main() -> Result<(), Error> {
         scene.tick(t, dt, &inputs);
 
         // Begin rendering!
+        marker!("rendering");
         {
             render_objects.clear();
 
             for light in &scene.point_lights {
                 let mesh = sphere_mesh
                     .transform(Mat4::from_translation(light.position) * Mat4::from_scale(0.8))
-                    .with_material(light_material.albedo(light.color).emission(light.color * 0.8));
+                    .with_material(
+                        light_material
+                            .albedo(light.color)
+                            .emission(light.color * 0.8),
+                    );
                 render_objects.push(mesh);
             }
 
             for light in &scene.spot_lights {
                 let mesh = suzanne
                     .transform(Mat4::from_translation(light.position) * Mat4::from_scale(0.8))
-                    .with_material(light_material.albedo(light.color).emission(light.color * 0.8));
+                    .with_material(
+                        light_material
+                            .albedo(light.color)
+                            .emission(light.color * 0.8),
+                    );
                 render_objects.push(mesh);
             }
 
@@ -434,9 +461,10 @@ fn main() -> Result<(), Error> {
 
             render_objects.push(game_call);
 
-            pipeline.render(
-                &mut ppin,
-                &mut vpin,
+            marker!("gen render calls");
+
+            println!("# Begin Render");
+            let calls = pipeline.new_render(
                 update_shadows,
                 RenderProps {
                     camera: &scene.camera,
@@ -444,6 +472,8 @@ fn main() -> Result<(), Error> {
                     point_lights: &mut scene.point_lights,
                     spot_lights: &mut scene.spot_lights,
                     time: t,
+
+                    cube_mesh: &cube_mesh,
 
                     default_material: None,
 
@@ -454,9 +484,44 @@ fn main() -> Result<(), Error> {
                 },
                 render_objects.iter(),
             );
+
+            marker!("complete gen render calls");
+
+            unsafe {
+                gl::Finish();
+            }
+
+            marker!("render exec");
+
+            render::dsl::execute(calls.into_iter());
         }
 
+        marker!("swap buffers");
+
         gl_window.swap_buffers().unwrap();
+
+        marker!("end");
+
+        println!("# Timing:");
+        for ab in timings.windows(2) {
+            let a = ab[0];
+            let b = ab[1];
+
+            println!(
+                "{:30.}: {:3.5}ms",
+                a.0,
+                a.1.to(b.1).num_nanoseconds().unwrap() as f32 * 0.000001
+            );
+        }
+        println!(
+            "{:30.}: {:3.5}ms",
+            "total",
+            timings[0]
+                .1
+                .to(timings[timings.len() - 1].1)
+                .num_nanoseconds()
+                .unwrap() as f32 * 0.000001
+        );
     }
 
     println!("Complete");

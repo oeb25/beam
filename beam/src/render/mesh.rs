@@ -5,6 +5,7 @@ use mg::{
     VertexBuffer, VertexBufferBinder,
 };
 use misc::{Mat4, V3, Vertex};
+use render::dsl::DrawCall;
 
 macro_rules! offset_of {
     ($ty:ty, $field:ident) => {
@@ -97,6 +98,17 @@ impl Mesh {
             vcount: self.vcount,
         }
     }
+    pub fn draw_new<'a>(&'a self) -> DrawCall<'a> {
+        // self.vao
+        //     .draw_arrays(fbo, program, DrawMode::Triangles, 0, self.vcount);
+        DrawCall::Arrays(&self.vao, DrawMode::Triangles, 0, self.vcount)
+    }
+    pub fn draw_instanced_new<'a>(
+        &'a self,
+        transforms: &'a VertexBuffer<[[f32; 4]; 4]>,
+    ) -> DrawCall<'a> {
+        DrawCall::ArraysInstanced(&self.vao, DrawMode::Triangles, 0, self.vcount, transforms)
+    }
 }
 
 pub struct MeshBinding<'a> {
@@ -114,11 +126,11 @@ impl<'a> MeshBinding<'a> {
         self.vao
             .draw_arrays(fbo, program, DrawMode::Triangles, 0, self.vcount);
     }
-    pub fn draw_geometry_instanced<F, P>(
+    pub fn draw_instanced<F, P>(
         &self,
         fbo: &F,
         _program: &P,
-        transforms: &VertexBufferBinder<Mat4>,
+        transforms: &VertexBufferBinder<[[f32; 4]; 4]>,
     ) where
         F: FramebufferBinderDrawer,
         P: ProgramBind,
@@ -134,14 +146,6 @@ impl<'a> MeshBinding<'a> {
 
         self.vao
             .draw_arrays_instanced(fbo, DrawMode::Triangles, 0, self.vcount, transforms.len());
-    }
-    pub fn draw_instanced<F, P>(&self, fbo: &F, program: &P, transforms: &VertexBufferBinder<Mat4>)
-    where
-        F: FramebufferBinderDrawer,
-        P: ProgramBind,
-    {
-        // self.bind_textures(program);
-        self.draw_geometry_instanced(fbo, program, transforms);
     }
 }
 

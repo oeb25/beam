@@ -1,6 +1,9 @@
-use mg::{ProgramBind, Texture, UniformBuffer, GlError};
+use mg::{GlError, ProgramBind, Texture, UniformBuffer};
 use misc::{v3, V3};
-use render::store::{MeshStore, TextureRef};
+use render::{
+    dsl::UniformValue, store::{MeshStore, TextureRef},
+};
+use std::borrow::Cow;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum MaterialProp<T> {
@@ -93,11 +96,70 @@ impl Material {
 
         prop!(albedo, albedo_, use_mat_albedo, mat_albedo, bind_vec3);
         prop!(normal, normal_, use_mat_normal, mat_normal, bind_vec3);
-        prop!(emission, emission_, use_mat_emission, mat_emission, bind_vec3);
-        prop!(metallic, metallic_, use_mat_metallic, mat_metallic, bind_float);
-        prop!(roughness, roughness_, use_mat_roughness, mat_roughness, bind_float);
+        prop!(
+            emission,
+            emission_,
+            use_mat_emission,
+            mat_emission,
+            bind_vec3
+        );
+        prop!(
+            metallic,
+            metallic_,
+            use_mat_metallic,
+            mat_metallic,
+            bind_float
+        );
+        prop!(
+            roughness,
+            roughness_,
+            use_mat_roughness,
+            mat_roughness,
+            bind_float
+        );
         prop!(ao, ao_, use_mat_ao, mat_ao, bind_float);
         prop!(opacity, opacity_, use_mat_opacity, mat_opacity, bind_float);
+    }
+
+    pub fn bind_new<'a>(&self, meshes: &'a MeshStore) -> Vec<(Cow<'a, str>, UniformValue<'a>)> {
+        use std;
+        let mut calls = Vec::with_capacity(14);
+
+        macro_rules! prop {
+            ($name:ident, $field:ident, $use:ident, $mat:ident, $fun:ident) => {{
+                use self::UniformValue::*;
+                match &self.$field {
+                    MaterialProp::Texture(texture_ref) => {
+                        let texture = meshes.get_texture(&texture_ref);
+                        calls.push((concat!("use_mat_", stringify!($name)).into(), Bool(false)));
+                        calls.push((concat!("tex_", stringify!($name)).into(), Texture(&texture)));
+                    }
+                    MaterialProp::Value(value) => {
+                        calls.push((concat!("use_mat_", stringify!($name)).into(), Bool(true)));
+                        calls.push((
+                            concat!("mat_", stringify!($name)).into(),
+                            $fun((*value).into()),
+                        ));
+                    }
+                }
+            }};
+        }
+
+        prop!(albedo, albedo_, use_mat_albedo, mat_albedo, Vec3);
+        prop!(normal, normal_, use_mat_normal, mat_normal, Vec3);
+        prop!(emission, emission_, use_mat_emission, mat_emission, Vec3);
+        prop!(metallic, metallic_, use_mat_metallic, mat_metallic, Float);
+        prop!(
+            roughness,
+            roughness_,
+            use_mat_roughness,
+            mat_roughness,
+            Float
+        );
+        prop!(ao, ao_, use_mat_ao, mat_ao, Float);
+        prop!(opacity, opacity_, use_mat_opacity, mat_opacity, Float);
+
+        calls
     }
 }
 

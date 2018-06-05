@@ -4,7 +4,7 @@ use types::GlError;
 
 use std::{self, mem, os, ptr, marker::PhantomData};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BufferKind {
     Array,
     ElementArray,
@@ -21,10 +21,10 @@ impl Into<u32> for BufferKind {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Buffer {
     kind: BufferKind,
-    id: gl::types::GLuint,
+    pub id: gl::types::GLuint,
     buffer_size: Option<usize>,
 }
 
@@ -183,9 +183,9 @@ impl<'a, T: ElementKind> ElementBufferBinder<'a, T> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct VertexBuffer<T> {
-    buffer: Buffer,
+    pub buffer: Buffer,
     phantom: PhantomData<T>,
 }
 
@@ -205,6 +205,9 @@ impl<T> VertexBuffer<T> {
         let mut vbo = VertexBuffer::new();
         vbo.bind().buffer_data(data);
         vbo
+    }
+    pub fn len(&self) -> usize {
+        self.buffer.size() / mem::size_of::<T>()
     }
     pub fn bind(&mut self) -> VertexBufferBinder<T> {
         VertexBufferBinder::new(self)

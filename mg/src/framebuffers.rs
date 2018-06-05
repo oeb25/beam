@@ -64,7 +64,7 @@ impl Into<u32> for BufferSlot {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Framebuffer {
     pub id: gl::types::GLuint,
 }

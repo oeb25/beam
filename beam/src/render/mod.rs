@@ -1,13 +1,15 @@
+pub mod dsl;
 pub mod lights;
 pub mod materials;
 pub mod mesh;
-mod primitives;
+pub mod primitives;
 pub mod store;
 
 use cgmath::{self, InnerSpace, Rad};
 use collada;
 use gl;
 use image;
+use render::dsl::{GlCall, ProgramLike};
 pub use render::materials::*;
 
 use failure::{Error, ResultExt};
@@ -293,10 +295,8 @@ impl RenderTarget {
         )
     }
 
-    pub fn set_viewport(&self) {
-        unsafe {
-            gl::Viewport(0, 0, self.width as i32, self.height as i32);
-        }
+    pub fn set_viewport<T: ProgramLike>(&self) -> GlCall<T> {
+        GlCall::Viewport(0, 0, self.width, self.height)
     }
 
     pub fn bind(&mut self) -> FramebufferBinderReadDraw {

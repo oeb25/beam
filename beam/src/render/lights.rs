@@ -6,7 +6,8 @@ use mg::{
     TextureFormat, TextureInternalFormat, TextureKind, TextureParameter, TextureTarget,
 };
 use misc::{v3, Mat4, P3, V3};
-use std::f32::consts::PI;
+use render::dsl::UniformValue;
+use std::{borrow::Cow, f32::consts::PI};
 
 #[repr(C)]
 #[derive(Debug)]
@@ -18,7 +19,7 @@ pub struct DirectionalLight {
     pub shadow_map: ShadowMap,
 }
 impl DirectionalLight {
-    fn space(&self, camera_pos: V3) -> Mat4 {
+    pub fn space(&self, camera_pos: V3) -> Mat4 {
         let size = 50.0;
         let projection: Mat4 = cgmath::Ortho {
             left: -size,
@@ -33,40 +34,39 @@ impl DirectionalLight {
         let view = Mat4::look_at(o, o - self.direction, v3(0.0, 1.0, 0.0));
         projection * view
     }
-    fn bind<P>(&self, camera_pos: V3, name: &str, program: &P)
-    where
-        P: ProgramBind,
-    {
-        let ext = |e| format!("{}.{}", name, e);
+    pub fn bind_new<'a>(
+        &'a self,
+        camera_pos: V3,
+        name: &str,
+    ) -> Vec<(Cow<'a, str>, UniformValue<'a>)> {
         let space = self.space(camera_pos);
         let DirectionalLight {
             color,
             direction,
             shadow_map,
         } = self;
-        program
-            .bind_vec3(&ext("color"), *color)
-            .bind_vec3(&ext("direction"), *direction)
-            .bind_mat4(&ext("space"), space)
-            .bind_texture("directionalShadowMap", &shadow_map.map);
+        vec![
+            (format!("{}.{}", name, "color").into(), (*color).into()),
+            (
+                format!("{}.{}", name, "direction").into(),
+                (*direction).into(),
+            ),
+            (format!("{}.{}", name, "space").into(), space.into()),
+            ("directionalShadowMap".into(), (&shadow_map.map).into()),
+        ]
     }
-    pub fn bind_multiple<P>(
+    pub fn bind_multiple_new<'a>(
         camera_pos: V3,
-        lights: &[DirectionalLight],
+        lights: &'a [DirectionalLight],
         name_uniform: &str,
-        amt_uniform: &str,
-        program: &P,
-    ) where
-        P: ProgramBind,
-    {
-        program.bind_int(amt_uniform, lights.len() as i32);
+        amt_uniform: &'a str,
+    ) -> Vec<(Cow<'a, str>, UniformValue<'a>)> {
+        let mut uniforms = vec![(amt_uniform.into(), (lights.len() as i32).into())];
         for (i, light) in lights.iter().enumerate() {
-            light.bind(camera_pos, &format!("{}[{}]", name_uniform, i), program);
+            let mut new = light.bind_new(camera_pos, &format!("{}[{}]", name_uniform, i));
+            uniforms.append(&mut new);
         }
-    }
-    pub fn bind_shadow_map(&mut self, camera_pos: V3) -> (FramebufferBinderReadDraw, Mat4) {
-        let light_space = self.space(camera_pos);
-        (self.shadow_map.fbo.bind(), light_space)
+        uniforms
     }
 }
 #[repr(C)]
@@ -80,56 +80,49 @@ pub struct PointLight {
     pub shadow_map: Option<PointShadowMap>,
 }
 impl PointLight {
-    fn bind<P>(&self, name: &str, program: &P)
-    where
-        P: ProgramBind,
-    {
-        let ext = |e| {
-            let res = format!("{}.{}", name, e);
-            res
-        };
+    fn bind_new<'a>(&'a self, name: &str) -> Vec<(Cow<'a, str>, UniformValue<'a>)> {
+        let ext = |e| format!("{}.{}", name, e).into();
         let PointLight {
             position,
             color,
             shadow_map,
             last_shadow_map_position,
         } = self;
-        program.bind_vec3(&ext("color"), *color);
 
-        program.bind_vec3(&ext("position"), *position);
-        program.bind_vec3(&ext("lastPosition"), *last_shadow_map_position);
+        let mut uniforms = vec![
+            (ext("color"), (*color).into()),
+            (ext("position"), (*position).into()),
+            (ext("lastPosition"), (*last_shadow_map_position).into()),
+        ];
 
-        match shadow_map {
-            Some(shadow_map) => {
-                program.bind_bool(&ext("useShadowMap"), true);
-                program.bind_texture("pointShadowMap", &shadow_map.map);
-                program.bind_float(&ext("farPlane"), shadow_map.far);
-            }
-            None => {
-                program.bind_vec3(&ext("lastPosition"), *position);
-                program.bind_bool(&ext("useShadowMap"), false);
-            }
-        }
-        GlError::check().expect(&format!("Failed to bind light: {:?}", self));
+        let mut new = match shadow_map {
+            Some(shadow_map) => vec![
+                (ext("useShadowMap"), true.into()),
+                ("pointShadowMap".into(), (&shadow_map.map).into()),
+                (ext("farPlane"), shadow_map.far.into()),
+            ],
+            None => vec![
+                (ext("lastPosition"), (*position).into()),
+                (ext("useShadowMap"), false.into()),
+            ],
+        };
+        uniforms.append(&mut new);
+        uniforms
     }
-    pub fn bind_multiple<P>(
-        lights: &[PointLight],
+    pub fn bind_multiple_new<'a>(
+        lights: &'a [PointLight],
         name_uniform: &str,
-        amt_uniform: &str,
-        program: &P,
-    ) where
-        P: ProgramBind,
-    {
-        program.bind_int(amt_uniform, lights.len() as i32);
-        GlError::check().expect("Failed to bind number of lights");
+        amt_uniform: &'a str,
+    ) -> Vec<(Cow<'a, str>, UniformValue<'a>)> {
+        let mut uniforms = vec![(amt_uniform.into(), (lights.len() as i32).into())];
         for (i, light) in lights.iter().enumerate() {
-            // println!("binding: {} into {:?}", format!("{}[{}]", name_uniform, i), slot);
-            light.bind(&format!("{}[{}]", name_uniform, i), program);
+            let mut new = light.bind_new(&format!("{}[{}]", name_uniform, i));
+            uniforms.append(&mut new);
         }
-        GlError::check().expect("Failed to bind multiple lights");
+        uniforms
     }
-    pub fn bind_shadow_map(&mut self) -> Option<(FramebufferBinderReadDraw, [[[f32; 4]; 4]; 6])> {
-        let shadow_map = self.shadow_map.as_mut()?;
+    pub fn space(&self) -> Option<[[[f32; 4]; 4]; 6]> {
+        let shadow_map = self.shadow_map.as_ref()?;
 
         let light_space: Mat4 = cgmath::PerspectiveFov {
             fovy: Rad(PI / 2.0),
@@ -151,7 +144,7 @@ impl PointLight {
             look_at(v3(0.0, 0.0, -1.0), v3(0.0, -1.0, 0.0)),
         ];
 
-        Some((shadow_map.fbo.bind(), shadow_transforms))
+        Some(shadow_transforms)
     }
 }
 #[repr(C)]
@@ -166,11 +159,8 @@ pub struct SpotLight {
     pub outer_cut_off: Rad<f32>,
 }
 impl SpotLight {
-    pub fn bind<P>(&self, name: &str, program: &P)
-    where
-        P: ProgramBind,
-    {
-        let ext = |e| format!("{}.{}", name, e);
+    pub fn bind_new<'a>(&'a self, name: &str) -> Vec<(Cow<'a, str>, UniformValue<'a>)> {
+        let ext = |e| format!("{}.{}", name, e).into();
         let SpotLight {
             position,
             color,
@@ -178,26 +168,25 @@ impl SpotLight {
             cut_off,
             outer_cut_off,
         } = self;
-        program.bind_vec3(&ext("color"), *color);
-
-        program.bind_vec3(&ext("position"), *position);
-        program.bind_vec3(&ext("direction"), *direction);
-
-        program.bind_float(&ext("cutOff"), cut_off.0.cos());
-        program.bind_float(&ext("outerCutOff"), outer_cut_off.0.cos());
+        vec![
+            (ext("color"), (*color).into()),
+            (ext("position"), (*position).into()),
+            (ext("direction"), (*direction).into()),
+            (ext("cutOff"), cut_off.0.cos().into()),
+            (ext("outerCutOff"), outer_cut_off.0.cos().into()),
+        ]
     }
-    pub fn bind_multiple<P>(
-        lights: &[SpotLight],
+    pub fn bind_multiple_new<'a>(
+        lights: &'a [SpotLight],
         name_uniform: &str,
-        amt_uniform: &str,
-        program: &P,
-    ) where
-        P: ProgramBind,
-    {
-        program.bind_int(amt_uniform, lights.len() as i32);
+        amt_uniform: &'a str,
+    ) -> Vec<(Cow<'a, str>, UniformValue<'a>)> {
+        let mut uniforms = vec![(amt_uniform.into(), (lights.len() as i32).into())];
         for (i, light) in lights.iter().enumerate() {
-            light.bind(&format!("{}[{}]", name_uniform, i), program);
+            let mut new = light.bind_new(&format!("{}[{}]", name_uniform, i));
+            uniforms.append(&mut new);
         }
+        uniforms
     }
 }
 
@@ -205,7 +194,7 @@ impl SpotLight {
 pub struct ShadowMap {
     width: u32,
     height: u32,
-    fbo: Framebuffer,
+    pub fbo: Framebuffer,
     map: Texture,
 }
 
@@ -253,7 +242,7 @@ pub struct PointShadowMap {
     height: u32,
     near: f32,
     pub far: f32,
-    fbo: Framebuffer,
+    pub fbo: Framebuffer,
     map: Texture,
 }
 

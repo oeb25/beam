@@ -1,10 +1,11 @@
 use collada;
 use failure::{Error, ResultExt};
+use gl;
 use mg::{
     DrawMode, FramebufferBinderDrawer, FramebufferBinderReadDraw, Mask, Program, ProgramBind,
     ProgramBinding, ProgramPin, TextureSlot, VertexArray, VertexArrayPin, VertexBuffer,
 };
-use misc::{v3, v4, Mat4, V3, Vertex, Cacher};
+use misc::{v3, v4, Cacher, Mat4, V3, Vertex};
 use pipeline::Pipeline;
 use render::{
     create_irradiance_map, create_prefiler_map, cubemap_from_equirectangular,
@@ -349,7 +350,14 @@ impl<'a> AssetBuilder<'a> {
         );
 
         let mut brdf_lut_render_target = RenderTarget::new(512, 512);
-        brdf_lut_render_target.set_viewport();
+        unsafe {
+            gl::Viewport(
+                0,
+                0,
+                brdf_lut_render_target.width as i32,
+                brdf_lut_render_target.height as i32,
+            );
+        }
         render_cube(
             &brdf_lut_render_target.bind().clear(Mask::ColorDepth),
             &self.programs.brdf_lut.bind(self.ppin),

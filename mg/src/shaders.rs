@@ -127,9 +127,10 @@ impl UniformBlockIndex {
 #[derive(Debug)]
 pub struct ProgramPin;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Program {
-    id: gl::types::GLuint,
+    pub id: gl::types::GLuint,
+    pub name: Option<String>,
 }
 impl Program {
     pub unsafe fn get_pin() -> ProgramPin {
@@ -141,7 +142,7 @@ impl Program {
         fs: &FragmentShader,
     ) -> Result<Program, ()> {
         let id = unsafe { gl::CreateProgram() };
-        let program = Program { id };
+        let program = Program { id, name: None };
 
         program.attach_shader(&vs.0);
         if let Some(gs) = gs {
@@ -152,6 +153,9 @@ impl Program {
         program.link()?;
 
         Ok(program)
+    }
+    pub fn set_name(&mut self, name: String) {
+        self.name = Some(name);
     }
     pub fn attach_shader(&self, shader: &Shader) {
         unsafe {

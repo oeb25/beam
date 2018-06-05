@@ -1,12 +1,12 @@
 use gl;
-use std::{cell::Ref, path::Path};
+use std::{self, cell::Ref, path::Path};
 
 use failure::Error;
 
 use mg::{
     DrawMode, Framebuffer, FramebufferBinderDrawer, FramebufferBinderReadDraw, GlError, Mask,
-    ProgramBind, ProgramBindingRef, ProgramPin, Texture, TextureSlot, VertexArray, VertexArrayPin,
-    VertexBuffer,
+    Program, ProgramBind, ProgramBindingRef, ProgramPin, Texture, TextureSlot, VertexArray,
+    VertexArrayPin, VertexBuffer,
 };
 
 use hot;
@@ -16,7 +16,8 @@ use misc::{v3, v4, Cacher, Mat4, V3, V4};
 
 use render::{
     create_irradiance_map, create_prefiler_map, cubemap_from_equirectangular,
-    lights::{DirectionalLight, PointLight, PointShadowMap, ShadowMap, SpotLight},
+    dsl::{DrawCall, FramebufferCall, GlCall, Mat4g, ProgramCall, ProgramLike, UniformValue},
+    lights::{DirectionalLight, PointLight, PointShadowMap, ShadowMap, SpotLight}, mesh::Mesh,
     store::{MeshRef, MeshStore}, Camera, GRenderPass, Ibl, Material, RenderObject,
     RenderObjectChild, RenderTarget, Renderable,
 };
@@ -28,6 +29,8 @@ pub struct RenderProps<'a> {
     pub directional_lights: &'a mut [DirectionalLight],
     pub point_lights: &'a mut [PointLight],
     pub spot_lights: &'a mut [SpotLight],
+
+    pub cube_mesh: &'a Mesh,
 
     pub default_material: Option<Material>,
 
@@ -42,6 +45,24 @@ pub struct HotShader(warmy::Res<hot::MyShader>);
 impl HotShader {
     pub fn bind<'a>(&'a self, pin: &'a mut ProgramPin) -> ProgramBindingRef<'a> {
         ProgramBindingRef::new(Ref::map(self.0.borrow(), |a| &a.program), pin)
+    }
+}
+
+impl std::cmp::PartialEq for HotShader {
+    fn eq(&self, rhs: &HotShader) -> bool {
+        (*self.0.borrow()) == (*rhs.0.borrow())
+    }
+}
+
+impl std::fmt::Debug for HotShader {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        write!(fmt, "{:?}", self.0.borrow())
+    }
+}
+
+impl ProgramLike for HotShader {
+    fn id(&self) -> u32 {
+        self.0.borrow().program.id
     }
 }
 
@@ -63,7 +84,7 @@ pub struct Pipeline {
 
     pub default_material: Material,
 
-    pub vbo_cache: Vec<VertexBuffer<Mat4>>,
+    pub vbo_cache: Vec<VertexBuffer<Mat4g>>,
     pub draw_calls: DrawCalls,
     pub meshes: MeshStore,
 
@@ -101,38 +122,44 @@ impl Pipeline {
         let ctx = &mut ();
 
         macro_rules! shader {
-            (x, $vert:expr, $geom:expr, $frag:expr) => {{
+            (x, $name:expr, $vert:expr, $geom:expr, $frag:expr) => {{
                 let vert = concat!("shaders/", $vert).into();
                 let geom = $geom.map(|x: &str| x.into());
                 let frag = concat!("shaders/", $frag).into();
-                let src = hot::ShaderSrc { vert, geom, frag };
+                let src = hot::ShaderSrc {
+                    name: $name.to_owned(),
+                    vert,
+                    geom,
+                    frag,
+                };
                 let src: warmy::LogicalKey = src.into();
                 let program: warmy::Res<hot::MyShader> = warmy_store.get(&src, ctx).unwrap();
                 HotShader(program)
             }};
-            ($vert:expr, $geom:expr, $frag:expr) => {
-                shader!(x, $vert, Some(concat!("shaders/", $geom)), $frag)
+            ($name:expr, $vert:expr, $geom:expr, $frag:expr) => {
+                shader!(x, $name, $vert, Some(concat!("shaders/", $geom)), $frag)
             };
-            (rect, $frag:expr) => {
-                shader!("rect.vert", "rect.geom", $frag)
-            };
-            ($vert:expr, $frag:expr) => {
-                shader!(x, $vert, None, $frag)
+            ($name:expr,rect, $frag:expr) => {{
+                shader!($name, "rect.vert", "rect.geom", $frag)
+            }};
+            ($name:expr, $vert:expr, $frag:expr) => {
+                shader!(x, $name, $vert, None, $frag)
             };
         }
 
-        let pbr_program = shader!("shader.vert", "shader_pbr.frag");
-        let skybox_program = shader!("skybox.vert", "skybox.frag");
-        let blur_program = shader!(rect, "blur.frag");
-        let directional_shadow_program = shader!("shadow.vert", "shadow.frag");
+        let pbr_program = shader!("shader pbr", "shader.vert", "shader_pbr.frag");
+        let skybox_program = shader!("skybox", "skybox.vert", "skybox.frag");
+        let blur_program = shader!("blur", rect, "blur.frag");
+        let directional_shadow_program = shader!("shadow", "shadow.vert", "shadow.frag");
         let point_shadow_program = shader!(
+            "point shadow",
             "point_shadow.vert",
             "point_shadow.geom",
             "point_shadow.frag"
         );
-        let lighting_pbr_program = shader!(rect, "lighting_pbr.frag");
-        let hdr_program = shader!(rect, "hdr.frag");
-        let screen_program = shader!(rect, "screen.frag");
+        let lighting_pbr_program = shader!("lighting pbr", rect, "lighting_pbr.frag");
+        let hdr_program = shader!("hdr", rect, "hdr.frag");
+        let screen_program = shader!("screen", rect, "screen.frag");
 
         let rect = Pipeline::make_rect(vpin);
 
@@ -256,20 +283,40 @@ impl Pipeline {
     //         program.set_next_texture_slot(start_slot);
     //     }
     // }
-    pub fn render<'b, T>(
-        &mut self,
-        ppin: &mut ProgramPin,
-        vpin: &mut VertexArrayPin,
+    pub fn new_render<'b, 'a: 'b, T>(
+        &'a mut self,
         update_shadows: bool,
-        props: RenderProps,
+        props: RenderProps<'a>,
         render_objects: T,
-    ) where
+    ) -> Vec<GlCall<'a, HotShader>>
+    where
         T: Iterator<Item = &'b RenderObject>,
     {
+        let mut calls = Vec::with_capacity(451);
+
+        macro_rules! marker {
+            ($m:expr) => {
+                calls.push(GlCall::Marker($m))
+            };
+        }
+
+        macro_rules! uniforms {
+            ($($name:ident: $value:expr,)*) => {
+                vec![
+                    $((std::borrow::Cow::from(stringify!($name)), $value.into()),)*
+                ]
+            }
+        }
+
+        marker!("start");
+
+        calls.push(GlCall::SaveTextureSlot);
+
         let view = props.camera.get_view();
         let view_pos = props.camera.pos;
         let projection = props.camera.get_projection();
 
+        marker!("prepare scene_draw_calls");
         let mut scene_draw_calls_meshes: Vec<(&MeshRef, Option<&Material>, usize)> = {
             self.draw_calls.clear();
             for obj in render_objects {
@@ -294,6 +341,7 @@ impl Pipeline {
 
             scene_draw_calls_meshes
         };
+        marker!("more prep");
 
         let default_material = props
             .default_material
@@ -306,224 +354,314 @@ impl Pipeline {
             };
             ($fbo:expr, $program:expr, $func:ident) => {{
                 for (mesh_ref, material, transforms_i) in &mut scene_draw_calls_meshes {
-                    let start_slot = $program.next_texture_slot();
-                    if let Some(material) = material {
-                        material.bind(&self.meshes, &$program);
+                    calls.push(GlCall::SaveTextureSlot);
+                    let uniforms = if let Some(material) = material {
+                        material.bind_new(&self.meshes)
                     } else {
-                        default_material.bind(&self.meshes, &$program);
-                    }
+                        default_material.bind_new(&self.meshes)
+                    };
+                    calls.push(GlCall::Program(&$program, ProgramCall::Uniforms(uniforms)));
                     let mesh = self.meshes.get_mesh(&mesh_ref);
-                    let vbo = &mut self.vbo_cache[*transforms_i];
-                    mesh.bind(vpin)
-                        .draw_instanced(&$fbo, &$program, &vbo.bind());
-                    $program.set_next_texture_slot(start_slot);
+                    let vbo = &self.vbo_cache[*transforms_i];
+                    calls.push(GlCall::Draw(&$program, &$fbo, mesh.draw_instanced_new(vbo)));
+                    calls.push(GlCall::RestoreTextureSlot);
                 }
             }};
         };
 
         macro_rules! draw_rect {
-            ($fbo:expr, $program:expr) => {
-                self.rect
-                    .bind(vpin)
-                    .draw_arrays($fbo, $program, DrawMode::Points, 0, 1);
+            ($program:expr, $fbo:expr) => {
+                let d = DrawCall::Arrays(&self.rect, DrawMode::Points, 0, 1);
+                calls.push(GlCall::Draw($program, $fbo, d));
             };
         }
 
-        self.screen_target.set_viewport();
+        calls.push(self.screen_target.set_viewport());
 
         {
+            marker!("render geometry to g buffer");
             // Render geometry
-            let fbo = self.g.fbo.bind();
-            fbo.clear(Mask::ColorDepth);
-            let program = self.pbr_program.bind(ppin);
-            program
-                .bind_mat4("projection", projection)
-                .bind_mat4("view", view)
-                .bind_vec3("viewPos", view_pos)
-                .bind_float("time", props.time);
+            calls.push(GlCall::Framebuffer(
+                &self.g.fbo,
+                FramebufferCall::Clear(Mask::ColorDepth),
+            ));
 
-            default_material.bind(&self.meshes, &program);
+            let mut uniforms = uniforms!(
+                projection: projection,
+                view: view,
+                viewPos: view_pos,
+                time: props.time,
+            );
 
-            render_scene!(fbo, program);
+            uniforms.append(&mut default_material.bind_new(&self.meshes));
+
+            calls.push(GlCall::Program(
+                &self.pbr_program,
+                ProgramCall::Uniforms(uniforms),
+            ));
+
+            render_scene!(&self.g.fbo, &self.pbr_program);
         }
 
         {
             {
+                marker!("shadow directional lights");
                 // Render depth map for directional lights
-                let p = self.directional_shadow_program.bind(ppin);
-                unsafe {
-                    let (w, h) = ShadowMap::size();
-                    gl::Viewport(0, 0, w as i32, h as i32);
-                    gl::CullFace(gl::FRONT);
+                let (w, h) = ShadowMap::size();
+                calls.push(GlCall::Viewport(0, 0, w, h));
+                calls.push(GlCall::CullFace(gl::FRONT));
+
+                for light in props.directional_lights.iter() {
+                    calls.push(GlCall::SaveTextureSlot);
+                    let light_space = light.space(props.camera.pos);
+                    calls.push(GlCall::Framebuffer(
+                        &light.shadow_map.fbo,
+                        FramebufferCall::Clear(Mask::ColorDepth),
+                    ));
+                    calls.push(GlCall::Program(
+                        &self.directional_shadow_program,
+                        uniforms!(lightSpace: light_space,).into(),
+                    ));
+                    render_scene!(
+                        light.shadow_map.fbo,
+                        &self.directional_shadow_program,
+                        draw_geometry_instanced
+                    );
+                    calls.push(GlCall::RestoreTextureSlot);
                 }
-                for light in props.directional_lights.iter_mut() {
-                    let (fbo, light_space) = light.bind_shadow_map(props.camera.pos);
-                    fbo.clear(Mask::Depth);
-                    p.bind_mat4("lightSpace", light_space);
-                    render_scene!(fbo, p, draw_geometry_instanced);
-                }
-                unsafe {
-                    gl::CullFace(gl::BACK);
-                }
-                self.screen_target.set_viewport();
+
+                calls.push(GlCall::CullFace(gl::BACK));
+
+                calls.push(self.screen_target.set_viewport());
             }
+            marker!("shadow point lights");
             if update_shadows {
                 // Render depth map for point lights
-                unsafe {
-                    let (w, h) = PointShadowMap::size();
-                    gl::Viewport(0, 0, w as i32, h as i32);
-                    gl::CullFace(gl::FRONT);
-                }
-                let p = self.point_shadow_program.bind(ppin);
+                let (w, h) = PointShadowMap::size();
+                calls.push(GlCall::Viewport(0, 0, w, h));
+                calls.push(GlCall::CullFace(gl::FRONT));
+
                 for light in props.point_lights.iter_mut() {
-                    let far = if let Some(ref shadow_map) = light.shadow_map {
-                        shadow_map.far
+                    if light.shadow_map.is_some() {
+                        let position = light.position;
+                        light.last_shadow_map_position = position;
+                    }
+                }
+                for light in props.point_lights.iter() {
+                    let (far, fbo) = if let Some(ref shadow_map) = light.shadow_map {
+                        (shadow_map.far, &shadow_map.fbo)
                     } else {
                         continue;
                     };
                     let position = light.position;
-                    light.last_shadow_map_position = position;
-                    let (fbo, light_spaces) = light.bind_shadow_map().unwrap();
-                    fbo.clear(Mask::Depth);
-                    p.bind_mat4s("shadowMatrices", &light_spaces)
-                        .bind_vec3("lightPos", position)
-                        .bind_float("farPlane", far);
-                    render_scene!(fbo, p, draw_geometry_instanced);
+                    let light_spaces = light.space().unwrap();
+                    calls.push(GlCall::Framebuffer(
+                        &fbo,
+                        FramebufferCall::Clear(Mask::ColorDepth),
+                    ));
+                    let uniforms = uniforms!(
+                        shadowMatrices: light_spaces.to_vec(),
+                        lightPos: position,
+                        farPlane: far,
+                    );
+                    calls.push(GlCall::Program(&self.point_shadow_program, uniforms.into()));
+                    render_scene!(fbo, &self.point_shadow_program, draw_geometry_instanced);
                 }
-                unsafe {
-                    gl::CullFace(gl::BACK);
-                }
-                self.screen_target.set_viewport();
+
+                calls.push(GlCall::CullFace(gl::BACK));
+
+                calls.push(self.screen_target.set_viewport());
             }
         }
 
         {
+            marker!("render lighting");
             // Render lighting
-            let fbo = self.lighting_target.bind();
-            fbo.clear(Mask::ColorDepth);
+            calls.push(GlCall::SaveTextureSlot);
+            calls.push(GlCall::Framebuffer(
+                &self.lighting_target.framebuffer,
+                FramebufferCall::Clear(Mask::ColorDepth),
+            ));
 
-            let g = self.lighting_pbr_program.bind(ppin);
-
-            g.bind_texture("aPosition", &self.g.position)
-                .bind_texture("aNormal", &self.g.normal)
-                .bind_texture("aAlbedo", &self.g.albedo)
-                .bind_texture("aEmission", &self.g.emission)
-                .bind_texture("aMrao", &self.g.mrao)
-                .bind_float(
-                    "ambientIntensity",
+            let mut uniforms: Vec<(std::borrow::Cow<_>, _)> = uniforms!(
+                aPosition: &self.g.position,
+                aNormal: &self.g.normal,
+                aAlbedo: &self.g.albedo,
+                aEmission: &self.g.emission,
+                aMrao: &self.g.mrao,
+                ambientIntensity:
                     props
                         .ambient_intensity
-                        .unwrap_or_else(|| props.skybox_intensity.unwrap_or(0.0)),
-                )
-                .bind_texture("irradianceMap", &props.ibl.irradiance_map)
-                .bind_texture("prefilterMap", &props.ibl.prefilter_map)
-                .bind_texture("brdfLUT", &props.ibl.brdf_lut)
-                .bind_vec3("viewPos", view_pos);
-
-            let lights: &[_] = &props.directional_lights;
-
-            DirectionalLight::bind_multiple(
-                props.camera.pos,
-                lights,
-                "directionalLights",
-                "nrDirLights",
-                &g,
+                        .or(props.skybox_intensity)
+                        .unwrap_or(0.0),
+                irradianceMap: &props.ibl.irradiance_map,
+                prefilterMap: &props.ibl.prefilter_map,
+                brdfLUT: &props.ibl.brdf_lut,
+                viewPos: view_pos,
             );
 
-            PointLight::bind_multiple(props.point_lights, "pointLights", "nrPointLights", &g);
-            SpotLight::bind_multiple(props.spot_lights, "spotLights", "nrSpotLights", &g);
+            let mut a = DirectionalLight::bind_multiple_new(
+                props.camera.pos,
+                props.directional_lights,
+                "directionalLights",
+                "nrDirLights",
+            );
 
-            draw_rect!(&fbo, &g);
-            GlError::check().expect("Lighting pass failed");
+            let mut b =
+                PointLight::bind_multiple_new(props.point_lights, "pointLights", "nrPointLights");
+            let mut c =
+                SpotLight::bind_multiple_new(props.spot_lights, "spotLights", "nrSpotLights");
+
+            uniforms.append(&mut a);
+            uniforms.append(&mut b);
+            uniforms.append(&mut c);
+
+            calls.push(GlCall::Program(&self.lighting_pbr_program, uniforms.into()));
+
+            draw_rect!(
+                &self.lighting_pbr_program,
+                &self.lighting_target.framebuffer
+            );
+            calls.push(GlCall::RestoreTextureSlot);
         }
 
         // Skybox Pass
         {
+            marker!("skybox");
             // Copy z-buffer over from geometry pass
-            self.g
-                .blit_to(&mut self.lighting_target, Mask::Depth, gl::NEAREST)
+            calls.push(GlCall::Framebuffer(
+                &self.g.fbo,
+                FramebufferCall::BlitTo(
+                    &self.lighting_target.framebuffer,
+                    (0, 0, self.g.width, self.g.height),
+                    (
+                        0,
+                        0,
+                        self.lighting_target.width,
+                        self.lighting_target.height,
+                    ),
+                    Mask::Depth,
+                    gl::NEAREST,
+                ),
+            ));
         }
-        GlError::check().unwrap();
+
         {
+            calls.push(GlCall::SaveTextureSlot);
             // Render skybox
-            let fbo = self.lighting_target.bind();
-            unsafe {
-                gl::DepthFunc(gl::LEQUAL);
-                gl::Disable(gl::CULL_FACE);
-            }
-            let program = self.skybox_program.bind(ppin);
+            calls.push(GlCall::DepthFunc(gl::LEQUAL));
+            calls.push(GlCall::Disable(gl::CULL_FACE));
+
             let mut view = view.clone();
             view.w = V4::new(0.0, 0.0, 0.0, 0.0);
-            program
-                .bind_mat4("projection", projection)
-                .bind_mat4("view", view)
-                .bind_float(
-                    "skyboxIntensity",
+            let uniforms = uniforms!(
+                projection: projection,
+                view: view,
+                skyboxIntensity:
                     props
                         .skybox_intensity
-                        .unwrap_or_else(|| props.ambient_intensity.unwrap_or(0.0)),
-                )
-                .bind_texture("skybox", &props.ibl.cubemap);
-            let cube_ref = self.meshes.get_cube(vpin);
-            self.meshes
-                .get_mesh(&cube_ref)
-                .bind(vpin)
-                .draw(&fbo, &program);
-            unsafe {
-                gl::DepthFunc(gl::LESS);
-                gl::Enable(gl::CULL_FACE);
-            }
+                        .or(props.ambient_intensity)
+                        .unwrap_or(0.0),
+                skybox: &props.ibl.cubemap,
+            );
+            calls.push(GlCall::Program(&self.skybox_program, uniforms.into()));
+
+            calls.push(GlCall::Draw(
+                &self.skybox_program,
+                &self.lighting_target.framebuffer,
+                props.cube_mesh.draw_new(),
+            ));
+
+            calls.push(GlCall::DepthFunc(gl::LESS));
+            calls.push(GlCall::Enable(gl::CULL_FACE));
+            calls.push(GlCall::RestoreTextureSlot);
         }
 
         // Blur passes
-        {
-            let passes = self.blur_targets.iter_mut();
+        if false {
+            marker!("blur");
+            calls.push(GlCall::SaveTextureSlot);
+            let passes = self.blur_targets.iter();
             let size = self.lighting_target.width as f32;
             let mut prev = &self.lighting_target;
 
             for next in passes {
-                next.set_viewport();
+                calls.push(next.set_viewport());
                 let scale = size / next.width as f32;
                 {
-                    let fbo = next.bind();
-                    fbo.clear(Mask::ColorDepth);
+                    calls.push(GlCall::Framebuffer(
+                        &next.framebuffer,
+                        FramebufferCall::Clear(Mask::ColorDepth),
+                    ));
 
-                    let blur = self.blur_program.bind(ppin);
-                    blur.bind_texture("tex", &prev.texture)
-                        .bind_float("scale", scale);
-                    draw_rect!(&fbo, &blur);
+                    let uniforms = uniforms!(
+                        tex: &prev.texture,
+                        scale: scale,
+                    );
+                    calls.push(GlCall::Program(&self.blur_program, uniforms.into()));
+
+                    draw_rect!(&self.blur_program, &next.framebuffer);
                 }
 
                 prev = next;
             }
-            self.screen_target.set_viewport();
+            calls.push(self.screen_target.set_viewport());
+            calls.push(GlCall::RestoreTextureSlot);
         }
 
         // HDR/Screen Pass
         {
-            let fbo = self.screen_target.bind();
-            fbo.clear(Mask::ColorDepth);
+            marker!("hdr");
+            calls.push(GlCall::SaveTextureSlot);
+            calls.push(GlCall::Framebuffer(
+                &self.screen_target.framebuffer,
+                FramebufferCall::Clear(Mask::ColorDepth),
+            ));
 
-            let hdr = self.hdr_program.bind(ppin);
-            hdr.bind_texture("hdrBuffer", &self.lighting_target.texture)
-                .bind_float("time", props.time)
-                .bind_textures("blur", self.blur_targets.iter().map(|t| &t.texture));
+            let uniforms = uniforms!(
+                hdrBuffer: &self.lighting_target.texture,
+                time: props.time,
+                blur: UniformValue::Textures(
+                    self.blur_targets
+                        .iter()
+                        .map(|t| &t.texture)
+                        .collect::<Vec<_>>(),
+                ),
+            );
+            calls.push(GlCall::Program(&self.hdr_program, uniforms.into()));
 
-            draw_rect!(&fbo, &hdr);
+            draw_rect!(&self.hdr_program, &self.screen_target.framebuffer);
+            calls.push(GlCall::RestoreTextureSlot);
         }
 
         // HiDPI Pass
         {
-            self.screen_target.set_viewport();
-            let fbo = self.window_fbo.bind();
-            fbo.clear(Mask::ColorDepth);
+            marker!("screen");
+            calls.push(GlCall::SaveTextureSlot);
+            calls.push(self.screen_target.set_viewport());
 
-            let screen = self.screen_program.bind(ppin);
-            screen.bind_texture("display", &self.screen_target.texture);
+            calls.push(GlCall::Framebuffer(
+                &self.window_fbo,
+                FramebufferCall::Clear(Mask::ColorDepth),
+            ));
 
-            draw_rect!(&fbo, &screen);
+            let uniforms = uniforms!(
+                display: &self.screen_target.texture,
+            );
+            calls.push(GlCall::Program(&self.screen_program, uniforms.into()));
+
+            draw_rect!(&self.screen_program, &self.window_fbo);
+            calls.push(GlCall::RestoreTextureSlot);
         }
 
         self.warmy_store.sync(&mut ());
+
+        calls.push(GlCall::RestoreTextureSlot);
+
+        marker!("done!");
+
+        println!("number of calls: {:?}", calls.len());
+
+        calls
     }
 }

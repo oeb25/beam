@@ -9,15 +9,19 @@ use types::{GlError, GlType};
 #[derive(Debug)]
 pub struct VertexArrayPin;
 
-#[derive(Debug)]
-pub struct VertexArray(gl::types::GLuint);
+#[derive(Debug, PartialEq)]
+pub struct VertexArray {
+    pub id: gl::types::GLuint,
+}
 
 impl VertexArray {
     pub fn new() -> VertexArray {
         unsafe {
-            let mut vao = mem::uninitialized();
-            gl::GenVertexArrays(1, &mut vao);
-            VertexArray(vao)
+            let mut id = mem::uninitialized();
+            gl::GenVertexArrays(1, &mut id);
+            VertexArray {
+                id
+            }
         }
     }
     pub unsafe fn get_pin() -> VertexArrayPin {
@@ -59,7 +63,7 @@ pub struct VertexArrayBinder<'a>(&'a VertexArray, &'a mut VertexArrayPin);
 impl<'a> VertexArrayBinder<'a> {
     pub fn new(vao: &'a VertexArray, vpin: &'a mut VertexArrayPin) -> VertexArrayBinder<'a> {
         unsafe {
-            gl::BindVertexArray(vao.0);
+            gl::BindVertexArray(vao.id);
         }
         VertexArrayBinder(vao, vpin)
     }

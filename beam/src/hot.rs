@@ -73,12 +73,12 @@ impl<C> warmy::Load<C> for FromFS {
 
 #[derive(Clone, Hash)]
 pub struct ShaderSrc<'a> {
+    pub name: String,
     pub vert: Cow<'a, str>,
     pub geom: Option<Cow<'a, str>>,
     pub frag: Cow<'a, str>,
 }
 
-#[derive(Debug)]
 pub struct MyShader {
     pub vert: String,
     pub frag: String,
@@ -86,12 +86,24 @@ pub struct MyShader {
     pub deps: Vec<warmy::DepKey>,
 }
 
+impl std::cmp::PartialEq for MyShader {
+    fn eq(&self, rhs: &MyShader) -> bool {
+        self.program == rhs.program
+    }
+}
+
+impl std::fmt::Debug for MyShader {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        write!(fmt, "{:?}", self.program)
+    }
+}
+
 impl<'a> Into<warmy::key::LogicalKey> for ShaderSrc<'a> {
     fn into(self) -> warmy::key::LogicalKey {
-        let mut p = self.vert.to_owned() + "," + self.frag;
+        let mut p = self.name.to_owned() + "," + &self.vert + "," + &self.frag;
         if let Some(q) = self.geom {
             p += ",";
-            p += q;
+            p += &q;
         }
         warmy::key::LogicalKey::new(p)
     }
@@ -108,6 +120,7 @@ impl<C> warmy::Load<C> for MyShader {
         ctx: &mut C,
     ) -> Result<warmy::Loaded<Self>, Self::Error> {
         let mut deps = key.as_str().split(',');
+        let name = deps.next().unwrap();
         let vert = deps.next().unwrap();
         let frag = deps.next().unwrap();
         let geom = deps.next();
@@ -145,7 +158,7 @@ impl<C> warmy::Load<C> for MyShader {
         let frag_src = format!("#version {}\n{}", version, &frag.src);
         let geom_src = geom.map(|geom| format!("#version {}\n{}", version, &geom.src));
 
-        let program = mg::Program::new_from_src(
+        let mut program = mg::Program::new_from_src(
             &vert_src,
             match &geom_src {
                 Some(x) => Some(x),
@@ -153,6 +166,8 @@ impl<C> warmy::Load<C> for MyShader {
             },
             &frag_src,
         ).expect("unable to create program");
+
+        program.set_name(name.to_owned());
 
         let res = MyShader {
             vert: vert_src,

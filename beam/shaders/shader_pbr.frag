@@ -39,6 +39,7 @@ uniform vec3 viewPos;
 
 void main() {
     #define tex(fn, name) (use_mat_##name ? mat_##name : fn(texture(tex_##name, fs_in.TexCoords)))
+    // #define tex(fn, name) (mat_##name)
 
     vec3 norm = tex(vec3, normal);
     norm = normalize(norm * 2.0 - 1.0);
