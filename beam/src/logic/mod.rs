@@ -255,7 +255,7 @@ impl Game {
     pub fn new() -> Game {
         let owl = Entity {
             pos: Pos(5, 4),
-            kind: EntityKind::Owl,
+            kind: EntityKind::Penguin,
             direction: Direction::Up,
         };
         let mut game = Game {

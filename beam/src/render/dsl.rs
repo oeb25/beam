@@ -1,17 +1,17 @@
 use gl;
 use mg::{
     BufferKind, DrawMode, Framebuffer, FramebufferTarget, GlError, GlType, Mask, Program, Texture,
-    TextureSlot, VertexArray, VertexBuffer,
+    TextureSlot, UniformLocation, VertexArray, VertexBuffer,
 };
 use misc::{Cacher, Mat4, V3};
-use std::{self, borrow::Cow};
+use std::{self, borrow::Cow, collections::BTreeMap, marker::PhantomData};
 use time::PreciseTime;
 
 pub type Mat4g = [[f32; 4]; 4];
 
 type Rect = (u32, u32, u32, u32);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum FramebufferCall<'a> {
     Clear(Mask),
     BlitTo(&'a Framebuffer, Rect, Rect, Mask, u32),
@@ -22,6 +22,7 @@ pub enum UniformValue<'a> {
     Bool(bool),
     Float(f32),
     Int(i32),
+    Ints(Vec<i32>),
     Vec3([f32; 3]),
     Mat4([[f32; 4]; 4]),
     Mat4s(Vec<[[f32; 4]; 4]>),
@@ -30,26 +31,42 @@ pub enum UniformValue<'a> {
 }
 
 impl<'a> UniformValue<'a> {
-    fn bind(self, loc: i32, texture_slots: &mut TextureSlots<'a>) {
+    fn bind(self, location: UniformLocation, texture_slots: &mut TextureSlots<'a>) {
+        let loc = location.into();
         use self::UniformValue::*;
         match self {
-            Bool(b) => Int(if b { 1 } else { 0 }).bind(loc, texture_slots),
+            Bool(b) => Int(if b { 1 } else { 0 }).bind(location, texture_slots),
             Float(f) => unsafe { gl::Uniform1f(loc, f) },
             Int(i) => unsafe { gl::Uniform1i(loc, i) },
+            Ints(i) => unsafe { gl::Uniform1iv(loc, i.len() as i32, i.as_ptr() as *const _) },
             Vec3(v) => unsafe { gl::Uniform3f(loc, v[0], v[1], v[2]) },
-            Mat4(m) => Mat4s(vec![m]).bind(loc, texture_slots), // TODO: avoid allocation
+            Mat4(m) => unsafe {
+                gl::UniformMatrix4fv(loc, 1, gl::FALSE, &m as *const _ as *const _);
+            },
             Mat4s(mats) => unsafe {
                 gl::UniformMatrix4fv(loc, mats.len() as i32, gl::FALSE, mats.as_ptr() as *const _);
             },
             Texture(tex) => {
                 let slot = texture_slots.get_slot(tex);
-                tex.bind_to(slot);
-                Int(slot.into()).bind(loc, texture_slots);
+                unsafe {
+                    gl::ActiveTexture(slot.into());
+                    gl::BindTexture(tex.kind.into(), tex.id);
+                }
+                Int(slot.into()).bind(location, texture_slots);
             }
             Textures(texs) => {
-                for tex in texs.into_iter() {
-                    Texture(tex).bind(loc, texture_slots);
-                }
+                let slots = texs
+                    .into_iter()
+                    .map(|tex| {
+                        let slot = texture_slots.get_slot(tex);
+                        unsafe {
+                            gl::ActiveTexture(slot.into());
+                            gl::BindTexture(tex.kind.into(), tex.id);
+                        }
+                        slot.into()
+                    })
+                    .collect();
+                Ints(slots).bind(location, texture_slots)
             }
         }
     }
@@ -97,17 +114,17 @@ impl<'a> Into<ProgramCall<'a>> for Vec<(&'a str, UniformValue<'a>)> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ProgramCall<'a> {
     Uniforms(Vec<(Cow<'a, str>, UniformValue<'a>)>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum VertexBufferCall<'a> {
     Transforms(Cow<'a, Mat4g>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum DrawCall<'a> {
     Arrays(&'a VertexArray, DrawMode, usize, usize),
     ArraysInstanced(
@@ -119,7 +136,7 @@ pub enum DrawCall<'a> {
     ),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum GlCall<'a, TProgram: 'a> {
     Marker(&'static str),
     Viewport(u32, u32, u32, u32),
@@ -137,6 +154,7 @@ pub enum GlCall<'a, TProgram: 'a> {
 
 pub trait ProgramLike {
     fn id(&self) -> u32;
+    fn get_uniform_location(&self, name: &str) -> UniformLocation;
 }
 
 #[derive(Debug)]
@@ -358,17 +376,19 @@ impl<'a, T: std::cmp::PartialEq + std::fmt::Debug> VboState<'a, T> {
 
 #[derive(Debug)]
 struct TextureSlots<'a> {
-    slots: [Option<&'a Texture>; 16],
+    slots: [u32; 16],
     current_index: usize,
     previous_indices: Vec<usize>,
+    phantom: PhantomData<&'a Texture>,
 }
 
 impl<'a> TextureSlots<'a> {
     fn new() -> TextureSlots<'a> {
         TextureSlots {
-            slots: [None; 16],
+            slots: [0; 16],
             current_index: 0,
             previous_indices: vec![],
+            phantom: PhantomData,
         }
     }
     fn save(&mut self) {
@@ -379,15 +399,47 @@ impl<'a> TextureSlots<'a> {
     }
     fn get_slot(&mut self, tex: &'a Texture) -> TextureSlot {
         for i in 0..self.current_index {
-            if self.slots[i] == Some(tex) {
+            if self.slots[i] == tex.id {
                 return i.into();
             }
         }
 
-        self.slots[self.current_index] = Some(tex);
+        self.slots[self.current_index] = tex.id;
         let slot = self.current_index.into();
         self.current_index += 1;
         slot
+    }
+}
+
+#[derive(Debug)]
+struct UniformLocationCache<'a>(BTreeMap<(u32, Cow<'a, str>), UniformLocation>);
+
+impl<'a> UniformLocationCache<'a> {
+    fn new() -> UniformLocationCache<'a> {
+        UniformLocationCache(BTreeMap::new())
+    }
+
+    fn get_location<P: ProgramLike>(
+        &mut self,
+        program: &'a P,
+        name: Cow<'a, str>,
+    ) -> UniformLocation {
+        let ask_gl = || program.get_uniform_location(&*name);
+
+        let use_cache = false;
+        if use_cache {
+            let key = (program.id(), name.clone());
+            match self.0.get(&key) {
+                Some(loc) => *loc,
+                None => {
+                    let loc = ask_gl();
+                    self.0.insert(key, loc);
+                    loc
+                }
+            }
+        } else {
+            ask_gl()
+        }
     }
 }
 
@@ -404,7 +456,7 @@ struct ExecutionState<'a, T: 'a + ProgramLike> {
     vao_state: VaoState<'a>,
     vbo_state: VboState<'a, Mat4g>,
 
-    uniform_cache: Cacher<(u32, Cow<'a, str>), i32>,
+    uniform_cache: UniformLocationCache<'a>,
 
     texture_slots: TextureSlots<'a>,
 }
@@ -426,7 +478,7 @@ impl<'a, T: ProgramLike> ExecutionState<'a, T> {
             vao_state: VaoState(None),
             vbo_state: VboState(None),
 
-            uniform_cache: Cacher::new(),
+            uniform_cache: UniformLocationCache::new(),
 
             texture_slots: TextureSlots::new(),
         }
@@ -438,6 +490,8 @@ where
     Calls: Iterator<Item = GlCall<'a, Program>>,
     Program: 'a + std::fmt::Debug + std::cmp::PartialEq + ProgramLike,
 {
+    let monitor = false;
+
     GlError::check().expect("before execute");
 
     let mut state = ExecutionState::new();
@@ -449,19 +503,24 @@ where
     state.cull_face.request(gl::BACK);
     state.depth_func.request(gl::LESS);
 
-    let mut uniform_cache_fetch = 0;
-    let mut uniform_cache_total = 0;
-
     // Executor
     for call in calls {
-        let call_str = format!("{:?}", call);
+        let call_str = if monitor {
+            format!("{:?}", call)
+        } else {
+            "".to_owned()
+        };
 
         match call {
             GlCall::Marker(name) => {
-                unsafe {
-                    gl::Finish();
+                // This is usefull for checking run time specific parts of the renderer,
+                // but does lead to a couple of extra millis added, sometimes even 2x.
+                if monitor {
+                    unsafe {
+                        gl::Finish();
+                    }
+                    timings.push((name, PreciseTime::now()));
                 }
-                timings.push((name, PreciseTime::now()));
             }
             GlCall::Viewport(x, y, w, h) => {
                 state.viewport.request((x, y, w, h));
@@ -513,84 +572,54 @@ where
                 ProgramCall::Uniforms(uniforms) => {
                     state.program.bind(p);
                     for (name, value) in uniforms.into_iter() {
-                        uniform_cache_total += 1;
-                        let loc = if false {
-                            *state
-                                .uniform_cache
-                                .get_or_insert_with((p.id(), name.clone()), || {
-                                    uniform_cache_fetch += 1;
-                                    let loc =
-                                        unsafe {
-                                            gl::GetUniformLocation(
-                                        p.id(),
-                                        std::ffi::CString::new(&*name)
-                                            .expect("unable to create a CString from passed str")
-                                            .as_ptr(),
-                                    )
-                                        };
-                                    loc
-                                })
-                        } else {
-                            unsafe {
-                                gl::GetUniformLocation(
-                                    p.id(),
-                                    std::ffi::CString::new(&*name)
-                                        .expect("unable to create a CString from passed str")
-                                        .as_ptr(),
-                                )
-                            }
-                        };
+                        let loc = state.uniform_cache.get_location(p, name);
                         value.bind(loc, &mut state.texture_slots);
                     }
                 }
             },
-            GlCall::Draw(p, fbo, draw_call) => match draw_call {
-                DrawCall::ArraysInstanced(vao, mode, first, count, vbo) => {
-                    state.vao_state.bind(vao);
-                    state.vbo_state.bind(vbo);
+            GlCall::Draw(p, fbo, draw_call) => {
+                state.framebuffer.draw(fbo);
+                state.program.bind(p);
+                state.viewport.set();
+                state.cull_face.set();
+                state.depth_func.set();
 
-                    let offset = 5;
-                    let width = 4;
-                    for i in 0..width {
-                        let index = i + offset;
-                        state.vao_state.vbo_attrib(
-                            &vbo,
-                            index,
-                            width,
-                            width * i * std::mem::size_of::<f32>(),
-                        );
-                        state.vao_state.attrib_divisor(index, 1);
+                match draw_call {
+                    DrawCall::ArraysInstanced(vao, mode, first, count, vbo) => {
+                        state.vao_state.bind(vao);
+                        state.vbo_state.bind(vbo);
+
+                        const FLOAT_SIZE: usize = std::mem::size_of::<f32>();
+                        const OFFSET: usize = 5;
+                        const WIDTH: usize = 4;
+                        for i in 0..WIDTH {
+                            let index = i + OFFSET;
+                            state
+                                .vao_state
+                                .vbo_attrib(&vbo, index, WIDTH, WIDTH * FLOAT_SIZE * i);
+                            state.vao_state.attrib_divisor(index, 1);
+                        }
+                        state.vbo_state.unbind();
+
+                        unsafe {
+                            gl::DrawArraysInstanced(
+                                mode.into(),
+                                first as i32,
+                                count as i32,
+                                vbo.len() as i32,
+                            );
+                        }
                     }
-                    state.vbo_state.unbind();
+                    DrawCall::Arrays(vao, mode, first, count) => {
+                        state.vao_state.bind(vao);
+                        state.vbo_state.unbind();
 
-                    state.framebuffer.draw(fbo);
-                    state.program.bind(p);
-                    state.viewport.set();
-                    state.cull_face.set();
-                    state.depth_func.set();
-                    unsafe {
-                        gl::DrawArraysInstanced(
-                            mode.into(),
-                            first as i32,
-                            count as i32,
-                            vbo.len() as i32,
-                        );
-                    }
-                }
-                DrawCall::Arrays(vao, mode, first, count) => {
-                    state.vao_state.bind(vao);
-                    state.vbo_state.unbind();
-
-                    state.framebuffer.draw(fbo);
-                    state.program.bind(p);
-                    state.viewport.set();
-                    state.cull_face.set();
-                    state.depth_func.set();
-                    unsafe {
-                        gl::DrawArrays(mode.into(), first as i32, count as i32);
+                        unsafe {
+                            gl::DrawArrays(mode.into(), first as i32, count as i32);
+                        }
                     }
                 }
-            },
+            }
             x => unimplemented!("{:?}", x),
         }
         if let Err(e) = GlError::check() {
@@ -599,29 +628,26 @@ where
         }
     }
 
-    println!(
-        "unifom cache: {}/{}",
-        uniform_cache_fetch, uniform_cache_total
-    );
+    if monitor {
+        println!("# Render timings");
+        for ab in timings.windows(2) {
+            let a = ab[0];
+            let b = ab[1];
 
-    println!("# Render timings");
-    for ab in timings.windows(2) {
-        let a = ab[0];
-        let b = ab[1];
-
+            println!(
+                "{:30.}: {:3.5}ms",
+                a.0,
+                a.1.to(b.1).num_nanoseconds().unwrap() as f32 * 0.000001
+            );
+        }
         println!(
             "{:30.}: {:3.5}ms",
-            a.0,
-            a.1.to(b.1).num_nanoseconds().unwrap() as f32 * 0.000001
+            "total",
+            timings[0]
+                .1
+                .to(timings[timings.len() - 1].1)
+                .num_nanoseconds()
+                .unwrap() as f32 * 0.000001
         );
     }
-    println!(
-        "{:30.}: {:3.5}ms",
-        "total",
-        timings[0]
-            .1
-            .to(timings[timings.len() - 1].1)
-            .num_nanoseconds()
-            .unwrap() as f32 * 0.000001
-    );
 }

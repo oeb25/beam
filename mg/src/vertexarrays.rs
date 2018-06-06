@@ -19,9 +19,7 @@ impl VertexArray {
         unsafe {
             let mut id = mem::uninitialized();
             gl::GenVertexArrays(1, &mut id);
-            VertexArray {
-                id
-            }
+            VertexArray { id }
         }
     }
     pub unsafe fn get_pin() -> VertexArrayPin {
@@ -77,7 +75,7 @@ impl<'a> VertexArrayBinder<'a> {
     ) -> &VertexArrayBinder
     where
         T: FramebufferBinderDrawer,
-        S: ProgramBind
+        S: ProgramBind,
     {
         unsafe {
             gl::DrawArrays(mode.into(), first as i32, count as i32);

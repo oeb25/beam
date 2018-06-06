@@ -273,6 +273,9 @@ fn main() -> Result<(), Error> {
 
     let mut pipeline = assets.to_pipeline(w, h, hidpi_factor);
 
+    let mut total_time: f64 = 0.0;
+    let mut ticks = 0;
+
     while running {
         let mut timings = vec![];
 
@@ -485,12 +488,6 @@ fn main() -> Result<(), Error> {
                 render_objects.iter(),
             );
 
-            marker!("complete gen render calls");
-
-            unsafe {
-                gl::Finish();
-            }
-
             marker!("render exec");
 
             render::dsl::execute(calls.into_iter());
@@ -513,15 +510,26 @@ fn main() -> Result<(), Error> {
                 a.1.to(b.1).num_nanoseconds().unwrap() as f32 * 0.000001
             );
         }
+        let total = timings[0]
+            .1
+            .to(timings[timings.len() - 1].1)
+            .num_nanoseconds()
+            .unwrap() as f32 * 0.000001;
+        total_time += total as f64;
+        ticks += 1;
+
         println!(
-            "{:30.}: {:3.5}ms",
+            "{:30.}: {:3.5}ms / avg: {:3.5}ms over last {} frames",
             "total",
-            timings[0]
-                .1
-                .to(timings[timings.len() - 1].1)
-                .num_nanoseconds()
-                .unwrap() as f32 * 0.000001
+            total,
+            total_time / ticks as f64,
+            ticks
         );
+
+        if ticks > 60 * 5 {
+            total_time = 0.0;
+            ticks = 0;
+        }
     }
 
     println!("Complete");

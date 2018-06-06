@@ -2,7 +2,7 @@ use gl;
 
 use types::GlError;
 
-use std::{self, mem, os, ptr, marker::PhantomData};
+use std::{self, marker::PhantomData, mem, os, ptr};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BufferKind {
@@ -246,7 +246,7 @@ pub struct UniformBuffer<T: glsl_layout::Uniform> {
 impl<T> UniformBuffer<T>
 where
     T: glsl_layout::Uniform,
-    <T as glsl_layout::Uniform>::Std140: std::fmt::Debug
+    <T as glsl_layout::Uniform>::Std140: std::fmt::Debug,
 {
     pub fn new(data: &T) -> UniformBuffer<T> {
         let mut ubo = UniformBuffer {
@@ -257,9 +257,7 @@ where
         ubo
     }
     pub fn bind_buffer_base(&self, index: u32) {
-        unsafe {
-            gl::BindBufferBase(BufferKind::Uniform.into(), index, self.buffer.id)
-        }
+        unsafe { gl::BindBufferBase(BufferKind::Uniform.into(), index, self.buffer.id) }
     }
     pub fn bind(&mut self) -> UniformBufferBinder<T> {
         UniformBufferBinder::new(self)
@@ -271,7 +269,7 @@ pub struct UniformBufferBinder<'a, T: glsl_layout::Uniform>(BufferBinder<'a>, Ph
 impl<'a, T> UniformBufferBinder<'a, T>
 where
     T: glsl_layout::Uniform,
-    <T as glsl_layout::Uniform>::Std140: std::fmt::Debug
+    <T as glsl_layout::Uniform>::Std140: std::fmt::Debug,
 {
     pub fn new(ubo: &'a mut UniformBuffer<T>) -> UniformBufferBinder<'a, T> {
         UniformBufferBinder(ubo.buffer.bind(), PhantomData)
