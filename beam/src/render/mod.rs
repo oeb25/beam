@@ -5,17 +5,20 @@ pub mod mesh;
 pub mod primitives;
 pub mod store;
 
+use crate::render::dsl::{GlCall, ProgramLike};
+pub use crate::render::materials::*;
 use cgmath::{self, InnerSpace, Rad};
 use collada;
 use gl;
 use image;
-use render::dsl::{GlCall, ProgramLike};
-pub use render::materials::*;
 
 use failure::{Error, ResultExt};
 
 use std::{
-    self, cell::RefCell, collections::{BTreeMap, HashMap}, path::Path,
+    self,
+    cell::RefCell,
+    collections::{BTreeMap, HashMap},
+    path::Path,
 };
 
 use mg::{
@@ -25,9 +28,9 @@ use mg::{
     TextureParameter, TextureTarget, VertexArrayPin,
 };
 
-use mesh::{calculate_tangent_and_bitangent, Mesh};
-use misc::{v3, v4, Cacher, Mat4, P3, V3, V4, Vertex};
-use render::store::MeshRef;
+use crate::mesh::{calculate_tangent_and_bitangent, Mesh};
+use crate::misc::{v3, v4, Cacher, Mat4, Vertex, P3, V3, V4};
+use crate::render::store::MeshRef;
 
 #[allow(unused)]
 #[derive(Debug, Clone)]
@@ -453,10 +456,11 @@ where
             tex.parameter_int(TextureParameter::MinFilter, gl::LINEAR_MIPMAP_LINEAR as i32)
         } else {
             tex.parameter_int(TextureParameter::MinFilter, gl::LINEAR as i32)
-        }.parameter_int(TextureParameter::MagFilter, gl::LINEAR as i32)
-            .parameter_int(TextureParameter::WrapS, gl::CLAMP_TO_EDGE as i32)
-            .parameter_int(TextureParameter::WrapT, gl::CLAMP_TO_EDGE as i32)
-            .parameter_int(TextureParameter::WrapR, gl::CLAMP_TO_EDGE as i32);
+        }
+        .parameter_int(TextureParameter::MagFilter, gl::LINEAR as i32)
+        .parameter_int(TextureParameter::WrapS, gl::CLAMP_TO_EDGE as i32)
+        .parameter_int(TextureParameter::WrapT, gl::CLAMP_TO_EDGE as i32)
+        .parameter_int(TextureParameter::WrapR, gl::CLAMP_TO_EDGE as i32);
 
         if mip_levels > 1 {
             unsafe {
@@ -477,7 +481,8 @@ where
         aspect: 1.0,
         near: 0.1,
         far: 10.0,
-    }.into();
+    }
+    .into();
 
     let origo = P3::new(0.0, 0.0, 0.0);
     let lp = origo;
@@ -611,7 +616,8 @@ impl Camera {
             aspect: self.aspect,
             near: 0.1,
             far: 100.0,
-        }.into()
+        }
+        .into()
     }
 }
 

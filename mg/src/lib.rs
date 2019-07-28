@@ -1,19 +1,17 @@
-#![feature(transpose_result)]
-
 extern crate gl;
 extern crate glsl_layout;
 extern crate image;
 
-pub mod types;
 pub mod buffers;
-pub mod vertexarrays;
-pub mod textures;
 pub mod framebuffers;
 pub mod shaders;
+pub mod textures;
+pub mod types;
+pub mod vertexarrays;
 
-pub use types::*;
-pub use buffers::*;
-pub use vertexarrays::*;
-pub use textures::*;
-pub use framebuffers::*;
-pub use shaders::*;
+pub use crate::buffers::*;
+pub use crate::framebuffers::*;
+pub use crate::shaders::*;
+pub use crate::textures::*;
+pub use crate::types::*;
+pub use crate::vertexarrays::*;

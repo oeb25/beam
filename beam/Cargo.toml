@@ -2,10 +2,11 @@
 name = "beam"
 version = "0.1.0"
 authors = ["oeb"]
+edition = "2018"
 
 [dependencies]
-gl = "0.10"
-glutin = "0.15"
+gl = "0.13"
+glutin = "0.21"
 cgmath = "0.16.1"
 image = "0.19"
 time = "0.1"

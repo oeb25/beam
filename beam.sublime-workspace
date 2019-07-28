@@ -1,1 +1,2582 @@
-{}
+{
+	"auto_complete":
+	{
+		"selected_items":
+		[
+			[
+				"std",
+				"std140"
+			],
+			[
+				"buffer",
+				"buffer_data"
+			],
+			[
+				"Mate",
+				"MaterialBinding"
+			],
+			[
+				"Rende",
+				"RenderObjectChild"
+			],
+			[
+				"Tex",
+				"TextureRef"
+			],
+			[
+				"ow",
+				"Owl"
+			],
+			[
+				"new",
+				"new_pos"
+			],
+			[
+				"move",
+				"move_by"
+			],
+			[
+				"Enti",
+				"EntityKind"
+			],
+			[
+				"Map",
+				"MapRow"
+			],
+			[
+				"sphere",
+				"sphere_ref"
+			],
+			[
+				"conca",
+				"concat_idents"
+			],
+			[
+				"norma",
+				"normal"
+			],
+			[
+				"def",
+				"def_mat"
+			],
+			[
+				"prin",
+				"println\tprintln!(…)"
+			],
+			[
+				"tex",
+				"Texture"
+			],
+			[
+				"Materia",
+				"MaterialProp"
+			],
+			[
+				"VEc",
+				"VecDeque"
+			],
+			[
+				"material",
+				"Material"
+			],
+			[
+				"Mater",
+				"MaterialRef"
+			],
+			[
+				"defa",
+				"default_material_ref"
+			],
+			[
+				"mrao",
+				"mrao_key"
+			],
+			[
+				"Gl",
+				"GlType"
+			],
+			[
+				"new_",
+				"new_with_format"
+			],
+			[
+				"Render",
+				"RenderTarget"
+			],
+			[
+				"mra",
+				"mrao_cache"
+			],
+			[
+				"bake",
+				"bake_program"
+			],
+			[
+				"pre",
+				"preprocess"
+			],
+			[
+				"Material",
+				"MaterialBind"
+			],
+			[
+				"Materi",
+				"MaterialBuilder"
+			],
+			[
+				"MaterialB",
+				"MaterialBind"
+			],
+			[
+				"MAte",
+				"MaterialBuilder"
+			],
+			[
+				"M",
+				"MaterialRef"
+			],
+			[
+				"Ver",
+				"VertexArrayPin"
+			],
+			[
+				"Vertaa",
+				"VertexArrayPin"
+			],
+			[
+				"Vertex",
+				"VertexArrayPin"
+			],
+			[
+				"Verte",
+				"VertexArrayPin"
+			],
+			[
+				"Mes",
+				"MeshStore"
+			],
+			[
+				"to",
+				"to_pipeline\t  pub fn to_pipeline(self, w: u32, h: u32, hidpi_factor: f32) -> Pipeline<'a>"
+			],
+			[
+				"Ass",
+				"AssetBuilder\t  pub struct AssetBuilder<'a>"
+			],
+			[
+				"Geom",
+				"geom_src"
+			],
+			[
+				"Prog",
+				"Program\t  pub struct Program"
+			],
+			[
+				"Texture",
+				"TextureSlot\t  pub enum TextureSlot {"
+			],
+			[
+				"Progra",
+				"ProgramBind\t  pub trait ProgramBind: Sized"
+			],
+			[
+				"cube",
+				"cubemap_from_equirectangular\t  pub fn cubemap_from_equirectangular<F, P>(size: u32, program: &P, render_cube: F) -> Texture where F: FnMut(&FramebufferBinderReadDraw, &P), P: ProgramBind,"
+			],
+			[
+				"crea",
+				"create_irradiance_map\t  pub fn create_irradiance_map<F, P>(size: u32, program: &P, render_cube: F) -> Texture where F: FnMut(&FramebufferBinderReadDraw, &P), P: ProgramBind,"
+			],
+			[
+				"create",
+				"create_prefiler_map\t  pub fn create_prefiler_map<F, P>(size: u32, program: &P, render_cube: F) -> Texture where F: FnMut(&FramebufferBinderReadDraw, &P), P: ProgramBind,"
+			],
+			[
+				"rgb_",
+				"rgb_texture\t  pub fn rgb_texture(&mut self, color: V3) -> TextureRef"
+			],
+			[
+				"de",
+				"derive\t#[derive(…)]"
+			],
+			[
+				"Asse",
+				"AssetBuilderPrograms\t  struct AssetBuilderPrograms"
+			],
+			[
+				"Pro",
+				"ProgramBindingRef\t  pub struct ProgramBindingRef<'a>"
+			],
+			[
+				"Vertexa",
+				"VertexArrayBinder\t  pub struct VertexArrayBinder<'a>(&'a mut VertexArray);"
+			],
+			[
+				"impl",
+				"implement_vertex"
+			],
+			[
+				"macro",
+				"macro_rules\tmacro_rules! … { … }"
+			],
+			[
+				"enum",
+				"enumerate"
+			],
+			[
+				"Mesh",
+				"MeshRef"
+			],
+			[
+				"trans",
+				"transforms_i"
+			],
+			[
+				"vbo",
+				"vbo_cache_len"
+			],
+			[
+				"vbo_",
+				"vbo_cache"
+			],
+			[
+				"bake_",
+				"bake_material_program"
+			],
+			[
+				"materia",
+				"material_builder"
+			],
+			[
+				"inter",
+				"internal_format"
+			],
+			[
+				"default",
+				"default_material"
+			],
+			[
+				"draw",
+				"draw_rect"
+			],
+			[
+				"insert",
+				"insert_texture"
+			],
+			[
+				"unwarp_or",
+				"unwrap_or_else"
+			],
+			[
+				"render",
+				"render_objects"
+			],
+			[
+				"rust",
+				"_rust_material"
+			],
+			[
+				"use",
+				"use_wasd"
+			],
+			[
+				"frag",
+				"fragPosLightSpace"
+			],
+			[
+				"to_",
+				"to_rotation\t  fn to_rotation(&self) -> Mat4"
+			],
+			[
+				"dire",
+				"directional_lights\t  Vec<DirectionalLight>"
+			],
+			[
+				"owl",
+				"owl_mesh\t  owl_mesh"
+			],
+			[
+				"O",
+				"Owl\t  Owl,"
+			],
+			[
+				"Eni",
+				"EntityKind\t  enum EntityKind {"
+			],
+			[
+				"En",
+				"Entity\t  struct Entity"
+			],
+			[
+				"action",
+				"queued_actions"
+			],
+			[
+				"map",
+				"map_all_tiles"
+			],
+			[
+				"game",
+				"game_call\t  let game_call = RenderObject::with_children(game_calls).translate(v3(-5.0, 0.0, -5.0)).scale(2.0);"
+			],
+			[
+				"is",
+				"is_on_y_bounds\t  let is_on_y_bounds = y == 0 || y == MAP_SIZE.1 - 1;"
+			],
+			[
+				"is_",
+				"is_on_x_bounds\t  let is_on_x_bounds = x == 0 || x == MAP_SIZE.0 - 1;"
+			],
+			[
+				"MaP",
+				"MAP_SIZE\t  const MAP_SIZE: (usize, usize) = (8, 8);"
+			],
+			[
+				"map_",
+				"map_all_tiles_mut\t  pub fn map_all_tiles_mut<F>(&mut self, f: F)\n    where\n        F: Fn((usize, usize), &mut Tile)"
+			],
+			[
+				"pos",
+				"position"
+			],
+			[
+				"RenderOb",
+				"RenderObject"
+			],
+			[
+				"gold",
+				"_gold_material"
+			],
+			[
+				"min",
+				"min_result\t  Some(min_result)"
+			],
+			[
+				"clo",
+				"closest_object"
+			],
+			[
+				"obj",
+				"objects"
+			],
+			[
+				"RenderO",
+				"RenderObjects\t  RenderObjects(Vec<RenderObject>),"
+			],
+			[
+				"get",
+				"get_mesh\t  pub fn get_mesh(&self, mesh_ref: &MeshRef) -> &Mesh"
+			],
+			[
+				"Rndero",
+				"RenderObjectChild\t  pub enum RenderObjectChild {"
+			],
+			[
+				"MAX",
+				"MAX_ITER"
+			],
+			[
+				"P",
+				"ProgramBinding"
+			],
+			[
+				"ProgramBinding",
+				"ProgramBindingRefMut"
+			],
+			[
+				"Program",
+				"ProgramBinding\t  pub struct ProgramBinding<'a>"
+			],
+			[
+				"POint",
+				"PointLight"
+			],
+			[
+				"TEx",
+				"TextureInternalFormat"
+			],
+			[
+				"Te",
+				"TextureTarget"
+			],
+			[
+				"Fr",
+				"FramebufferBinderReadDraw"
+			],
+			[
+				"Point",
+				"PointShadowMap"
+			],
+			[
+				"V",
+				"VertexBufferBinder"
+			],
+			[
+				"texturere",
+				"texture_ref"
+			],
+			[
+				"te",
+				"texture_ref"
+			],
+			[
+				"grouped",
+				"grouped_draw_calls"
+			],
+			[
+				"draw_",
+				"draw_calls"
+			],
+			[
+				"mesh",
+				"meshes"
+			],
+			[
+				"Visa",
+				"VisualSceneNotFound"
+			],
+			[
+				"Tech",
+				"TechniqueValue"
+			],
+			[
+				"indirec",
+				"indirection"
+			],
+			[
+				"collada",
+				"ColladaError"
+			],
+			[
+				"Collada",
+				"ColladaError"
+			],
+			[
+				"rgb_te",
+				"rgb_texture"
+			],
+			[
+				"mater",
+				"material"
+			],
+			[
+				"Geome",
+				"GeometryElement"
+			],
+			[
+				"materialre",
+				"material_ref"
+			],
+			[
+				"th",
+				"technique"
+			],
+			[
+				"LibraryEffectp",
+				"LibraryEffectProfileCommonElement"
+			],
+			[
+				"unwrp",
+				"unwrap_or_else"
+			],
+			[
+				"load_",
+				"load_rgb"
+			],
+			[
+				"rgb",
+				"rgb_texture"
+			],
+			[
+				"defau",
+				"default_material"
+			],
+			[
+				"normal",
+				"normal3"
+			],
+			[
+				"nb_",
+				"nb_faces"
+			],
+			[
+				"ca",
+				"cache_level"
+			],
+			[
+				"berd",
+				"brdf_lut_render_target"
+			],
+			[
+				"prefilter",
+				"prefilter_map"
+			],
+			[
+				"irra",
+				"irradiance_map"
+			]
+		]
+	},
+	"buffers":
+	[
+		{
+			"file": "beam/src/main.rs",
+			"settings":
+			{
+				"buffer_size": 17076,
+				"encoding": "UTF-8",
+				"line_ending": "Unix"
+			}
+		},
+		{
+			"file": "beam/shaders/shader_pbr.frag",
+			"settings":
+			{
+				"buffer_size": 1654,
+				"encoding": "UTF-8",
+				"line_ending": "Unix"
+			}
+		},
+		{
+			"file": "beam/shaders/shadow.vert",
+			"settings":
+			{
+				"buffer_size": 194,
+				"encoding": "UTF-8",
+				"line_ending": "Unix"
+			}
+		},
+		{
+			"contents": "<script>\n;(function() {\nvar links = document.querySelectorAll('a.et_pb_lightbox_post_popup');\nfor (var i = 0; i < links.length; ++i) {\n\tlinks[i].target = '_blank';\n}\n})()\n</script>",
+			"settings":
+			{
+				"buffer_size": 180,
+				"line_ending": "Unix"
+			}
+		},
+		{
+			"file": "beam/shaders/point_shadow.vert",
+			"settings":
+			{
+				"buffer_size": 135,
+				"encoding": "UTF-8",
+				"line_ending": "Unix"
+			}
+		},
+		{
+			"file": "Cargo.toml",
+			"settings":
+			{
+				"buffer_size": 91,
+				"line_ending": "Unix"
+			}
+		},
+		{
+			"file": "beam/src/pipeline.rs",
+			"settings":
+			{
+				"buffer_size": 22162,
+				"encoding": "UTF-8",
+				"line_ending": "Unix"
+			}
+		},
+		{
+			"file": "beam/src/render/store.rs",
+			"settings":
+			{
+				"buffer_size": 5467,
+				"encoding": "UTF-8",
+				"line_ending": "Unix"
+			}
+		},
+		{
+			"file": "mg/src/shaders.rs",
+			"settings":
+			{
+				"buffer_size": 13922,
+				"line_ending": "Unix"
+			}
+		},
+		{
+			"file": "mg/src/buffers.rs",
+			"settings":
+			{
+				"buffer_size": 7695,
+				"encoding": "UTF-8",
+				"line_ending": "Unix"
+			}
+		},
+		{
+			"file": "beam/Cargo.toml",
+			"settings":
+			{
+				"buffer_size": 337,
+				"encoding": "UTF-8",
+				"line_ending": "Unix"
+			}
+		},
+		{
+			"file": "beam/src/render/materials.rs",
+			"settings":
+			{
+				"buffer_size": 5365,
+				"encoding": "UTF-8",
+				"line_ending": "Unix"
+			}
+		},
+		{
+			"file": "mg/Cargo.toml",
+			"settings":
+			{
+				"buffer_size": 156,
+				"encoding": "UTF-8",
+				"line_ending": "Unix"
+			}
+		},
+		{
+			"file": "mg/src/lib.rs",
+			"settings":
+			{
+				"buffer_size": 336,
+				"encoding": "UTF-8",
+				"line_ending": "Unix"
+			}
+		},
+		{
+			"file": "beam/src/render/mod.rs",
+			"settings":
+			{
+				"buffer_size": 19091,
+				"line_ending": "Unix"
+			}
+		},
+		{
+			"file": "beam/src/assets.rs",
+			"settings":
+			{
+				"buffer_size": 14514,
+				"encoding": "UTF-8",
+				"line_ending": "Unix"
+			}
+		}
+	],
+	"build_system": "",
+	"build_system_choices":
+	[
+	],
+	"build_varint": "",
+	"command_palette":
+	{
+		"height": 136.0,
+		"last_filter": "",
+		"selected_items":
+		[
+			[
+				"sshtml",
+				"Set Syntax: HTML"
+			],
+			[
+				"key",
+				"Preferences: Key Bindings"
+			],
+			[
+				"sscss",
+				"Set Syntax: CSS"
+			],
+			[
+				"html",
+				"Set Syntax: HTML"
+			],
+			[
+				"ssjs",
+				"Set Syntax: JavaScript"
+			],
+			[
+				"format",
+				"TypeScript: Paste And Format"
+			],
+			[
+				"snake",
+				"Convert Case: snake_case"
+			],
+			[
+				"cons",
+				"Convert Case: SCREAMING_SNAKE_CASE"
+			],
+			[
+				"for",
+				"LSP: Format Document"
+			],
+			[
+				"upper",
+				"Convert Case: Upper Case"
+			],
+			[
+				"newfile",
+				"File: New File Relative to Current View"
+			],
+			[
+				"new",
+				"File: New File Relative to Project Root"
+			],
+			[
+				"lsp",
+				"LSP: Enable Language Server Globally"
+			],
+			[
+				"form",
+				"LSP: Format Document"
+			],
+			[
+				"fo",
+				"LSP: Format Document"
+			],
+			[
+				"f",
+				"LSP: Format Document"
+			],
+			[
+				"pasca",
+				"Convert Case: PascalCase"
+			],
+			[
+				"restart",
+				"LSP: Restart Servers"
+			],
+			[
+				"pasc",
+				"Convert Case: PascalCase"
+			],
+			[
+				"lps",
+				"LSP: Enable Language Server Globally"
+			],
+			[
+				"pascal",
+				"Convert Case: PascalCase"
+			],
+			[
+				"ss rust",
+				"Set Syntax: Rust Enhanced"
+			],
+			[
+				"For",
+				"LSP: Format Document"
+			],
+			[
+				"dupe",
+				"File: Duplicate"
+			],
+			[
+				"rename",
+				"Rename File"
+			],
+			[
+				"rena",
+				"Rename File"
+			],
+			[
+				"number",
+				"Emmet: Decrement Number by 1"
+			],
+			[
+				"lps d",
+				"LSP: Disable Language Server Globally"
+			],
+			[
+				"ssphp",
+				"Set Syntax: PHP"
+			],
+			[
+				"newfi",
+				"File: New File Relative to Project Root"
+			],
+			[
+				"ssbab",
+				"Set Syntax: JavaScript (Babel)"
+			],
+			[
+				"install",
+				"Package Control: Install Package"
+			],
+			[
+				"ena",
+				"LSP: Enable Language Server Globally"
+			],
+			[
+				"move",
+				"File: Move"
+			],
+			[
+				"scream",
+				"Convert Case: SCREAMING_SNAKE_CASE"
+			],
+			[
+				"pas",
+				"Convert Case: PascalCase"
+			],
+			[
+				"nefi",
+				"File: New File Relative to Project Root"
+			],
+			[
+				"preview",
+				"Markdown Preview: Preview in Browser"
+			],
+			[
+				"instal",
+				"Package Control: Install Package"
+			],
+			[
+				"ne",
+				"File: New File Relative to Project Root"
+			],
+			[
+				"sstrtrea",
+				"Set Syntax: TypeScriptReact"
+			],
+			[
+				"sstyp",
+				"Set Syntax: TypeScript"
+			],
+			[
+				"bash",
+				"Set Syntax: Shell Script (Bash)"
+			],
+			[
+				"ls",
+				"LSP: Disable Language Server Globally"
+			],
+			[
+				"tabs",
+				"Indentation: Convert to Tabs"
+			],
+			[
+				"du",
+				"File: Duplicate"
+			],
+			[
+				"sna",
+				"Convert Case: snake_case"
+			],
+			[
+				"lang",
+				"LSP: Enable Language Server Globally"
+			],
+			[
+				"c",
+				"Convert Case: SCREAMING_SNAKE_CASE"
+			],
+			[
+				"ssslim",
+				"Set Syntax: Ruby Slim"
+			],
+			[
+				"case ",
+				"Convert Case: SCREAMING_SNAKE_CASE"
+			],
+			[
+				"came",
+				"Convert Case: camelCase"
+			],
+			[
+				"language",
+				"LSP: Disable Language Server Globally"
+			],
+			[
+				"ssmark",
+				"Set Syntax: Markdown"
+			],
+			[
+				"mini",
+				"View: Toggle Minimap"
+			],
+			[
+				"case",
+				"Convert Case: camelCase"
+			],
+			[
+				"tit",
+				"Convert Case: Title Case"
+			],
+			[
+				"enabl",
+				"LSP: Enable Language Server Globally"
+			],
+			[
+				"ssrust",
+				"Set Syntax: Rust Enhanced"
+			],
+			[
+				"low",
+				"Convert Case: Lower Case"
+			],
+			[
+				"folder",
+				"File: New Folder Relative to Project Root"
+			],
+			[
+				"convert",
+				"Indentation: Convert to Spaces"
+			],
+			[
+				"editorco",
+				"Snippet: editorconfig"
+			],
+			[
+				"u",
+				"Convert Case: Upper Case"
+			],
+			[
+				"lower",
+				"Convert Case: Lower Case"
+			],
+			[
+				"disable",
+				"LSP: Disable Language Server Globally"
+			],
+			[
+				"lsp e",
+				"LSP: Enable Language Server Globally"
+			],
+			[
+				"title",
+				"Convert Case: Title Case"
+			],
+			[
+				"stat",
+				"View: Toggle Status Bar"
+			],
+			[
+				"sche",
+				"UI: Select Color Scheme"
+			],
+			[
+				"the",
+				"UI: Select Theme"
+			],
+			[
+				"in",
+				"Package Control: Install Package"
+			],
+			[
+				"insta",
+				"Package Control: Install Package"
+			],
+			[
+				"settings",
+				"Preferences: Settings"
+			],
+			[
+				"finder",
+				"View: Toggle Open Files in Side Bar"
+			],
+			[
+				"status",
+				"View: Toggle Status Bar"
+			],
+			[
+				"schem",
+				"UI: Select Color Scheme"
+			],
+			[
+				"sstom",
+				"Set Syntax: TOML"
+			],
+			[
+				"ke",
+				"Preferences: Key Bindings"
+			],
+			[
+				"keyb",
+				"Preferences: Key Bindings"
+			],
+			[
+				"forma",
+				"LSP: Format Document"
+			],
+			[
+				"rust",
+				"Build With: RustEnhanced - Run"
+			],
+			[
+				"test at",
+				"Rust: Run Test At Cursor"
+			],
+			[
+				"enable",
+				"LSP: Enable Language Server Globally"
+			],
+			[
+				"pac",
+				"Package Control: Disable Package"
+			]
+		],
+		"width": 448.0
+	},
+	"console":
+	{
+		"height": 130.0,
+		"history":
+		[
+		]
+	},
+	"distraction_free":
+	{
+		"menu_visible": true,
+		"show_minimap": false,
+		"show_open_files": false,
+		"show_tabs": false,
+		"side_bar_visible": false,
+		"status_bar_visible": false
+	},
+	"expanded_folders":
+	[
+		"/Users/oeb/projects/oeb25/graphics/beam",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/shaders",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/src",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/src/logic",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/src/render",
+		"/Users/oeb/projects/oeb25/graphics/beam/collada",
+		"/Users/oeb/projects/oeb25/graphics/beam/collada/src",
+		"/Users/oeb/projects/oeb25/graphics/beam/mg",
+		"/Users/oeb/projects/oeb25/graphics/beam/mg/src"
+	],
+	"file_history":
+	[
+		"/Users/oeb/projects/oeb25/graphics/beam/Cargo.lock",
+		"/Users/oeb/Library/Caches/Transmit/DDC5D7C3-8AFF-496E-A4AF-AC8B326628FF/linux82.wannafind.dk/www/index.php",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/src/assets.rs",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/src/render/mod.rs",
+		"/Users/oeb/projects/oeb25/graphics/beam/Cargo.toml",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/shaders/shader_pbr.frag",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/src/misc.rs",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/src/pipeline.rs",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/src/hot.rs",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/Cargo.toml",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/src/main.rs",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/shaders/lighting_pbr.frag",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/src/logic/mod.rs",
+		"/Users/oeb/projects/oeb25/graphics/beam/mg/src/textures.rs",
+		"/Users/oeb/projects/oeb25/graphics/beam/mg/src/vertexarrays.rs",
+		"/Users/oeb/projects/oeb25/graphics/beam/mg/src/buffers.rs",
+		"/Users/oeb/projects/oeb25/graphics/beam/mg/src/shaders.rs",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/src/render/mesh.rs",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/shaders/shadow.vert",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/shaders/directional_lighting.frag",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/src/render/lights.rs",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/shaders/prefilter_cubemap.frag",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/shaders/skybox.frag",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/shaders/bake_material.frag",
+		"/Users/oeb/projects/oeb25/graphics/beam/mg/src/framebuffers.rs",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/shaders/brdf.frag",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/shaders/shader.frag",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/shaders/hdr.frag",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/assets/suzanne/suzanne.dae",
+		"/Users/oeb/projects/oeb25/graphics/beam/collada/src/lib.rs",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/shaders/lighting.vert",
+		"/Users/oeb/projects/oeb25/graphics/beam/mg/Cargo.toml",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/src/render/primitives.rs",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/shaders/convolute_cubemap.frag",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/shaders/point_shadow.vert",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/shaders/shader.vert",
+		"/Users/oeb/projects/oeb25/graphics/beam/collada/src/raw.rs",
+		"/Users/oeb/projects/oeb25/graphics/beam/.gitignore",
+		"/Users/oeb/projects/oeb25/graphics/beam/collada/Cargo.toml",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/src/render.rs",
+		"/Users/oeb/projects/oeb25/graphics/beam/collada/suzanne.dae",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam/shaders/point_lighting.frag",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam.sublime-project",
+		"/Users/oeb/projects/oeb25/graphics/beam/collada/src/main.rs",
+		"/Users/oeb/Downloads/makey.dae",
+		"/Users/oeb/projects/oeb25/graphics/mg/src/framebuffers.rs",
+		"/Users/oeb/projects/oeb25/graphics/beam/pack/shaders/lighting_pbr.frag",
+		"/Users/oeb/projects/oeb25/graphics/beam/src/pipeline.rs",
+		"/Users/oeb/projects/oeb25/graphics/beam/src/render.rs",
+		"/Users/oeb/Downloads/Castle_Wall_scDxB_2K_3d_ms/Aset_castle_wall_M_scDxB_LOD4.obj",
+		"/Users/oeb/projects/oeb25/graphics/beam/target/doc/libc/constant.VM_FLAGS_OVERWRITE.html",
+		"/Users/oeb/projects/oeb25/graphics/beam/src/hot.rs",
+		"/Users/oeb/projects/oeb25/graphics/beam/shaders/directional_lighting.frag",
+		"/Users/oeb/projects/oeb25/graphics/beam/shaders/shader_pbr.frag",
+		"/Users/oeb/projects/oeb25/graphics/beam/shaders/shader.frag",
+		"/Users/oeb/projects/oeb25/graphics/beam/target/doc/libc/IPC_EXCL.v.html",
+		"/Users/oeb/projects/oeb25/graphics/mg/src/vertexarrays.rs",
+		"/Users/oeb/projects/oeb25/graphics/mg/src/shaders.rs",
+		"/Users/oeb/projects/oeb25/graphics/mg/src/textures.rs",
+		"/Users/oeb/projects/oeb25/graphics/mg/src/buffers.rs",
+		"/Users/oeb/projects/oeb25/graphics/beam/shaders/shader.geom",
+		"/Users/oeb/projects/oeb25/graphics/beam/beam.sublime-",
+		"/Users/oeb/projects/oeb25/graphics/beam/src/mg/mod.rs",
+		"/Users/oeb/projects/oeb25/graphics/beam/shaders/hdr.frag",
+		"/Users/oeb/projects/oeb25/graphics/beam/shaders/blur.frag",
+		"/Users/oeb/projects/oeb25/graphics/beam/src/main.rs",
+		"/Users/oeb/projects/manova/backup/exporter.js",
+		"/Users/oeb/projects/manova/ge/demo/src/MapDemo.js",
+		"/Users/oeb/projects/manova/ge/demo/src/main.js",
+		"/Users/oeb/todo.md",
+		"/Users/oeb/projects/oeb25/graphics/beam/shaders/shader.vs",
+		"/Users/oeb/projects/oeb25/graphics/beam/shaders/shader.fs",
+		"/Users/oeb/projects/oeb25/graphics/beam/src/timing.rs",
+		"/Users/oeb/projects/oeb25/graphics/beam/src/mg",
+		"/Users/oeb/projects/oeb25/graphics/beam/src/mg/types.rs",
+		"/Users/oeb/projects/oeb25/graphics/beam/src/mg/buffers.rs",
+		"/Users/oeb/projects/oeb25/graphics/beam/src/mg/textures.rs",
+		"/Users/oeb/projects/oeb25/graphics/beam/src/mg/shaders.rs",
+		"/Users/oeb/projects/oeb25/graphics/beam/src/mg/framebuffers.rs",
+		"/Users/oeb/projects/oeb25/graphics/beam/src/mg/vertexarrays.rs",
+		"/Users/oeb/projects/oeb25/graphics/beam/shaders/hdr.vs",
+		"/Users/oeb/projects/oeb25/graphics/beam/shaders/hdr.fs",
+		"/Users/oeb/projects/oeb25/graphics/beam/src/mg.rs",
+		"/Users/oeb/projects/manova/data/import.md",
+		"/Users/oeb/projects/oeb25/apps/parking/.gitignore",
+		"/Users/oeb/projects/manova/ge/notes.md",
+		"/Users/oeb/.profile",
+		"/Users/oeb/projects/oeb25/games/dg/Cargo.toml",
+		"/Users/oeb/Downloads/ShinoKCRS4 Future Booth Desk.package",
+		"/Users/oeb/.zshrc",
+		"/Users/oeb/projects/oeb25/graphics/beam/shaders/lighting.fs",
+		"/Users/oeb/projects/oeb25/graphics/beam/shaders/point_shadow.fs",
+		"/Users/oeb/projects/oeb25/graphics/beam/shaders/shadow.fs",
+		"/Users/oeb/projects/oeb25/graphics/beam/shaders/point_shadow.vs",
+		"/Users/oeb/projects/oeb25/graphics/beam/shaders/shadow.vs",
+		"/Users/oeb/projects/oeb25/graphics/beam/shaders/point_shadow.gs",
+		"/Users/oeb/projects/oeb25/graphics/beam/shaders/skybox.fs",
+		"/Users/oeb/projects/oeb25/graphics/beam/Makefile",
+		"/Users/oeb/projects/oeb25/graphics/beam/.editorconfig",
+		"/Users/oeb/projects/oeb25/graphics/beam/shaders/shader.gs",
+		"/Users/oeb/projects/manova/wp-test/password",
+		"/Users/oeb/projects/manova/wp-test/src/wp-content/themes/twentyfifteen/inc/template-tags.php",
+		"/Users/oeb/projects/manova/wp-test/src/wp-includes/post-template.php",
+		"/Users/oeb/projects/manova/wp-test/docker-compose.yml",
+		"/Users/oeb/projects/oeb25/graphics/beam/shaders/lights.fs",
+		"/Users/oeb/Desktop/henrik.md",
+		"/Users/oeb/projects/oeb25/graphics/beam/normal.vs",
+		"/Users/oeb/projects/oeb25/graphics/beam/skybox.fs",
+		"/Users/oeb/projects/oeb25/graphics/beam/skybox.vs",
+		"/Users/oeb/projects/oeb25/graphics/beam/shader.fs",
+		"/Users/oeb/projects/oeb25/graphics/beam/shader.gs",
+		"/Users/oeb/projects/oeb25/graphics/beam/normal.fs",
+		"/Users/oeb/projects/oeb25/graphics/beam/shader.vs",
+		"/Users/oeb/projects/oeb25/graphics/beam/normal.gs",
+		"/Users/oeb/projects/oeb25/graphics/beam/teapot.obj",
+		"/Users/oeb/projects/oeb25/graphics/beam/src/math.rs"
+	],
+	"find":
+	{
+		"height": 54.0
+	},
+	"find_in_files":
+	{
+		"height": 134.0,
+		"where_history":
+		[
+		]
+	},
+	"find_state":
+	{
+		"case_sensitive": true,
+		"find_history":
+		[
+			"https",
+			"unifrom",
+			"    ",
+			"println",
+			"pub struct",
+			"data",
+			"taScirpt",
+			"taScript",
+			"1090027571124840",
+			"176159636345045",
+			"body",
+			"render_scene",
+			"1",
+			"f32",
+			"boolean",
+			": ",
+			": gu::",
+			"    ",
+			"uniform",
+			"uniform_block_binding",
+			"GlError",
+			"UniformBuffer",
+			"ElementArray",
+			"ident",
+			"buffer_data",
+			"vbo",
+			"VertexBuffer",
+			"value",
+			"= false;",
+			" bi",
+			"use_mat_albedo",
+			", bi",
+			"false",
+			"V3",
+			"bool",
+			"ao",
+			"roughness",
+			"metallic",
+			"V3",
+			"albedo",
+			"bool",
+			"    ",
+			"&",
+			"load",
+			"cache",
+			"fsc",
+			"load",
+			"AssetBuilderPrograms::preprocess",
+			"Cacher",
+			"MeshStore",
+			"MeshRef",
+			"MeshStore",
+			"V3",
+			"Texture",
+			";\n",
+			"mesh",
+			"self",
+			"Material",
+			"materials",
+			"mesh",
+			"tex_",
+			"def_mat(",
+			"tex(",
+			"fn",
+			"std140",
+			"uniform ",
+			"Uniform",
+			"new_pos",
+			"Penguin",
+			"entity",
+			"entity.1",
+			"new_pos",
+			"10",
+			"i32",
+			"(i32, i32)",
+			"=>",
+			"scalar",
+			"self",
+			"(self",
+			"i32",
+			"scalar",
+			"Pos",
+			"to_tuple",
+			"add",
+			"other.",
+			"Pos",
+			"other",
+			"[new_pos.0][new_pos.1]",
+			"MapRow",
+			"i32",
+			"<'a>",
+			"i as usize <",
+			"i as usize",
+			" as usize",
+			"isize",
+			"usize",
+			"tt",
+			"metallic",
+			" +",
+			"i",
+			" +",
+			"Penguen",
+			"new_entity",
+			" 2 *",
+			"+ ",
+			"owl",
+			"owl_pos",
+			"self.owl",
+			"self.owl.1",
+			"game.owl.1",
+			"Kangaroo",
+			"empty_row",
+			"failure",
+			"Default",
+			"Tile",
+			"Default for",
+			"struct",
+			"MapRow",
+			"Default",
+			"Empty",
+			"-rw-r--r--  1 oeb  ",
+			"/Users/oeb/projects/oeb25/graphics/beam/beam/shaders/",
+			"\"",
+			"key",
+			"spheres",
+			"radius",
+			"get",
+			"self."
+		],
+		"highlight": true,
+		"in_selection": false,
+		"preserve_case": false,
+		"regex": false,
+		"replace_history":
+		[
+		],
+		"reverse": false,
+		"show_context": true,
+		"use_buffer2": true,
+		"whole_word": false,
+		"wrap": true
+	},
+	"groups":
+	[
+		{
+			"selected": 3,
+			"sheets":
+			[
+				{
+					"buffer": 0,
+					"file": "beam/src/main.rs",
+					"semi_transient": false,
+					"settings":
+					{
+						"buffer_size": 17076,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								0,
+								0
+							]
+						],
+						"settings":
+						{
+							"editorconfig": true,
+							"ensure_newline_at_eof_on_save": true,
+							"history_list_is_closing": true,
+							"syntax": "Packages/Rust Enhanced/RustEnhanced.sublime-syntax",
+							"tab_size": 4,
+							"translate_tabs_to_spaces": true,
+							"trim_trailing_white_space_on_save": true
+						},
+						"translation.x": 0.0,
+						"translation.y": 2182.0,
+						"zoom_level": 1.0
+					},
+					"stack_index": 17,
+					"type": "text"
+				},
+				{
+					"buffer": 1,
+					"file": "beam/shaders/shader_pbr.frag",
+					"semi_transient": false,
+					"settings":
+					{
+						"buffer_size": 1654,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								0,
+								0
+							]
+						],
+						"settings":
+						{
+							"editorconfig": true,
+							"ensure_newline_at_eof_on_save": true,
+							"syntax": "Packages/OpenGL Shading Language (GLSL)/GLSL.sublime-syntax",
+							"tab_size": 4,
+							"translate_tabs_to_spaces": true,
+							"trim_trailing_white_space_on_save": true
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"stack_index": 2,
+					"type": "text"
+				},
+				{
+					"buffer": 2,
+					"file": "beam/shaders/shadow.vert",
+					"semi_transient": false,
+					"settings":
+					{
+						"buffer_size": 194,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								73,
+								73
+							]
+						],
+						"settings":
+						{
+							"editorconfig": true,
+							"ensure_newline_at_eof_on_save": true,
+							"syntax": "Packages/OpenGL Shading Language (GLSL)/GLSL.sublime-syntax",
+							"tab_size": 4,
+							"translate_tabs_to_spaces": true,
+							"trim_trailing_white_space_on_save": true
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"stack_index": 1,
+					"type": "text"
+				},
+				{
+					"buffer": 3,
+					"semi_transient": false,
+					"settings":
+					{
+						"buffer_size": 180,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								180,
+								180
+							]
+						],
+						"settings":
+						{
+							"default_dir": "/Users/oeb/projects/oeb25/graphics/beam/beam/shaders",
+							"syntax": "Packages/HTML/HTML.sublime-syntax"
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"stack_index": 0,
+					"type": "text"
+				},
+				{
+					"buffer": 4,
+					"file": "beam/shaders/point_shadow.vert",
+					"semi_transient": false,
+					"settings":
+					{
+						"buffer_size": 135,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								74,
+								74
+							]
+						],
+						"settings":
+						{
+							"editorconfig": true,
+							"ensure_newline_at_eof_on_save": true,
+							"syntax": "Packages/OpenGL Shading Language (GLSL)/GLSL.sublime-syntax",
+							"tab_size": 4,
+							"translate_tabs_to_spaces": true,
+							"trim_trailing_white_space_on_save": true
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"stack_index": 3,
+					"type": "text"
+				},
+				{
+					"buffer": 5,
+					"file": "Cargo.toml",
+					"semi_transient": false,
+					"settings":
+					{
+						"buffer_size": 91,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								0,
+								0
+							]
+						],
+						"settings":
+						{
+							"editorconfig": true,
+							"ensure_newline_at_eof_on_save": true,
+							"syntax": "Packages/Text/Plain text.tmLanguage",
+							"tab_size": 4,
+							"translate_tabs_to_spaces": true,
+							"trim_trailing_white_space_on_save": true
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"stack_index": 8,
+					"type": "text"
+				},
+				{
+					"buffer": 6,
+					"file": "beam/src/pipeline.rs",
+					"semi_transient": false,
+					"settings":
+					{
+						"buffer_size": 22162,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								0,
+								0
+							]
+						],
+						"settings":
+						{
+							"editorconfig": true,
+							"ensure_newline_at_eof_on_save": true,
+							"syntax": "Packages/Rust Enhanced/RustEnhanced.sublime-syntax",
+							"tab_size": 4,
+							"translate_tabs_to_spaces": true,
+							"trim_trailing_white_space_on_save": true
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"stack_index": 14,
+					"type": "text"
+				},
+				{
+					"buffer": 7,
+					"file": "beam/src/render/store.rs",
+					"semi_transient": false,
+					"settings":
+					{
+						"buffer_size": 5467,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								67,
+								67
+							]
+						],
+						"settings":
+						{
+							"editorconfig": true,
+							"ensure_newline_at_eof_on_save": true,
+							"open_with_edit": true,
+							"syntax": "Packages/Rust Enhanced/RustEnhanced.sublime-syntax",
+							"tab_size": 4,
+							"translate_tabs_to_spaces": true,
+							"trim_trailing_white_space_on_save": true
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"stack_index": 6,
+					"type": "text"
+				},
+				{
+					"buffer": 8,
+					"file": "mg/src/shaders.rs",
+					"semi_transient": false,
+					"settings":
+					{
+						"buffer_size": 13922,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								0,
+								0
+							]
+						],
+						"settings":
+						{
+							"editorconfig": true,
+							"ensure_newline_at_eof_on_save": true,
+							"syntax": "Packages/Rust Enhanced/RustEnhanced.sublime-syntax",
+							"tab_size": 4,
+							"translate_tabs_to_spaces": true,
+							"trim_trailing_white_space_on_save": true
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"stack_index": 7,
+					"type": "text"
+				},
+				{
+					"buffer": 9,
+					"file": "mg/src/buffers.rs",
+					"semi_transient": false,
+					"settings":
+					{
+						"buffer_size": 7695,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								0,
+								0
+							]
+						],
+						"settings":
+						{
+							"editorconfig": true,
+							"ensure_newline_at_eof_on_save": true,
+							"syntax": "Packages/Rust Enhanced/RustEnhanced.sublime-syntax",
+							"tab_size": 4,
+							"translate_tabs_to_spaces": true,
+							"trim_trailing_white_space_on_save": true
+						},
+						"translation.x": 0.0,
+						"translation.y": 3278.0,
+						"zoom_level": 1.0
+					},
+					"stack_index": 4,
+					"type": "text"
+				},
+				{
+					"buffer": 10,
+					"file": "beam/Cargo.toml",
+					"semi_transient": false,
+					"settings":
+					{
+						"buffer_size": 337,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								258,
+								258
+							]
+						],
+						"settings":
+						{
+							"editorconfig": true,
+							"ensure_newline_at_eof_on_save": true,
+							"syntax": "Packages/Text/Plain text.tmLanguage",
+							"tab_size": 4,
+							"translate_tabs_to_spaces": true,
+							"trim_trailing_white_space_on_save": true
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"stack_index": 18,
+					"type": "text"
+				}
+			]
+		},
+		{
+			"selected": 0,
+			"sheets":
+			[
+				{
+					"buffer": 11,
+					"file": "beam/src/render/materials.rs",
+					"semi_transient": false,
+					"settings":
+					{
+						"buffer_size": 5365,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								4280,
+								4280
+							]
+						],
+						"settings":
+						{
+							"editorconfig": true,
+							"ensure_newline_at_eof_on_save": true,
+							"open_with_edit": true,
+							"syntax": "Packages/Rust Enhanced/RustEnhanced.sublime-syntax",
+							"tab_size": 4,
+							"translate_tabs_to_spaces": true,
+							"trim_trailing_white_space_on_save": true
+						},
+						"translation.x": 0.0,
+						"translation.y": 1658.0,
+						"zoom_level": 1.0
+					},
+					"stack_index": 5,
+					"type": "text"
+				},
+				{
+					"buffer": 6,
+					"file": "beam/src/pipeline.rs",
+					"semi_transient": false,
+					"settings":
+					{
+						"buffer_size": 22162,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								0,
+								0
+							]
+						],
+						"settings":
+						{
+							"editorconfig": true,
+							"ensure_newline_at_eof_on_save": true,
+							"syntax": "Packages/Rust Enhanced/RustEnhanced.sublime-syntax",
+							"tab_size": 4,
+							"translate_tabs_to_spaces": true,
+							"trim_trailing_white_space_on_save": true
+						},
+						"translation.x": 0.0,
+						"translation.y": 4143.0,
+						"zoom_level": 1.0
+					},
+					"stack_index": 10,
+					"type": "text"
+				},
+				{
+					"buffer": 10,
+					"file": "beam/Cargo.toml",
+					"semi_transient": false,
+					"settings":
+					{
+						"buffer_size": 337,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								229,
+								229
+							]
+						],
+						"settings":
+						{
+							"editorconfig": true,
+							"ensure_newline_at_eof_on_save": true,
+							"syntax": "Packages/Text/Plain text.tmLanguage",
+							"tab_size": 4,
+							"translate_tabs_to_spaces": true,
+							"trim_trailing_white_space_on_save": true
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"stack_index": 9,
+					"type": "text"
+				},
+				{
+					"buffer": 12,
+					"file": "mg/Cargo.toml",
+					"semi_transient": false,
+					"settings":
+					{
+						"buffer_size": 156,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								156,
+								156
+							]
+						],
+						"settings":
+						{
+							"editorconfig": true,
+							"ensure_newline_at_eof_on_save": true,
+							"syntax": "Packages/Text/Plain text.tmLanguage",
+							"tab_size": 4,
+							"translate_tabs_to_spaces": true,
+							"trim_trailing_white_space_on_save": true
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"stack_index": 12,
+					"type": "text"
+				},
+				{
+					"buffer": 13,
+					"file": "mg/src/lib.rs",
+					"semi_transient": false,
+					"settings":
+					{
+						"buffer_size": 336,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								109,
+								109
+							]
+						],
+						"settings":
+						{
+							"editorconfig": true,
+							"ensure_newline_at_eof_on_save": true,
+							"syntax": "Packages/Rust Enhanced/RustEnhanced.sublime-syntax",
+							"tab_size": 4,
+							"translate_tabs_to_spaces": true,
+							"trim_trailing_white_space_on_save": true
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"stack_index": 11,
+					"type": "text"
+				},
+				{
+					"buffer": 7,
+					"file": "beam/src/render/store.rs",
+					"semi_transient": false,
+					"settings":
+					{
+						"buffer_size": 5467,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								23,
+								23
+							]
+						],
+						"settings":
+						{
+							"editorconfig": true,
+							"ensure_newline_at_eof_on_save": true,
+							"open_with_edit": true,
+							"syntax": "Packages/Rust Enhanced/RustEnhanced.sublime-syntax",
+							"tab_size": 4,
+							"translate_tabs_to_spaces": true,
+							"trim_trailing_white_space_on_save": true
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"stack_index": 16,
+					"type": "text"
+				},
+				{
+					"buffer": 14,
+					"file": "beam/src/render/mod.rs",
+					"semi_transient": false,
+					"settings":
+					{
+						"buffer_size": 19091,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								0,
+								0
+							]
+						],
+						"settings":
+						{
+							"editorconfig": true,
+							"ensure_newline_at_eof_on_save": true,
+							"syntax": "Packages/Rust Enhanced/RustEnhanced.sublime-syntax",
+							"tab_size": 4,
+							"translate_tabs_to_spaces": true,
+							"trim_trailing_white_space_on_save": true
+						},
+						"translation.x": 0.0,
+						"translation.y": 4985.0,
+						"zoom_level": 1.0
+					},
+					"stack_index": 15,
+					"type": "text"
+				},
+				{
+					"buffer": 15,
+					"file": "beam/src/assets.rs",
+					"semi_transient": false,
+					"settings":
+					{
+						"buffer_size": 14514,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								0,
+								0
+							]
+						],
+						"settings":
+						{
+							"editorconfig": true,
+							"ensure_newline_at_eof_on_save": true,
+							"history_list_is_closing": true,
+							"syntax": "Packages/Rust Enhanced/RustEnhanced.sublime-syntax",
+							"tab_size": 4,
+							"translate_tabs_to_spaces": true,
+							"trim_trailing_white_space_on_save": true
+						},
+						"translation.x": 0.0,
+						"translation.y": 312.0,
+						"zoom_level": 1.0
+					},
+					"stack_index": 13,
+					"type": "text"
+				}
+			]
+		}
+	],
+	"incremental_find":
+	{
+		"height": 26.0
+	},
+	"input":
+	{
+		"height": 50.0
+	},
+	"layout":
+	{
+		"cells":
+		[
+			[
+				0,
+				0,
+				1,
+				1
+			],
+			[
+				1,
+				0,
+				2,
+				1
+			]
+		],
+		"cols":
+		[
+			0.0,
+			0.5,
+			1.0
+		],
+		"rows":
+		[
+			0.0,
+			1.0
+		]
+	},
+	"menu_visible": true,
+	"output.diagnostics":
+	{
+		"height": 194.0
+	},
+	"output.find_results":
+	{
+		"height": 0.0
+	},
+	"output.mdpopups":
+	{
+		"height": 0.0
+	},
+	"output.references":
+	{
+		"height": 114.0
+	},
+	"pinned_build_system": "",
+	"project": "beam.sublime-project",
+	"replace":
+	{
+		"height": 48.0
+	},
+	"save_all_on_build": true,
+	"select_file":
+	{
+		"height": 0.0,
+		"last_filter": "",
+		"selected_items":
+		[
+			[
+				"shader",
+				"beam/shaders/shader_pbr.frag"
+			],
+			[
+				"buff",
+				"mg/src/buffers.rs"
+			],
+			[
+				"buffer",
+				"mg/src/buffers.rs"
+			],
+			[
+				"sha",
+				"beam/shaders/shader_pbr.frag"
+			],
+			[
+				"point",
+				"beam/shaders/point_shadow.vert"
+			],
+			[
+				"shadow",
+				"beam/shaders/shadow.vert"
+			],
+			[
+				"pipe",
+				"beam/src/pipeline.rs"
+			],
+			[
+				"lib",
+				"mg/src/lib.rs"
+			],
+			[
+				"cargo",
+				"mg/Cargo.toml"
+			],
+			[
+				"carg",
+				"beam/Cargo.toml"
+			],
+			[
+				"buffers",
+				"mg/src/buffers.rs"
+			],
+			[
+				"shaders",
+				"mg/src/shaders.rs"
+			],
+			[
+				"mate",
+				"beam/src/render/materials.rs"
+			],
+			[
+				"shader_",
+				"beam/shaders/shader_pbr.frag"
+			],
+			[
+				"ass",
+				"beam/src/assets.rs"
+			],
+			[
+				"store",
+				"beam/src/render/store.rs"
+			],
+			[
+				"car",
+				"beam/Cargo.toml"
+			],
+			[
+				"main",
+				"beam/src/main.rs"
+			],
+			[
+				"v",
+				"mg/src/vertexarrays.rs"
+			],
+			[
+				"mes",
+				"beam/src/render/mesh.rs"
+			],
+			[
+				"mod",
+				"beam/src/render/mod.rs"
+			],
+			[
+				"log",
+				"beam/src/logic/mod.rs"
+			],
+			[
+				"",
+				"beam/shaders/shader_pbr.frag"
+			],
+			[
+				"hot",
+				"beam/src/hot.rs"
+			],
+			[
+				"mord",
+				"beam/src/render/mod.rs"
+			],
+			[
+				"ma",
+				"beam/src/main.rs"
+			],
+			[
+				"ipe",
+				"beam/src/pipeline.rs"
+			],
+			[
+				"ip",
+				"beam/src/pipeline.rs"
+			],
+			[
+				"pip",
+				"beam/src/pipeline.rs"
+			],
+			[
+				"render",
+				"beam/src/render/mod.rs"
+			],
+			[
+				"ligh",
+				"beam/shaders/lighting_pbr.frag"
+			],
+			[
+				"rende",
+				"beam/src/render/mod.rs"
+			],
+			[
+				"rede",
+				"beam/src/render/mod.rs"
+			],
+			[
+				"pi",
+				"beam/src/pipeline.rs"
+			],
+			[
+				"logi",
+				"beam/src/logic/mod.rs"
+			],
+			[
+				"ren",
+				"beam/src/render/mod.rs"
+			],
+			[
+				"me",
+				"beam/src/render/mesh.rs"
+			],
+			[
+				"ver",
+				"mg/src/vertexarrays.rs"
+			],
+			[
+				"fa",
+				"mg/src/framebuffers.rs"
+			],
+			[
+				"mehs",
+				"beam/src/render/mesh.rs"
+			],
+			[
+				"misc",
+				"beam/src/misc.rs"
+			],
+			[
+				"ve",
+				"mg/src/vertexarrays.rs"
+			],
+			[
+				"bu",
+				"mg/src/buffers.rs"
+			],
+			[
+				"tex",
+				"mg/src/textures.rs"
+			],
+			[
+				"light",
+				"beam/shaders/lighting_pbr.frag"
+			],
+			[
+				"bake",
+				"beam/shaders/bake_material.frag"
+			],
+			[
+				"shader_P",
+				"beam/shaders/shader_pbr.frag"
+			],
+			[
+				"ba",
+				"beam/shaders/bake_material.frag"
+			],
+			[
+				"shad_p",
+				"beam/shaders/shader_pbr.frag"
+			],
+			[
+				"shader_p",
+				"beam/shaders/shader_pbr.frag"
+			],
+			[
+				"shad",
+				"beam/shaders/shader.frag"
+			],
+			[
+				"rend",
+				"beam/src/render/mod.rs"
+			],
+			[
+				"li",
+				"beam/shaders/lighting_pbr.frag"
+			],
+			[
+				"logic",
+				"beam/src/logic/mod.rs"
+			],
+			[
+				"lig",
+				"beam/shaders/lighting_pbr.frag"
+			],
+			[
+				"dire",
+				"beam/shaders/directional_lighting.frag"
+			],
+			[
+				"lights",
+				"beam/src/render/lights.rs"
+			],
+			[
+				"sk",
+				"beam/shaders/skybox.frag"
+			],
+			[
+				"pref",
+				"beam/shaders/prefilter_cubemap.frag"
+			],
+			[
+				"sky",
+				"beam/shaders/skybox.frag"
+			],
+			[
+				"brd",
+				"beam/shaders/brdf.frag"
+			],
+			[
+				"hdr",
+				"beam/shaders/hdr.frag"
+			],
+			[
+				"pre",
+				"beam/shaders/prefilter_cubemap.frag"
+			],
+			[
+				"lo",
+				"beam/src/logic/mod.rs"
+			],
+			[
+				"pbr",
+				"beam/shaders/lighting_pbr.frag"
+			],
+			[
+				"con",
+				"beam/shaders/convolute_cubemap.frag"
+			],
+			[
+				"prefiler",
+				"beam/shaders/prefilter_cubemap.frag"
+			],
+			[
+				"lightin",
+				"beam/shaders/lighting_pbr.frag"
+			],
+			[
+				"pr",
+				"beam/src/render/primitives.rs"
+			],
+			[
+				"primi",
+				"beam/src/render/primitives.rs"
+			],
+			[
+				"mesh",
+				"beam/src/render/mesh.rs"
+			],
+			[
+				"pipel",
+				"beam/src/pipeline.rs"
+			],
+			[
+				"mis",
+				"beam/src/misc.rs"
+			],
+			[
+				"pie",
+				"beam/src/pipeline.rs"
+			],
+			[
+				"pri",
+				"beam/src/render/primitives.rs"
+			],
+			[
+				"primit",
+				"beam/src/render/primitives.rs"
+			],
+			[
+				"red",
+				"beam/src/render.rs"
+			],
+			[
+				"sahder.vert",
+				"beam/shaders/shader.vert"
+			],
+			[
+				"verta",
+				"mg/src/vertexarrays.rs"
+			],
+			[
+				"text",
+				"mg/src/textures.rs"
+			],
+			[
+				"main.r",
+				"beam/src/main.rs"
+			],
+			[
+				"lightr_",
+				"beam/shaders/lighting_pbr.frag"
+			],
+			[
+				"shaderpb",
+				"beam/shaders/shader_pbr.frag"
+			],
+			[
+				"sahder",
+				"beam/shaders/shader.vert"
+			],
+			[
+				"suza",
+				"~/projects/oeb25/graphics/beam/beam/assets/suzanne/suzanne.dae"
+			],
+			[
+				"su",
+				"~/projects/oeb25/graphics/beam/beam/assets/suzanne/suzanne.dae"
+			],
+			[
+				"raw",
+				"collada/src/raw.rs"
+			],
+			[
+				"suzza",
+				"~/projects/oeb25/graphics/beam/beam/assets/suzanne/suzanne.dae"
+			],
+			[
+				"suz",
+				"collada/suzanne.dae"
+			],
+			[
+				"pipeli",
+				"beam/src/pipeline.rs"
+			],
+			[
+				"light_",
+				"beam/shaders/lighting_pbr.frag"
+			],
+			[
+				"hd",
+				"beam/shaders/hdr.frag"
+			],
+			[
+				"plib",
+				"beam/shaders/prefilter_cubemap.frag"
+			],
+			[
+				"lighting",
+				"beam/shaders/lighting_pbr.frag"
+			],
+			[
+				"collada",
+				"collada/Cargo.toml"
+			],
+			[
+				"skybox",
+				"beam/shaders/skybox.frag"
+			],
+			[
+				".git",
+				"beam/.gitignore"
+			],
+			[
+				"frame",
+				"mg/src/framebuffers.rs"
+			],
+			[
+				"shader_pb",
+				"beam/shaders/shader_pbr.frag"
+			],
+			[
+				"shade",
+				"beam/shaders/shader_pbr.frag"
+			],
+			[
+				"shader.",
+				"beam/shaders/shader.vert"
+			],
+			[
+				"makef",
+				"beam/Makefile"
+			],
+			[
+				"todo",
+				"beam/todo.md"
+			],
+			[
+				"_pbr",
+				"beam/shaders/lighting_pbr.frag"
+			],
+			[
+				"scree",
+				"beam/shaders/screen.frag"
+			],
+			[
+				"prefi",
+				"beam/shaders/prefilter_cubemap.frag"
+			],
+			[
+				"conv",
+				"beam/shaders/convolute_cubemap.frag"
+			],
+			[
+				"convov",
+				"beam/target/doc/libc/constant.VM_FLAGS_OVERWRITE.html"
+			],
+			[
+				"prefil",
+				"beam/shaders/prefilter_cubemap.frag"
+			],
+			[
+				"skybo",
+				"beam/shaders/skybox.frag"
+			],
+			[
+				"s",
+				"beam/shaders/skybox.frag"
+			],
+			[
+				"eq",
+				"beam/shaders/equirectangular.frag"
+			],
+			[
+				"cube.",
+				"beam/shaders/cube.geom"
+			],
+			[
+				"cube",
+				"beam/shaders/cube.geom"
+			],
+			[
+				"e",
+				"beam/shaders/equirectangular.frag"
+			],
+			[
+				"eq.fra",
+				"beam/shaders/equirectangular.frag"
+			],
+			[
+				"skybox.vert",
+				"beam/shaders/skybox.vert"
+			],
+			[
+				"cube.geom",
+				"beam/shaders/cube.geom"
+			],
+			[
+				"equ",
+				"beam/shaders/equirectangular.frag"
+			],
+			[
+				"cubegeom",
+				"beam/shaders/cube.geom"
+			],
+			[
+				"rec",
+				"beam/shaders/rect.geom"
+			],
+			[
+				"shader.fra",
+				"beam/shaders/shader.frag"
+			],
+			[
+				"shader.vert",
+				"beam/shaders/shader.vert"
+			],
+			[
+				"texture",
+				"mg/src/textures.rs"
+			],
+			[
+				"f",
+				"mg/src/framebuffers.rs"
+			],
+			[
+				"direc",
+				"beam/shaders/directional_lighting.frag"
+			],
+			[
+				"render.rs",
+				"beam/src/render.rs"
+			],
+			[
+				"light_p",
+				"beam/shaders/lighting_pbr.frag"
+			]
+		],
+		"width": 0.0
+	},
+	"select_project":
+	{
+		"height": 0.0,
+		"last_filter": "",
+		"selected_items":
+		[
+		],
+		"width": 0.0
+	},
+	"select_symbol":
+	{
+		"height": 119.0,
+		"last_filter": "",
+		"selected_items":
+		[
+			[
+				"",
+				"main"
+			]
+		],
+		"width": 392.0
+	},
+	"selected_group": 1,
+	"settings":
+	{
+	},
+	"show_minimap": false,
+	"show_open_files": false,
+	"show_tabs": true,
+	"side_bar_visible": true,
+	"side_bar_width": 280.0,
+	"status_bar_visible": true,
+	"template_settings":
+	{
+	}
+}

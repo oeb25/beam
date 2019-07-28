@@ -1,16 +1,18 @@
+use crate::misc::{v3, v4, Cacher, Mat4, Vertex, V3};
+use crate::pipeline::Pipeline;
+use crate::render::{
+    create_irradiance_map, create_prefiler_map, cubemap_from_equirectangular,
+    mesh::calculate_tangent_and_bitangent,
+    mesh::Mesh,
+    store::{MeshRef, MeshStore, TextureRef},
+    Ibl, Material, MaterialProp, RenderObject, RenderObjectChild, RenderTarget,
+};
 use collada;
 use failure::{Error, ResultExt};
 use gl;
 use mg::{
     DrawMode, FramebufferBinderDrawer, FramebufferBinderReadDraw, Mask, Program, ProgramBind,
     ProgramBinding, ProgramPin, TextureSlot, VertexArray, VertexArrayPin, VertexBuffer,
-};
-use misc::{v3, v4, Cacher, Mat4, V3, Vertex};
-use pipeline::Pipeline;
-use render::{
-    create_irradiance_map, create_prefiler_map, cubemap_from_equirectangular,
-    mesh::calculate_tangent_and_bitangent, mesh::Mesh, store::{MeshRef, MeshStore, TextureRef},
-    Ibl, Material, MaterialProp, RenderObject, RenderObjectChild, RenderTarget,
 };
 use std;
 use std::{cell::RefCell, collections::HashMap, fs, path::Path};
@@ -43,7 +45,8 @@ impl AssetBuilderPrograms {
                         None => None,
                     },
                     &frag,
-                ).expect(&format!("failed to compile {:?}", (vert, geom, frag)))
+                )
+                .expect(&format!("failed to compile {:?}", (vert, geom, frag)))
             }};
             ($vert:expr, $geom:expr, $frag:expr,) => {
                 shader!($vert, $geom, $frag)
@@ -179,19 +182,19 @@ impl<'a> AssetBuilder<'a> {
         let mut render_objects = vec![];
         for node in &data.visual_scenes[0].nodes {
             use cgmath::Matrix;
-            let mut transform = node.transformations.iter().fold(
-                Mat4::from_scale(1.0),
-                |acc, t| {
-                    let t: Mat4 = match t {
-                        collada::Transform::Matrix(a) => unsafe {
-                            std::mem::transmute::<[f32; 16], [[f32; 4]; 4]>(*a).into()
-                        },
-                        _ => unimplemented!(),
-                    };
+            let mut transform =
+                node.transformations
+                    .iter()
+                    .fold(Mat4::from_scale(1.0), |acc, t| {
+                        let t: Mat4 = match t {
+                            collada::Transform::Matrix(a) => unsafe {
+                                std::mem::transmute::<[f32; 16], [[f32; 4]; 4]>(*a).into()
+                            },
+                            _ => unimplemented!(),
+                        };
 
-                    t * acc
-                },
-            );
+                        t * acc
+                    });
             transform.swap_rows(1, 2);
             transform = transform.transpose();
             transform.swap_rows(1, 2);

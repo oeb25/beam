@@ -1,7 +1,7 @@
 use gl;
 use std::{ffi, fs, mem, path::Path, ptr};
 
-use textures::{Texture, TextureSlot};
+use crate::textures::{Texture, TextureSlot};
 
 #[derive(Debug, Clone, Copy)]
 pub enum ShaderKind {

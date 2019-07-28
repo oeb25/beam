@@ -9,17 +9,18 @@ use mg::{
     VertexArrayPin, VertexBuffer,
 };
 
-use hot;
+use crate::hot;
 use warmy;
 
-use misc::{v3, v4, Cacher, Mat4, V3, V4};
+use crate::misc::{v3, v4, Cacher, Mat4, V3, V4};
 
-use render::{
+use crate::render::{
     create_irradiance_map, create_prefiler_map, cubemap_from_equirectangular,
     dsl::{DrawCall, FramebufferCall, GlCall, Mat4g, ProgramCall, ProgramLike, UniformValue},
-    lights::{DirectionalLight, PointLight, PointShadowMap, ShadowMap, SpotLight}, mesh::Mesh,
-    store::{MeshRef, MeshStore}, Camera, GRenderPass, Ibl, Material, RenderObject,
-    RenderObjectChild, RenderTarget, Renderable,
+    lights::{DirectionalLight, PointLight, PointShadowMap, ShadowMap, SpotLight},
+    mesh::Mesh,
+    store::{MeshRef, MeshStore},
+    Camera, GRenderPass, Ibl, Material, RenderObject, RenderObjectChild, RenderTarget, Renderable,
 };
 
 pub struct RenderProps<'a> {

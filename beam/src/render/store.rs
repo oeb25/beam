@@ -1,9 +1,9 @@
+use crate::mesh::Mesh;
+use crate::render::primitives;
 use failure::{Error, ResultExt};
 use gl;
 use image;
-use mesh::Mesh;
 use mg::*;
-use render::primitives;
 use std::{collections::HashMap, path::Path};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

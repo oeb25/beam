@@ -1,9 +1,9 @@
+use crate::misc::{Cacher, Mat4, V3};
 use gl;
 use mg::{
     BufferKind, DrawMode, Framebuffer, FramebufferTarget, GlError, GlType, Mask, Program, Texture,
     TextureSlot, VertexArray, VertexBuffer,
 };
-use misc::{Cacher, Mat4, V3};
 use std::{self, borrow::Cow};
 use time::PreciseTime;
 
@@ -622,6 +622,7 @@ where
             .1
             .to(timings[timings.len() - 1].1)
             .num_nanoseconds()
-            .unwrap() as f32 * 0.000001
+            .unwrap() as f32
+            * 0.000001
     );
 }

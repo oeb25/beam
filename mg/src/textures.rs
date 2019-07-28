@@ -2,7 +2,7 @@ use gl;
 use image;
 use std::{mem, os::raw::c_void, ptr};
 
-use types::GlType;
+use crate::types::GlType;
 
 #[allow(unused)]
 #[derive(Debug, Clone, Copy)]

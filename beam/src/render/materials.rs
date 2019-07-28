@@ -1,8 +1,9 @@
-use mg::{GlError, ProgramBind, Texture, UniformBuffer};
-use misc::{v3, V3};
-use render::{
-    dsl::UniformValue, store::{MeshStore, TextureRef},
+use crate::misc::{v3, V3};
+use crate::render::{
+    dsl::UniformValue,
+    store::{MeshStore, TextureRef},
 };
+use mg::{GlError, ProgramBind, Texture, UniformBuffer};
 use std::borrow::Cow;
 
 #[derive(Debug, Copy, Clone, PartialEq)]

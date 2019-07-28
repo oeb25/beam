@@ -2,7 +2,7 @@ use gl;
 
 use std::mem;
 
-use textures::{Texture, TextureInternalFormat, TextureTarget};
+use crate::textures::{Texture, TextureInternalFormat, TextureTarget};
 
 #[allow(unused)]
 #[derive(Debug, Clone, Copy)]

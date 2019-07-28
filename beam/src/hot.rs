@@ -35,7 +35,7 @@ impl<C> warmy::Load<C> for FromFS {
         let src: Result<_, std::io::Error> = std::fs::read_to_string(path)?
             .lines()
             .map(|x| {
-                let y = x.trim_left();
+                let y = x.trim_start();
                 let res = if y.starts_with("#include") {
                     let offset = "#include \"".len();
                     let end = y.len() - 1;

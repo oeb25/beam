@@ -1,3 +1,5 @@
+use crate::misc::{v3, Mat4, P3, V3};
+use crate::render::dsl::UniformValue;
 use cgmath::{self, Rad};
 use gl;
 use mg::{
@@ -5,8 +7,6 @@ use mg::{
     FramebufferBinderReadDraw, GlError, GlType, ProgramBind, ProgramBinding, Texture,
     TextureFormat, TextureInternalFormat, TextureKind, TextureParameter, TextureTarget,
 };
-use misc::{v3, Mat4, P3, V3};
-use render::dsl::UniformValue;
 use std::{borrow::Cow, f32::consts::PI};
 
 #[repr(C)]
@@ -28,7 +28,8 @@ impl DirectionalLight {
             top: size,
             near: 0.01,
             far: 300.0,
-        }.into();
+        }
+        .into();
         let origo = P3::new(0.0, 0.0, 0.0);
         let o = origo + camera_pos + self.direction * 25.0;
         let view = Mat4::look_at(o, o - self.direction, v3(0.0, 1.0, 0.0));
@@ -129,7 +130,8 @@ impl PointLight {
             aspect: (shadow_map.width as f32) / (shadow_map.height as f32),
             near: shadow_map.near,
             far: shadow_map.far,
-        }.into();
+        }
+        .into();
 
         let origo = P3::new(0.0, 0.0, 0.0);
         let lp = origo + self.last_shadow_map_position;

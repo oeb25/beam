@@ -2,8 +2,9 @@
 name = "mg"
 version = "0.1.0"
 authors = ["Oliver Bøving <oliverboving@gmail.com>"]
+edition = "2018"
 
 [dependencies]
-gl = "0.10"
+gl = "0.13"
 image = "0.19"
 glsl-layout = "0.1"

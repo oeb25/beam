@@ -1,3 +1,6 @@
+use serde::de::{self, Deserializer, SeqAccess, Visitor};
+use serde::Deserialize;
+
 use std;
 
 #[derive(Debug, Deserialize)]
@@ -142,7 +145,6 @@ pub(crate) struct FloatArray {
     pub data: Vec<f32>,
 }
 
-use serde::de::{self, Deserialize, Deserializer, SeqAccess, Visitor};
 /// Deserialize the maximum of a sequence of values. The entire sequence
 /// is not buffered into memory as it would be if we deserialize to Vec<T>
 /// and then compute the maximum later.

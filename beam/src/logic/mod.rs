@@ -1,6 +1,6 @@
+use crate::misc::{v3, Mat4};
+use crate::render;
 use cgmath::Rad;
-use misc::{v3, Mat4};
-use render;
 use std::f32::consts::PI;
 use std::ops;
 
@@ -327,8 +327,7 @@ impl Game {
     }
     pub fn tiles_mut(&mut self) -> impl Iterator<Item = ((usize, usize), &mut Tile)> {
         self.map.0.iter_mut().enumerate().flat_map(|(x, c)| {
-            c.0
-                .iter_mut()
+            c.0.iter_mut()
                 .enumerate()
                 .map(move |(y, tile)| ((x, y), tile))
         })

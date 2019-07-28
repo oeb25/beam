@@ -1,11 +1,4 @@
-#![feature(nll, attr_literals, transpose_result)]
-
-#[macro_use]
-extern crate failure;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-extern crate serde_xml_rs;
+#![feature(custom_attribute)]
 
 mod raw;
 

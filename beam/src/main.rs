@@ -1,20 +1,7 @@
-#![feature(fs_read_write, stmt_expr_attributes, transpose_result, box_syntax, box_patterns)]
-#![feature(custom_attribute, nll, iterator_flatten, concat_idents)]
+#![feature(stmt_expr_attributes)]
 #![allow(unused_imports)]
 #[macro_use]
-extern crate failure;
-#[macro_use]
 extern crate lazy_static;
-#[macro_use]
-extern crate glsl_layout;
-extern crate cgmath;
-extern crate collada;
-extern crate gl;
-extern crate glutin;
-extern crate image;
-extern crate mg;
-extern crate time;
-extern crate warmy;
 
 use std::collections::VecDeque;
 
@@ -22,7 +9,7 @@ use failure::Error;
 
 use cgmath::{InnerSpace, Rad};
 
-use glutin::GlContext;
+use glutin::Context;
 
 use time::{Duration, PreciseTime};
 
@@ -169,33 +156,41 @@ impl Scene {
 fn main() -> Result<(), Error> {
     let (screen_width, screen_height) = (1024, 768);
     let mut events_loop = glutin::EventsLoop::new();
-    let window = glutin::WindowBuilder::new()
-        .with_title("Hello, world!")
-        .with_dimensions(screen_width, screen_height);
-    let context = glutin::ContextBuilder::new()
-        .with_vsync(false)
-        .with_gl_profile(glutin::GlProfile::Core)
-        .with_srgb(true);
-    let gl_window = glutin::GlWindow::new(window, context, &events_loop).unwrap();
-    gl_window
-        .window()
-        .set_cursor_state(glutin::CursorState::Grab)
+    let wb = glutin::WindowBuilder::new().with_title("Hello, world!");
+    // .with_dimensions(screen_width, screen_height);
+    // let context = glutin::ContextBuilder::new()
+    //     .with_vsync(false)
+    //     .with_gl_profile(glutin::GlProfile::Core)
+    //     .with_srgb(true);
+    let windowed_context = glutin::ContextBuilder::new()
+        .build_windowed(wb, &events_loop)
         .unwrap();
+    let windowed_context = unsafe { windowed_context.make_current().unwrap() };
+    // let gl_window = glutin::GlWindow::new(wb, context, &events_loop).unwrap();
+    // gl_window.window();
+    // .set_cursor_state(glutin::CursorState::Grab)
+    // .unwrap();
 
-    let hidpi_factor = gl_window.window().hidpi_factor();
+    // let hidpi_factor = gl_window.window().get_hidpi_factor();
+    let hidpi_factor = 2.0;
 
-    unsafe {
-        gl_window.make_current().unwrap();
-    }
+    // unsafe {
+    //     gl_window.make_current().unwrap();
+    // }
 
-    gl::load_with(|symbol| gl_window.get_proc_address(symbol) as *const _);
+    gl::load_with(|symbol| windowed_context.context().get_proc_address(symbol) as *const _);
+    // let gl = gl::Gl::load_with(|ptr| windowed_context.context().get_proc_address(ptr) as *const _);
 
     let mut ppin = unsafe { mg::Program::get_pin() };
     let mut vpin = unsafe { mg::VertexArray::get_pin() };
 
     let mut t: f32 = 0.0;
 
-    let (w, h) = gl_window.get_inner_size().unwrap();
+    let glutin::dpi::LogicalSize {
+        width: w,
+        height: h,
+    } = windowed_context.window().get_inner_size().unwrap();
+    let (w, h) = (w as u32, h as u32);
 
     let mut scene = Scene::new(w, h);
 
@@ -271,7 +266,7 @@ fn main() -> Result<(), Error> {
 
     let mut update_shadows = false;
 
-    let mut pipeline = assets.to_pipeline(w, h, hidpi_factor);
+    let mut pipeline = assets.to_pipeline(w, h, hidpi_factor as f32);
 
     while running {
         let mut timings = vec![];
@@ -295,7 +290,7 @@ fn main() -> Result<(), Error> {
             let delta = fps_last_time.to(now);
             if delta > fps_step {
                 fps_last_time = now;
-                gl_window.set_title(&format!("FPS: {}", fps_number_of_frames));
+                // gl_window.set_title(&format!("FPS: {}", fps_number_of_frames));
                 fps_number_of_frames = 0;
             }
         }
@@ -306,10 +301,12 @@ fn main() -> Result<(), Error> {
         events_loop.poll_events(|event| match event {
             glutin::Event::WindowEvent { event, .. } => match event {
                 glutin::WindowEvent::CloseRequested => running = false,
-                glutin::WindowEvent::Resized(w, h) => {
+                glutin::WindowEvent::Resized(size) => {
+                    let glutin::dpi::LogicalSize { width, height } = size;
+                    let (w, h) = (width as u32, height as u32);
                     scene.resize(w, h);
-                    gl_window.resize(w, h);
-                    pipeline.resize(w, h);
+                    // gl_window.resize(size.into());
+                    pipeline.resize(w * 2, h * 2);
                 }
                 glutin::WindowEvent::KeyboardInput { input, .. } => {
                     if let Some(keycode) = input.virtual_keycode {
@@ -498,7 +495,7 @@ fn main() -> Result<(), Error> {
 
         marker!("swap buffers");
 
-        gl_window.swap_buffers().unwrap();
+        windowed_context.swap_buffers().unwrap();
 
         marker!("end");
 
@@ -520,7 +517,8 @@ fn main() -> Result<(), Error> {
                 .1
                 .to(timings[timings.len() - 1].1)
                 .num_nanoseconds()
-                .unwrap() as f32 * 0.000001
+                .unwrap() as f32
+                * 0.000001
         );
     }
 

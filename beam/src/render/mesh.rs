@@ -1,11 +1,11 @@
 use std::mem;
 
+use crate::misc::{Mat4, Vertex, V3};
+use crate::render::dsl::DrawCall;
 use mg::{
     DrawMode, FramebufferBinderDrawer, ProgramBind, VertexArray, VertexArrayBinder, VertexArrayPin,
     VertexBuffer, VertexBufferBinder,
 };
-use misc::{Mat4, V3, Vertex};
-use render::dsl::DrawCall;
 
 macro_rules! offset_of {
     ($ty:ty, $field:ident) => {
