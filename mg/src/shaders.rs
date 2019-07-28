@@ -110,10 +110,17 @@ impl GeometryShader {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct UniformLocation(gl::types::GLint);
 impl UniformLocation {
     fn new(loc: gl::types::GLint) -> UniformLocation {
         UniformLocation(loc)
+    }
+}
+
+impl Into<gl::types::GLint> for UniformLocation {
+    fn into(self) -> gl::types::GLint {
+        self.0
     }
 }
 
@@ -236,6 +243,17 @@ impl Program {
         })?; //.expect("unable to create fragment shader");
 
         Program::new(&vs, gs.as_ref(), &fs)
+    }
+    pub fn get_uniform_location(&self, name: &str) -> UniformLocation {
+        let loc = unsafe {
+            gl::GetUniformLocation(
+                self.id,
+                ffi::CString::new(&*name)
+                    .expect("unable to create a CString from passed str")
+                    .as_ptr(),
+            )
+        };
+        UniformLocation(loc)
     }
     pub fn bind<'a>(&'a self, pin: &'a mut ProgramPin) -> ProgramBinding<'a> {
         ProgramBinding::new(self, pin)

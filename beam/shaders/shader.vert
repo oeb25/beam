@@ -16,6 +16,7 @@ uniform mat4 view;
 uniform mat4 projection;
 
 void main() {
+#if 1
     vs_out.OriginalPos = aPos;
     vec4 pos = aModel * vec4(aPos, 1.0);
     vs_out.FragPos = vec3(pos);
@@ -33,4 +34,20 @@ void main() {
     vs_out.TBN = mat3(T, B, N);;
 
     gl_Position = projection * view * pos;
+#else
+    vs_out.OriginalPos = aPos;
+    vec4 pos = vec4(aPos, 1.0);
+    vs_out.FragPos = vec3(pos);
+    vs_out.Normal = aNormal;
+    vs_out.TexCoords = aTexCoords;
+
+    vec3 T = aTangent;
+    vec3 N = aNormal;
+
+    vec3 B = T;
+
+    vs_out.TBN = mat3(T, B, N);;
+
+    gl_Position = pos;
+#endif
 }

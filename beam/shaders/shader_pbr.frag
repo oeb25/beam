@@ -38,6 +38,7 @@ uniform sampler2D tex_opacity;
 uniform vec3 viewPos;
 
 void main() {
+#if 1
     #define tex(fn, name) (use_mat_##name ? mat_##name : fn(texture(tex_##name, fs_in.TexCoords)))
     // #define tex(fn, name) (mat_##name)
 
@@ -64,4 +65,5 @@ void main() {
     aAlbedo.rgb = albedo;
     aEmission.rgb = emission;
     aMrao.rgba = mrao;
+#endif
 }

@@ -5,8 +5,8 @@ use failure::Error;
 
 use mg::{
     DrawMode, Framebuffer, FramebufferBinderDrawer, FramebufferBinderReadDraw, GlError, Mask,
-    Program, ProgramBind, ProgramBindingRef, ProgramPin, Texture, TextureSlot, VertexArray,
-    VertexArrayPin, VertexBuffer,
+    Program, ProgramBind, ProgramBindingRef, ProgramPin, Texture, TextureSlot, UniformLocation,
+    VertexArray, VertexArrayPin, VertexBuffer,
 };
 
 use crate::hot;
@@ -64,6 +64,9 @@ impl std::fmt::Debug for HotShader {
 impl ProgramLike for HotShader {
     fn id(&self) -> u32 {
         self.0.borrow().program.id
+    }
+    fn get_uniform_location(&self, name: &str) -> UniformLocation {
+        self.0.borrow().program.get_uniform_location(name)
     }
 }
 
